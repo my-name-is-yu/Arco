@@ -1,0 +1,13 @@
+{
+  "name": "arco-inline-probe",
+  "version": "0.0.2",
+  "private": true,
+  "type": "module",
+  "description": "A local, dependency-free MCP Apps inline rendering probe.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.mjs",
+    "smoke": "node smoke-test.mjs",
+    "test": "node smoke-test.mjs"
+  }
+}

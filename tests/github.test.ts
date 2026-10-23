@@ -1,0 +1,689 @@
+import { describe, expect, it, vi } from "vitest";
+import { createFixtureService, FIXTURE_REPO } from "../src/server/fixture.js";
+import {
+  createGitHubService,
+  createWriteGuard,
+  GitHubError,
+  runBulk,
+  type GhRunner,
+} from "../src/server/github.js";
+
+const ref = { repo: FIXTURE_REPO, number: 42 };
+const apiIssue = (overrides: Record<string, unknown> = {}) => ({
+  node_id: "I_42",
+  number: 42,
+  title: "Original",
+  state: "open",
+  updated_at: "2026-10-22T01:00:00Z",
+  html_url: `https://github.com/${FIXTURE_REPO}/issues/42`,
+  user: { login: "test-user" },
+  body: "Original body",
+  state_reason: null,
+  labels: [{ id: 1, name: "keep", color: "eeeeee" }],
+  assignees: [],
+  repository_url: `https://api.github.com/repos/${FIXTURE_REPO}`,
+  ...overrides,
+});
+const projects = {
+  data: {
+    repository: {
+      issue: {
+        projectItems: {
+          pageInfo: { hasNextPage: false },
+          nodes: [
+            {
+              id: "item-42",
+              project: {
+                id: "project-A",
+                title: "Delivery",
+                fields: {
+                  pageInfo: { hasNextPage: false },
+                  nodes: [
+                    {
+                      id: "field-A",
+                      name: "Status",
+                      options: [
+                        { id: "todo", name: "Todo" },
+                        { id: "done", name: "Done" },
+                      ],
+                    },
+                  ],
+                },
+              },
+              fieldValues: {
+                pageInfo: { hasNextPage: false },
+                nodes: [{ optionId: "todo", field: { id: "field-A" } }],
+              },
+            },
+          ],
+        },
+      },
+    },
+  },
+};
+
+function stubRun(
+  overrides: {
+    write?: GhRunner;
+    projects?: unknown;
+    search?: unknown;
+    issue?: unknown;
+  } = {},
+) {
+  return vi.fn<GhRunner>(async (args, input) => {
+    const endpoint = args[3];
+    const method = args[args.indexOf("--method") + 1];
+    if (endpoint === "graphql") {
+      if (input?.includes("mutation ArcoProjectStatus"))
+        return (
+          overrides.write?.(args, input) ?? {
+            data: {
+              updateProjectV2ItemFieldValue: {
+                projectV2Item: { id: "item-42" },
+              },
+            },
+          }
+        );
+      if (overrides.projects instanceof Error) throw overrides.projects;
+      return overrides.projects ?? projects;
+    }
+    if (method !== "GET") return overrides.write?.(args, input) ?? apiIssue();
+    if (endpoint === "user") return { login: "test-user" };
+    if (endpoint?.startsWith("search/issues"))
+      return (
+        overrides.search ?? {
+          total_count: 1,
+          incomplete_results: false,
+          items: [apiIssue()],
+        }
+      );
+    if (endpoint?.includes("/issues/42/comments")) return [[]];
+    if (endpoint?.includes("/labels?"))
+      return [
+        [
+          { id: 1, name: "keep", color: "eeeeee" },
+          { id: 2, name: "needs/review", color: "ffffff" },
+        ],
+      ];
+    if (endpoint?.includes("/assignees?")) return [[{ login: "test-user" }]];
+    if (endpoint?.endsWith("/issues/42")) return overrides.issue ?? apiIssue();
+    throw new Error("Unhandled mock gh request");
+  });
+}
+
+describe("write safety across the service boundary", () => {
+  it("creates from an existing organization type atomically and verifies the source type ID", async () => {
+    const type = { id: 73, name: "Bug" };
+    const base = stubRun({
+      issue: apiIssue({ type }),
+      write: async () => apiIssue({ type }),
+    });
+    const run = vi.fn<GhRunner>(async (args, input) => {
+      if (args[3] === `repos/${FIXTURE_REPO}`)
+        return { owner: { login: "yu", type: "Organization" } };
+      if (args[3] === "orgs/yu/issue-types") return [type];
+      return base(args, input);
+    });
+    const service = createGitHubService({ run });
+    const input = {
+      repo: FIXTURE_REPO,
+      requestId: "template-type-once",
+      title: "[Bug] From template",
+      body: "Exact Markdown",
+      labels: ["keep"],
+      issueTypeName: "bug",
+    };
+    expect((await service.create(input)).issueType).toEqual(type);
+    await service.create(input);
+    const writes = run.mock.calls.filter(
+      ([args]) => args.includes("POST") && args[3] !== "graphql",
+    );
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(writes[0][1] ?? "{}")).toEqual({
+      title: input.title,
+      body: input.body,
+      labels: ["keep"],
+      type: "Bug",
+    });
+    expect(
+      run.mock.calls.some(
+        ([args]) => args[3] === "orgs/yu/issue-types" && args.includes("POST"),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects absent or user-repository template types before issue creation and reports silently dropped types", async () => {
+    for (const organization of [true, false]) {
+      const base = stubRun();
+      const run = vi.fn<GhRunner>(async (args, input) => {
+        if (args[3] === `repos/${FIXTURE_REPO}`)
+          return {
+            owner: {
+              login: "yu",
+              type: organization ? "Organization" : "User",
+            },
+          };
+        if (args[3] === "orgs/yu/issue-types")
+          return [{ id: 73, name: "Task" }];
+        return base(args, input);
+      });
+      await expect(
+        createGitHubService({ run }).create({
+          repo: FIXTURE_REPO,
+          requestId: "invalid-type-before-create",
+          title: "Template",
+          body: "Keep draft",
+          issueTypeName: "Bug",
+        }),
+      ).rejects.toMatchObject({ code: "invalid" });
+      expect(
+        run.mock.calls.some(
+          ([args]) => args.includes("POST") && args[3] !== "graphql",
+        ),
+      ).toBe(false);
+    }
+    const base = stubRun();
+    const run: GhRunner = async (args, input) => {
+      if (args[3] === `repos/${FIXTURE_REPO}`)
+        return { owner: { login: "yu", type: "Organization" } };
+      if (args[3] === "orgs/yu/issue-types") return [{ id: 73, name: "Bug" }];
+      return base(args, input);
+    };
+    await expect(
+      createGitHubService({ run }).create({
+        repo: FIXTURE_REPO,
+        requestId: "dropped-template-type",
+        title: "Template",
+        body: "Keep draft",
+        issueTypeName: "Bug",
+      }),
+    ).rejects.toMatchObject({ code: "not-applied" });
+  });
+
+  it("coalesces concurrent duplicate comments and rejects requestId reuse with a changed payload", async () => {
+    const run = stubRun();
+    const service = createGitHubService({ run });
+    const input = { ...ref, requestId: "comment-once", body: "One comment" };
+    await Promise.all([service.comment(input), service.comment(input)]);
+    expect(
+      run.mock.calls.filter(
+        ([args]) =>
+          args[args.indexOf("--method") + 1] === "POST" &&
+          args[3]?.endsWith("/comments"),
+      ),
+    ).toHaveLength(1);
+    await expect(
+      service.comment({ ...input, body: "Different comment" }),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("keeps user text only in JSON stdin and writes only explicitly selected fields", async () => {
+    const run = stubRun();
+    const service = createGitHubService({ run });
+    const body =
+      "@secret-file\n$(touch /tmp/never) `echo nope` --method DELETE";
+    await service.update({
+      ...ref,
+      requestId: "explicit-patch",
+      patch: { body },
+    });
+    const write = run.mock.calls.find(([args]) => args.includes("PATCH"));
+    expect(write?.[0]).toContain("--input");
+    expect(write?.[0]).not.toContain(body);
+    expect(JSON.parse(write?.[1] ?? "")).toEqual({ body });
+  });
+
+  it("does not write over a detected concurrent update", async () => {
+    const run = stubRun();
+    const service = createGitHubService({ run });
+    await expect(
+      service.update({
+        ...ref,
+        requestId: "stale-version",
+        expectedUpdatedAt: "older",
+        patch: { title: "Local draft" },
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(run.mock.calls.some(([args]) => args.includes("PATCH"))).toBe(false);
+  });
+
+  it("changes only explicit assignees and preserves all labels", async () => {
+    const run = stubRun({
+      issue: apiIssue({ assignees: [{ login: "test-user" }] }),
+    });
+    const saved = await createGitHubService({ run }).update({
+      ...ref,
+      requestId: "assign-explicit",
+      patch: { assignees: ["test-user"] },
+    });
+    const write = run.mock.calls.find(([args]) => args.includes("PATCH"));
+    expect(JSON.parse(write?.[1] ?? "")).toEqual({ assignees: ["test-user"] });
+    expect(saved.labels.map((label) => label.name)).toEqual(["keep"]);
+    const fixture = createFixtureService();
+    const original = await fixture.get(ref);
+    const assigned = await fixture.update({
+      ...ref,
+      requestId: "assign-fixture",
+      patch: { assignees: ["fixture-reviewer"] },
+    });
+    expect(assigned.assignees).toEqual(["fixture-reviewer"]);
+    expect(assigned.labels).toEqual(original.labels);
+    const cleared = await fixture.update({
+      ...ref,
+      requestId: "clear-fixture",
+      patch: { assignees: [] },
+    });
+    expect(cleared.assignees).toEqual([]);
+    expect(cleared.labels).toEqual(original.labels);
+  });
+
+  it("reports silently dropped assignee changes rather than displaying saved success", async () => {
+    await expect(
+      createGitHubService({ run: stubRun() }).update({
+        ...ref,
+        requestId: "assign-dropped",
+        patch: { assignees: ["test-user"] },
+      }),
+    ).rejects.toMatchObject({ code: "not-applied" });
+  });
+
+  it("never writes Issue operations against a pull request number", async () => {
+    const run = stubRun({
+      issue: apiIssue({
+        pull_request: { url: "https://api.github.com/pulls/42" },
+      }),
+    });
+    const service = createGitHubService({ run });
+    await expect(
+      service.update({
+        ...ref,
+        requestId: "reject-pr-edit",
+        patch: { title: "No" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid" });
+    await expect(
+      service.comment({ ...ref, requestId: "reject-pr-comment", body: "No" }),
+    ).rejects.toMatchObject({ code: "invalid" });
+    await expect(
+      service.labels({
+        ...ref,
+        requestId: "reject-pr-labels",
+        add: ["keep"],
+        remove: [],
+      }),
+    ).rejects.toMatchObject({ code: "invalid" });
+    expect(
+      run.mock.calls.some(
+        ([args]) =>
+          args.includes("PATCH") ||
+          args.includes("DELETE") ||
+          (args.includes("POST") && args[3] !== "graphql"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not replay a saved comment if the following detail refresh fails", async () => {
+    const base = stubRun();
+    let saved = false;
+    let failedRefresh = false;
+    let writes = 0;
+    const run: GhRunner = async (args, input) => {
+      if (args[3]?.endsWith("/comments") && args.includes("POST")) {
+        saved = true;
+        writes += 1;
+      } else if (saved && !failedRefresh && args[3]?.endsWith("/issues/42")) {
+        failedRefresh = true;
+        throw new Error("temporarily unavailable");
+      }
+      return base(args, input);
+    };
+    const service = createGitHubService({ run });
+    const input = {
+      ...ref,
+      requestId: "saved-refresh-failed",
+      body: "Only once",
+    };
+    await expect(service.comment(input)).rejects.toMatchObject({
+      code: "refresh",
+    });
+    await expect(service.comment(input)).rejects.toMatchObject({
+      code: "refresh",
+    });
+    expect((await service.get(ref)).title).toBe("Original");
+    expect(writes).toBe(1);
+  });
+
+  it("retains a created Issue identifier and URL when its detail refresh fails", async () => {
+    const base = stubRun();
+    const run = vi.fn<GhRunner>(async (args, input) => {
+      if (args[3]?.endsWith("/issues/42") && args.includes("GET"))
+        throw new Error("temporary detail failure");
+      return base(args, input);
+    });
+    const service = createGitHubService({ run });
+    const input = {
+      repo: FIXTURE_REPO,
+      requestId: "created-refresh-failed",
+      title: "Created once",
+      body: "Retain source identity",
+    };
+    await expect(service.create(input)).rejects.toThrow("yu/Arco #42");
+    await expect(service.create(input)).rejects.toThrow(
+      "https://github.com/yu/Arco/issues/42",
+    );
+    expect(
+      run.mock.calls.filter(
+        ([args]) =>
+          args[3] === `repos/${FIXTURE_REPO}/issues` && args.includes("POST"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a failed ambiguous comment request and never retries it automatically", async () => {
+    const run = stubRun({
+      write: async () => {
+        throw new Error("ghp_secret-value body-contents");
+      },
+    });
+    const service = createGitHubService({ run });
+    const input = {
+      ...ref,
+      requestId: "uncertain-write",
+      body: "Preserve this draft",
+    };
+    await expect(service.comment(input)).rejects.toMatchObject({
+      code: "uncertain",
+    });
+    await expect(service.comment(input)).rejects.not.toThrow(
+      "ghp_secret-value",
+    );
+    expect(
+      run.mock.calls.filter(
+        ([args]) => args[3]?.endsWith("/comments") && args.includes("POST"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("adds labels with the delta endpoint and never replaces unspecified labels", async () => {
+    const run = stubRun();
+    await createGitHubService({ run }).labels({
+      ...ref,
+      requestId: "label-delta",
+      add: ["needs/review"],
+      remove: [],
+    });
+    const write = run.mock.calls.find(
+      ([args]) => args.includes("POST") && args[3]?.endsWith("/labels"),
+    );
+    expect(JSON.parse(write?.[1] ?? "")).toEqual({ labels: ["needs/review"] });
+    expect(
+      run.mock.calls.some(
+        ([args]) => args.includes("PUT") || args.includes("PATCH"),
+      ),
+    ).toBe(false);
+    const fixture = createFixtureService();
+    const original = await fixture.get(ref);
+    const changed = await fixture.labels({
+      ...ref,
+      requestId: "fixture-label",
+      add: ["bug"],
+      remove: ["design"],
+    });
+    expect(changed.labels.map((label) => label.name)).toEqual([
+      "enhancement",
+      "bug",
+    ]);
+    expect(original.labels.map((label) => label.name)).toEqual([
+      "enhancement",
+      "design",
+    ]);
+  });
+
+  it("rejects mixed Project/field/item/option IDs before a mutation", async () => {
+    for (const mismatch of [
+      { projectId: "project-B" },
+      { itemId: "other-item" },
+      { fieldId: "field-B" },
+      { optionId: "unlisted" },
+    ]) {
+      const run = stubRun();
+      const service = createGitHubService({ run });
+      await expect(
+        service.projectStatus({
+          ...ref,
+          requestId: "project-mismatch",
+          projectId: "project-A",
+          itemId: "item-42",
+          fieldId: "field-A",
+          optionId: "done",
+          ...mismatch,
+        }),
+      ).rejects.toMatchObject({ code: "invalid" });
+      expect(
+        run.mock.calls.some(([, input]) =>
+          input?.includes("mutation ArcoProjectStatus"),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("validates Project status separately from Open/Closed", async () => {
+    const service = createFixtureService();
+    const original = await service.get(ref);
+    const project = original.projects[0];
+    const changed = await service.projectStatus({
+      ...ref,
+      requestId: "project-separate",
+      ...project,
+      optionId: "fixture-status-done",
+    });
+    expect(changed.state).toBe("open");
+    const closed = await service.update({
+      ...ref,
+      requestId: "issue-separate",
+      patch: { state: "closed", stateReason: "completed" },
+    });
+    expect(closed.projects[0].optionId).toBe("fixture-status-done");
+  });
+
+  it("returns every bulk outcome without retrying successful or failed members", async () => {
+    const operation = vi.fn(async (issue: IssueRefForTest) => {
+      if (issue.number === 43)
+        throw new GitHubError(
+          "You do not have permission to change this issue.",
+          "forbidden",
+        );
+      return issue.number;
+    });
+    const outcomes = await runBulk(
+      [ref, { ...ref, number: 43 }, { ...ref, number: 41 }],
+      operation,
+    );
+    expect(
+      outcomes.map((outcome) => [outcome.issue.number, outcome.ok]),
+    ).toEqual([
+      [42, true],
+      [43, false],
+      [41, true],
+    ]);
+    expect(operation).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not evict in-flight duplicate guards when its bounded cache is full", async () => {
+    const guard = createWriteGuard(1);
+    const issue = await createFixtureService().get(ref);
+    let finish: ((value: typeof issue) => void) | undefined;
+    const write = vi.fn(
+      () =>
+        new Promise<typeof issue>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const first = guard("first", { body: "first" }, write);
+    await Promise.resolve();
+    await expect(guard("second", {}, async () => issue)).rejects.toThrow(
+      "still being processed",
+    );
+    expect(guard("first", { body: "first" }, write)).toBe(first);
+    finish?.(issue);
+    await first;
+    expect(write).toHaveBeenCalledOnce();
+  });
+});
+
+type IssueRefForTest = { repo: string; number: number };
+
+describe("reads and explicit fixtures", () => {
+  it("loads every native comment page and shows a newly posted comment after the first 100", async () => {
+    const comments = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      node_id: `IC_${index + 1}`,
+      body: `Comment ${index + 1}`,
+      user: { login: "test-user" },
+      html_url: `https://github.com/${FIXTURE_REPO}/issues/42#issuecomment-${index + 1}`,
+      updated_at: "2026-10-22T01:00:00Z",
+    }));
+    const base = stubRun();
+    const run = vi.fn<GhRunner>(async (args, input) => {
+      if (args[3]?.includes("/issues/42/comments")) {
+        if (args.includes("POST")) {
+          const next = {
+            ...comments[0],
+            id: 101,
+            node_id: "IC_101",
+            body: JSON.parse(input ?? "{}").body,
+            html_url: `https://github.com/${FIXTURE_REPO}/issues/42#issuecomment-101`,
+          };
+          comments.push(next);
+          return next;
+        }
+        if (args.includes("--paginate") && args.includes("--slurp"))
+          return [
+            comments.slice(0, 100),
+            ...(comments.length > 100 ? [comments.slice(100)] : []),
+          ];
+        return comments.slice(0, 100);
+      }
+      return base(args, input);
+    });
+    const service = createGitHubService({ run });
+    expect((await service.get(ref)).comments).toHaveLength(100);
+    const saved = await service.comment({
+      ...ref,
+      requestId: "comment-after-one-hundred",
+      body: "Latest native comment",
+    });
+    expect(saved.comments.map((comment) => comment.databaseId)).toEqual(
+      Array.from({ length: 101 }, (_, index) => index + 1),
+    );
+    expect(saved.comments.at(-1)).toMatchObject({
+      databaseId: 101,
+      body: "Latest native comment",
+      url: `https://github.com/${FIXTURE_REPO}/issues/42#issuecomment-101`,
+    });
+    expect(saved.commentsHasMore).toBe(false);
+    expect((await service.get(ref)).comments.at(-1)?.databaseId).toBe(101);
+    expect(
+      run.mock.calls.filter(
+        ([args]) => args[3]?.endsWith("/comments") && args.includes("POST"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      run.mock.calls
+        .filter(([args]) => args[3]?.includes("/comments?"))
+        .every(
+          ([args]) => args.includes("--paginate") && args.includes("--slurp"),
+        ),
+    ).toBe(true);
+  });
+
+  it("keeps the selected repo and excludes pull requests even when search syntax widens the source query", async () => {
+    const run = stubRun({
+      search: {
+        total_count: 3,
+        incomplete_results: false,
+        items: [
+          apiIssue(),
+          apiIssue({
+            number: 99,
+            pull_request: { url: "https://api.github.com/pulls/99" },
+          }),
+          apiIssue({
+            number: 100,
+            repository_url: "https://api.github.com/repos/other/repo",
+          }),
+        ],
+      },
+    });
+    const page = await createGitHubService({ run }).list({
+      repo: FIXTURE_REPO,
+      query: "OR repo:other/repo",
+      state: "all",
+      page: 1,
+    });
+    expect(page.issues.map((issue) => issue.number)).toEqual([42]);
+    expect(run.mock.calls[0][0][3]).toContain("sort=updated&order=desc");
+  });
+
+  it("preserves the Issue when Projects permission is missing", async () => {
+    const issue = await createGitHubService({
+      run: stubRun({ projects: new Error("token=secret") }),
+    }).get(ref);
+    expect(issue.title).toBe("Original");
+    expect(issue.projects).toEqual([]);
+    expect(issue.projectsError).toContain("read:project");
+    expect(JSON.stringify(issue)).not.toContain("token=secret");
+  });
+
+  it("reports unavailable credentials safely and never returns raw errors", async () => {
+    const service = createGitHubService({
+      run: async () => {
+        throw new Error("token=secret");
+      },
+    });
+    expect(await service.connection()).toMatchObject({
+      mode: "github",
+      connected: false,
+      account: null,
+    });
+    expect(JSON.stringify(await service.connection())).not.toContain("secret");
+  });
+
+  it("isolates fixture instances, exposes fixture mode, and coalesces create/comment writes", async () => {
+    const service = createFixtureService();
+    expect(await service.connection()).toMatchObject({
+      mode: "fixture",
+      defaultRepo: FIXTURE_REPO,
+    });
+    const comment = {
+      ...ref,
+      requestId: "fixture-comment-once",
+      body: "Local only",
+    };
+    await Promise.all([service.comment(comment), service.comment(comment)]);
+    expect(
+      (await service.get(ref)).comments.filter(
+        (item) => item.body === comment.body,
+      ),
+    ).toHaveLength(1);
+    expect((await createFixtureService().get(ref)).comments).toHaveLength(1);
+    const create = {
+      repo: FIXTURE_REPO,
+      requestId: "fixture-create-once",
+      title: "New local issue",
+      body: "Local body",
+    };
+    const [a, b] = await Promise.all([
+      service.create(create),
+      service.create(create),
+    ]);
+    expect(a.number).toBe(b.number);
+    const page = await service.list({
+      repo: FIXTURE_REPO,
+      state: "all",
+      page: 1,
+      query: create.title,
+    });
+    expect(page.issues).toHaveLength(1);
+  });
+});

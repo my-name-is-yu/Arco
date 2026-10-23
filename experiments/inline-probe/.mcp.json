@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "arco-inline-probe": {
+      "command": "${PLUGIN_ROOT}/launch.sh",
+      "args": [],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

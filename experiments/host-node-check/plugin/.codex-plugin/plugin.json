@@ -1,0 +1,6 @@
+{
+  "name": "arco-host-node-check",
+  "version": "0.0.1",
+  "description": "Isolated read-only host Node startup check.",
+  "mcpServers": "./.mcp.json"
+}

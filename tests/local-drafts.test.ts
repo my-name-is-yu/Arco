@@ -1,0 +1,87 @@
+import { describe, expect, it } from "vitest";
+import { createLocalDrafts, LocalDraftConflict } from "../src/ui/local-drafts";
+import type { ArcoHost } from "../src/shared/contracts";
+import type { Draft, DraftRecord } from "../src/shared/state";
+
+const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
+const draft = (body: string): Draft => ({ title: "Title", body, comment: "" });
+function endpoint() {
+  let record: DraftRecord = { revision: 0, draft: null };
+  let writes = 0;
+  let loseResponse = false;
+  const host: Pick<ArcoHost, "call"> = {
+    async call<T>(name: string, args: Record<string, unknown>): Promise<T> {
+      if (name === "arco_read_draft") return structuredClone(record) as T;
+      if (args.expectedRevision !== record.revision)
+        throw new Error("revision conflict");
+      writes++;
+      record = {
+        revision: record.revision + 1,
+        draft: name === "arco_delete_draft" ? null : (args.draft as Draft),
+      };
+      if (loseResponse) {
+        loseResponse = false;
+        throw new Error("response lost after commit");
+      }
+      return structuredClone(record) as T;
+    },
+  };
+  return {
+    host,
+    record: () => record,
+    writes: () => writes,
+    loseNextResponse() {
+      loseResponse = true;
+    },
+  };
+}
+describe("UI draft revisions across independent views", () => {
+  it("retains a conflicting view until an explicit comparison choice", async () => {
+    const server = endpoint();
+    const first = createLocalDrafts(server.host);
+    const second = createLocalDrafts(server.host);
+    await Promise.all([first.load(key), second.load(key)]);
+    await first.save(key, draft("first view"));
+    await expect(second.save(key, draft("second view"))).rejects.toBeInstanceOf(
+      LocalDraftConflict,
+    );
+    await expect(second.save(key, draft("more typing"))).rejects.toBeInstanceOf(
+      LocalDraftConflict,
+    );
+    expect(server.record().draft?.body).toBe("first view");
+    await second.resolve(key, "keep-local", draft("second explicit choice"));
+    expect(server.record().draft?.body).toBe("second explicit choice");
+  });
+  it("confirms a lost response by reading and never repeats the write", async () => {
+    const server = endpoint();
+    server.loseNextResponse();
+    const local = createLocalDrafts(server.host);
+    const result = await local.save(key, draft("saved once"));
+    expect(result.revision).toBe(1);
+    expect(server.writes()).toBe(1);
+  });
+  it("serializes rapid input snapshots and saves the newest text", async () => {
+    const server = endpoint();
+    const local = createLocalDrafts(server.host);
+    await Promise.all([
+      local.save(key, draft("a")),
+      local.save(key, draft("ab")),
+      local.save(key, draft("abc")),
+    ]);
+    expect(server.record()).toEqual({ revision: 3, draft: draft("abc") });
+  });
+  it("uses the saved draft only after the user chooses it", async () => {
+    const server = endpoint();
+    const first = createLocalDrafts(server.host);
+    const second = createLocalDrafts(server.host);
+    await second.load(key);
+    await first.save(key, draft("saved in first"));
+    await expect(
+      second.save(key, draft("local in second")),
+    ).rejects.toBeInstanceOf(LocalDraftConflict);
+    expect((await second.resolve(key, "use-saved")).draft?.body).toBe(
+      "saved in first",
+    );
+    expect(server.writes()).toBe(1);
+  });
+});

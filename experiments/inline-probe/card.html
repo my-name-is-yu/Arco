@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ARCO INLINE PROBE</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 12px; color: light-dark(#171717, #ededed); background: light-dark(#fff, #171717); font-size: 13px; }
+    article { max-width: 640px; margin: 0 auto; padding: 16px; border: 2px solid #3778ed; border-radius: 12px; }
+    header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+    strong { font-size: 12px; letter-spacing: .08em; color: light-dark(#174ba6, #8db5ff); }
+    .badge { padding: 4px 8px; border-radius: 6px; background: light-dark(#eef3ff, #23304a); font-size: 11px; }
+    h1 { margin: 12px 0 6px; font-size: 18px; line-height: 1.4; }
+    p { margin: 6px 0; line-height: 1.5; }
+    .muted { color: light-dark(#666, #aaa); }
+    code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; overflow-wrap: anywhere; }
+    button { margin: 12px 0 8px; padding: 7px 10px; color: inherit; background: light-dark(#f3f3f3, #303030); border: 1px solid light-dark(#bbb, #666); border-radius: 7px; font: inherit; cursor: pointer; }
+    button:focus-visible { outline: 2px solid #3778ed; outline-offset: 2px; }
+    dl { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 5px 8px; margin: 10px 0 0; font-size: 11px; }
+    dt { color: light-dark(#666, #aaa); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    details { margin-top: 10px; font-size: 11px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10px; }
+  </style>
+</head>
+<body>
+  <article>
+    <header><strong>ARCO INLINE PROBE</strong><span class="badge">LOCAL EXPERIMENT</span></header>
+    <p class="muted">yu/Arco #42 · In progress</p>
+    <h1>Issueを会話へ渡す</h1>
+    <p>このカードは表示確認用です。GitHubへの接続や会話の送信は行いません。</p>
+    <p><code id="token">__SERVER_TOKEN__</code></p>
+    <button id="counter" type="button">Local counter: 0</button>
+    <dl>
+      <dt>Requested mode</dt><dd>inline only</dd>
+      <dt>Host mode</dt><dd id="mode">not reported</dd>
+      <dt>Bridge</dt><dd id="bridge">not connected</dd>
+      <dt>Tool linkage</dt><dd id="linkage">awaiting tool result</dd>
+    </dl>
+    <details><summary>Host diagnostics</summary><pre id="diagnostics">No host initialization received.</pre></details>
+  </article>
+  <script>
+    (() => {
+      let count = 0;
+      let ready = false;
+      let hostContext = {};
+      const counter = document.getElementById('counter');
+      const bridge = document.getElementById('bridge');
+      const mode = document.getElementById('mode');
+      const diagnostics = document.getElementById('diagnostics');
+      counter.addEventListener('click', () => {
+        count += 1;
+        counter.textContent = 'Local counter: ' + count;
+      });
+
+      const post = message => window.parent.postMessage({ jsonrpc: '2.0', ...message }, '*');
+      const showContext = () => {
+        mode.textContent = hostContext.displayMode ?? 'not reported';
+        document.documentElement.style.colorScheme = hostContext.theme === 'dark' ? 'dark' : hostContext.theme === 'light' ? 'light' : 'light dark';
+      };
+      const reportSize = () => {
+        if (ready) post({ method: 'ui/notifications/size-changed', params: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight } });
+      };
+      let timer;
+      window.addEventListener('message', event => {
+        if (event.source !== window.parent || !event.data || event.data.jsonrpc !== '2.0') return;
+        const message = event.data;
+        if (message.id === 'arco-ui-init' && (message.result || message.error)) {
+          clearTimeout(timer);
+          if (message.error) {
+            bridge.textContent = 'initialization rejected';
+            diagnostics.textContent = JSON.stringify(message.error, null, 2);
+            return;
+          }
+          ready = true;
+          hostContext = message.result.hostContext ?? {};
+          showContext();
+          bridge.textContent = 'MCP Apps initialized';
+          diagnostics.textContent = JSON.stringify({
+            protocolVersion: message.result.protocolVersion,
+            hostInfo: message.result.hostInfo,
+            hostCapabilities: message.result.hostCapabilities,
+            displayMode: hostContext.displayMode,
+            availableDisplayModes: hostContext.availableDisplayModes,
+            platform: hostContext.platform,
+          }, null, 2);
+          post({ method: 'ui/notifications/initialized' });
+          reportSize();
+        } else if (message.method === 'ui/notifications/host-context-changed') {
+          hostContext = { ...hostContext, ...message.params };
+          showContext();
+        } else if (message.method === 'ui/notifications/tool-result') {
+          const probe = message.params?.structuredContent;
+          if (probe?.marker === 'ARCO INLINE PROBE') {
+            document.getElementById('linkage').textContent = probe.linkage ?? 'not reported';
+            document.getElementById('token').textContent = probe.serverToken ?? '__SERVER_TOKEN__';
+          }
+        } else if (message.method === 'ping' && Object.hasOwn(message, 'id')) {
+          post({ id: message.id, result: {} });
+        }
+      });
+
+      if (window.parent === window) {
+        bridge.textContent = 'standalone HTML — no host bridge';
+      } else {
+        bridge.textContent = 'initializing…';
+        timer = setTimeout(() => {
+          bridge.textContent = 'no initialization response';
+          diagnostics.textContent = 'HTML rendered, but no MCP Apps initialization response arrived within 5 seconds.';
+        }, 5000);
+        post({
+          id: 'arco-ui-init',
+          method: 'ui/initialize',
+          params: {
+            protocolVersion: '2026-01-26',
+            appInfo: { name: 'Arco Inline Probe', version: '0.0.2' },
+            appCapabilities: { availableDisplayModes: ['inline'] },
+          },
+        });
+        new ResizeObserver(reportSize).observe(document.body);
+      }
+    })();
+  </script>
+</body>
+</html>

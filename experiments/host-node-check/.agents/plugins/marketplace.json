@@ -1,0 +1,11 @@
+{
+  "name": "arco-host-node-check",
+  "plugins": [
+    {
+      "name": "arco-host-node-check",
+      "source": { "source": "local", "path": "./plugin" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Developer Tools"
+    }
+  ]
+}

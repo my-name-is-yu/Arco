@@ -1,0 +1,29 @@
+{
+  "name": "arco-local",
+  "plugins": [
+    {
+      "name": "arco",
+      "source": {
+        "source": "local",
+        "path": "./dist/plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "arco-inline-probe",
+      "source": {
+        "source": "local",
+        "path": "./experiments/inline-probe"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

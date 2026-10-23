@@ -1,0 +1,11 @@
+{
+  "name": "arco-inline-probe",
+  "version": "0.0.2",
+  "description": "Local read-only experiment to check an actual inline MCP App card.",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Arco Inline Probe",
+    "shortDescription": "Test a tiny inline card without GitHub or network access.",
+    "capabilities": ["Interactive", "Read"]
+  }
+}

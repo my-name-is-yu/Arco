@@ -1,0 +1,11 @@
+{
+  "name": "arco",
+  "version": "0.1.0",
+  "description": "Browse and edit source Issues, and share selected context with Codex.",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Arco",
+    "shortDescription": "GitHub and Linear Issues beside your Codex chat.",
+    "capabilities": ["Interactive", "Read", "Write"]
+  }
+}
