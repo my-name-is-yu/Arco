@@ -13,6 +13,7 @@ import {
 } from "./useDraftPersistence";
 import type { Draft, DraftKey } from "../shared/state";
 import { useGitHubOperation } from "./useGitHubOperation";
+import { useNearViewport } from "./useNearViewport";
 
 export function CopyValue({
   value,
@@ -83,6 +84,7 @@ export function ReactionBar({
   commentId?: number;
 }) {
   const [adding, setAdding] = useState(false);
+  const { ref, near } = useNearViewport<HTMLDivElement>();
   const input = {
     repo: issue.repo,
     number: issue.number,
@@ -90,14 +92,25 @@ export function ReactionBar({
   };
   const query = useQuery({
     queryKey: ["github", "reactions", issue.repo, issue.number, commentId],
-    queryFn: () => host.call<ReactionList>("arco_reactions", input),
+    queryFn: ({ signal }) =>
+      host.call<ReactionList>("arco_reactions", input, {
+        signal,
+        priority: "background",
+      }),
+    enabled: near || adding,
   });
   const action = useGitHubOperation(host, issue);
   return (
     <div
+      ref={ref}
       className="reaction-bar"
       aria-label={commentId ? "Comment reactions" : "Issue reactions"}
     >
+      {!query.data && !query.isError && (
+        <span className="muted">
+          {query.isFetching ? "Loading reactions…" : "Reactions not loaded"}
+        </span>
+      )}
       {Object.entries(reactionNames)
         .filter(
           ([content]) =>

@@ -100,7 +100,20 @@ function stubRun(
         (input?.includes("query ArcoProjectFields") ? projectFields : projects)
       );
     }
-    if (method !== "GET") return overrides.write?.(args, input) ?? apiIssue();
+    if (method !== "GET")
+      return (
+        overrides.write?.(args, input) ??
+        (endpoint?.endsWith("/comments")
+          ? {
+              id: 1,
+              node_id: "IC_1",
+              body: JSON.parse(input ?? "{}").body,
+              user: { login: "test-user" },
+              html_url: `https://github.com/${FIXTURE_REPO}/issues/42#issuecomment-1`,
+              updated_at: "2026-10-22T01:00:00Z",
+            }
+          : apiIssue())
+      );
     if (endpoint === "user") return { login: "test-user" };
     if (endpoint?.startsWith("search/issues"))
       return (
@@ -110,7 +123,7 @@ function stubRun(
           items: [apiIssue()],
         }
       );
-    if (endpoint?.includes("/issues/42/comments")) return [[]];
+    if (endpoint?.includes("/issues/42/comments")) return [];
     if (endpoint?.includes("/labels?"))
       return [
         [
@@ -686,7 +699,7 @@ describe("write safety across the service boundary", () => {
 type IssueRefForTest = { repo: string; number: number };
 
 describe("reads and explicit fixtures", () => {
-  it("loads every native comment page and shows a newly posted comment after the first 100", async () => {
+  it("reads one bounded comment page and acknowledges a new comment beyond the loaded window", async () => {
     const comments = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
       node_id: `IC_${index + 1}`,
@@ -709,32 +722,43 @@ describe("reads and explicit fixtures", () => {
           comments.push(next);
           return next;
         }
-        if (args.includes("--paginate") && args.includes("--slurp"))
-          return [
-            comments.slice(0, 100),
-            ...(comments.length > 100 ? [comments.slice(100)] : []),
-          ];
-        return comments.slice(0, 100);
+        const page = Number(
+          new URL(`https://api.github.com/${args[3]}`).searchParams.get("page"),
+        );
+        return comments.slice((page - 1) * 30, page * 30);
       }
       return base(args, input);
     });
     const service = createGitHubService({ run });
-    expect((await service.get(ref)).comments).toHaveLength(100);
+    expect(await service.get(ref)).toMatchObject({
+      commentsHasMore: true,
+      commentsNextPage: 2,
+    });
+    expect((await service.get(ref)).comments).toHaveLength(30);
+    expect(await service.comments({ ...ref, page: 2 })).toMatchObject({
+      hasMore: true,
+      nextPage: 3,
+    });
+    expect(
+      (await service.comments({ ...ref, page: 2 })).comments[0].databaseId,
+    ).toBe(31);
     const saved = await service.comment({
       ...ref,
       requestId: "comment-after-one-hundred",
       body: "Latest native comment",
     });
-    expect(saved.comments.map((comment) => comment.databaseId)).toEqual(
-      Array.from({ length: 101 }, (_, index) => index + 1),
-    );
-    expect(saved.comments.at(-1)).toMatchObject({
+    expect(saved.comments).toHaveLength(30);
+    expect(saved.postedComment).toMatchObject({
       databaseId: 101,
       body: "Latest native comment",
       url: `https://github.com/${FIXTURE_REPO}/issues/42#issuecomment-101`,
     });
-    expect(saved.commentsHasMore).toBe(false);
-    expect((await service.get(ref)).comments.at(-1)?.databaseId).toBe(101);
+    expect(saved.commentsHasMore).toBe(true);
+    expect((await service.get(ref)).comments.at(-1)?.databaseId).toBe(30);
+    const last = await service.comments({ ...ref, page: 4 });
+    expect(last.comments).toHaveLength(11);
+    expect(last.hasMore).toBe(false);
+    expect(last.comments.at(-1)?.databaseId).toBe(101);
     expect(
       run.mock.calls.filter(
         ([args]) => args[3]?.endsWith("/comments") && args.includes("POST"),
@@ -744,8 +768,43 @@ describe("reads and explicit fixtures", () => {
       run.mock.calls
         .filter(([args]) => args[3]?.includes("/comments?"))
         .every(
-          ([args]) => args.includes("--paginate") && args.includes("--slurp"),
+          ([args]) =>
+            !args.includes("--paginate") &&
+            !args.includes("--slurp") &&
+            args[3]?.includes("per_page=30"),
         ),
+    ).toBe(true);
+  });
+
+  it("reads exact Markdown without listing comments or Projects and rejects foreign comment membership", async () => {
+    const base = stubRun();
+    let foreign = false;
+    const run = vi.fn<GhRunner>(async (args, input) =>
+      args[3]?.endsWith("/issues/comments/101")
+        ? {
+            id: 101,
+            node_id: "IC_101",
+            body: "Image in a later comment",
+            user: { login: "test-user" },
+            html_url: `https://github.com/${FIXTURE_REPO}/issues/42#issuecomment-101`,
+            issue_url: `https://api.github.com/repos/${FIXTURE_REPO}/issues/${foreign ? 43 : 42}`,
+            updated_at: "2026-10-22T01:00:00Z",
+          }
+        : base(args, input),
+    );
+    const service = createGitHubService({ run });
+    expect(await service.readMarkdown(ref)).toBe("Original body");
+    expect(await service.readMarkdown(ref, 101)).toBe(
+      "Image in a later comment",
+    );
+    foreign = true;
+    await expect(service.readMarkdown(ref, 101)).rejects.toMatchObject({
+      code: "invalid",
+    });
+    expect(
+      run.mock.calls.every(
+        ([args]) => args[3] !== "graphql" && !args[3]?.includes("/comments?"),
+      ),
     ).toBe(true);
   });
 

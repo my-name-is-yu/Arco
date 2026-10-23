@@ -10,6 +10,126 @@ import {
 const firstTitle = "Keep Linear workflow states intact";
 const secondTitle = "Share a Linear issue with the Codex chat";
 const app = (page: Page) => page.frameLocator("#arco");
+
+test("Linear comment pages load explicitly and retain drafts and an acknowledged reply beyond page one", async ({
+  page,
+}) => {
+  const ui = app(page);
+  await page.clock.install();
+  let source: Record<string, unknown> | undefined;
+  const requestedCursors: unknown[] = [];
+  let releasePage!: () => void;
+  const pendingPage = new Promise<void>((resolve) => {
+    releasePage = resolve;
+  });
+  const comments = Array.from({ length: 105 }, (_, index) => ({
+    id: `paged-comment-${index + 1}`,
+    body: `Paged Linear comment ${index + 1}`,
+    author: "Fixture user",
+    authorId: "fixture-linear-user",
+    parentId: index === 30 ? "unloaded-parent" : null,
+    updatedAt: "2026-10-23T00:00:00.000Z",
+    url: `https://linear.app/fixture/issue/YU-42#paged-${index + 1}`,
+    reactions: [],
+  }));
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: Record<string, unknown>;
+    };
+    if (
+      input.name === "linear_get_issue" &&
+      input.arguments.issueId === "fixture-linear-42"
+    ) {
+      const response = await route.fetch();
+      const result = await response.json();
+      source = {
+        ...result.structuredContent,
+        comments: comments.slice(0, 30),
+        commentsHasMore: true,
+        commentsCursor: "page-2",
+      };
+      return route.fulfill({
+        response,
+        json: { ...result, structuredContent: source },
+      });
+    }
+    if (input.name === "linear_comments") {
+      requestedCursors.push(input.arguments.cursor);
+      if (input.arguments.cursor === "page-2") await pendingPage;
+      const start = input.arguments.cursor === "page-2" ? 30 : 0;
+      const structuredContent = {
+        comments: comments.slice(start, start + 30),
+        hasMore: true,
+        cursor: start === 30 ? "page-3" : "page-2",
+      };
+      return route.fulfill({ json: { content: [], structuredContent } });
+    }
+    if (
+      input.name === "linear_comment" &&
+      input.arguments.action === "create"
+    ) {
+      const changedComment = {
+        ...comments[0],
+        id: "acknowledged-reply",
+        body: input.arguments.body,
+        parentId: input.arguments.parentId,
+        updatedAt: "2026-10-24T00:00:00.000Z",
+      };
+      return route.fulfill({
+        json: { content: [], structuredContent: { ...source, changedComment } },
+      });
+    }
+    return route.continue();
+  });
+  await ui.getByRole("button", { name: "Refresh Linear", exact: true }).click();
+  await expect(ui.locator(".linear-comment")).toHaveCount(30);
+  expect(requestedCursors).toEqual([]);
+  const composer = ui.getByRole("textbox", {
+    name: "Linear comment",
+    exact: true,
+  });
+  await composer.fill("Draft preserved while loading another page");
+  await ui
+    .getByRole("button", { name: "Load more comments", exact: true })
+    .click();
+  await expect.poll(() => requestedCursors.length).toBe(1);
+  comments[0].body = "Fresh Linear first comment while page two is pending";
+  await page.clock.fastForward(30_100);
+  await expect(ui.getByText(comments[0].body, { exact: true })).toHaveCount(1);
+  releasePage();
+  await expect(ui.locator(".linear-comment")).toHaveCount(60);
+  await expect(ui.getByText(comments[0].body, { exact: true })).toHaveCount(1);
+  expect(requestedCursors).toEqual(["page-2"]);
+  await expect(composer).toHaveValue(
+    "Draft preserved while loading another page",
+  );
+  await expect(
+    ui.getByText("Reply to comment unloaded-parent", { exact: true }),
+  ).toBeVisible();
+  await ui
+    .locator(".linear-comment")
+    .first()
+    .getByRole("button", { name: "Reply", exact: true })
+    .click();
+  await composer.fill("A newly acknowledged reply beyond the loaded pages");
+  await ui
+    .getByRole("button", { name: "Post comment to Linear", exact: true })
+    .click();
+  const reply = ui.locator(
+    '[data-linear-context="comment"][data-comment-id="acknowledged-reply"]',
+  );
+  await expect(reply).toHaveText(
+    "A newly acknowledged reply beyond the loaded pages",
+  );
+  await expect(ui.locator(".linear-comment")).toHaveCount(61);
+  await ui.getByRole("button", { name: "Refresh Linear", exact: true }).click();
+  await expect(reply).toHaveText(
+    "A newly acknowledged reply beyond the loaded pages",
+  );
+  await expect(ui.locator(".linear-comment")).toHaveCount(61);
+  expect(requestedCursors).not.toContain("page-3");
+});
 async function openIssueActions(ui: ReturnType<typeof app>) {
   if ((await ui.locator(".detail-utilities").getAttribute("open")) === null)
     await ui.getByLabel("Issue actions", { exact: true }).click();

@@ -7,7 +7,11 @@ import { randomUUID } from "node:crypto";
 import { LinearClient } from "@linear/sdk";
 import { createLinearAuth } from "../src/server/linear/auth";
 import { createLinearService } from "../src/server/linear/service";
-import type { LinearIssue, LinearPage } from "../src/shared/linear";
+import type {
+  LinearCommentPage,
+  LinearIssue,
+  LinearPage,
+} from "../src/shared/linear";
 
 const scope = {
   connectionId: "sdk-test",
@@ -79,7 +83,21 @@ async function source() {
     relations: false,
     failAfterCreate: "" as "" | "issue" | "comment",
     failIssueRead: false,
+    commentCount: 0,
+    commentIssueId: "issue",
   };
+  const sourceComment = (id: string) => ({
+    id,
+    body: "![Source image](https://uploads.linear.app/workspace/image.png)",
+    issueId: controls.commentIssueId,
+    issue: { id: controls.commentIssueId },
+    parentId: "unloaded-parent",
+    updatedAt: "2026-10-23T00:00:00.000Z",
+    createdAt: "2026-10-23T00:00:00.000Z",
+    url: `https://linear.app/fixture/issue/TST-1#${id}`,
+    reactions: [],
+    reactionData: {},
+  });
   const server: Server = createServer(async (request, response) => {
     try {
       let body = "";
@@ -142,6 +160,41 @@ async function source() {
                   },
           };
           break;
+        case "comment":
+          data = { comment: sourceComment(String(input.variables.id)) };
+          break;
+        case "issue_comments": {
+          const start = input.variables.after
+            ? Number(String(input.variables.after).replace("comment-", "")) + 1
+            : 0;
+          const count = Number(input.variables.first ?? 100);
+          const comments = Array.from(
+            {
+              length: Math.min(
+                count,
+                Math.max(0, controls.commentCount - start),
+              ),
+            },
+            (_, index) => sourceComment(`comment-${start + index}`),
+          );
+          data = {
+            issue: {
+              comments: {
+                ...connection(
+                  comments,
+                  start + comments.length < controls.commentCount,
+                ),
+                pageInfo: {
+                  hasNextPage: start + comments.length < controls.commentCount,
+                  endCursor: comments.at(-1)?.id ?? null,
+                  hasPreviousPage: start > 0,
+                  startCursor: comments[0]?.id ?? null,
+                },
+              },
+            },
+          };
+          break;
+        }
         case "organization_templates":
           data = {
             organization: {
@@ -349,6 +402,14 @@ async function source() {
         accessToken,
         apiUrl: `http://127.0.0.1:${address.port}/graphql`,
       }),
+    fetch: async () =>
+      new Response(
+        Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jK1kAAAAASUVORK5CYII=",
+          "base64",
+        ),
+        { headers: { "Content-Type": "image/png" } },
+      ),
   });
   cleanups.push(async () => {
     auth.close();
@@ -361,6 +422,78 @@ async function source() {
 }
 
 describe("Linear adapter through the official SDK HTTP transport", () => {
+  it("reads one comment page at a time and keeps a reply's unloaded parent identity", async () => {
+    const { service, calls, controls } = await source();
+    controls.commentCount = 65;
+    const issue = (await service.call("linear_get_issue", ref)) as LinearIssue;
+    expect(issue.comments).toHaveLength(30);
+    expect(issue.commentsHasMore).toBe(true);
+    expect(issue.commentsCursor).toBe("comment-29");
+    expect(issue.comments[0].parentId).toBe("unloaded-parent");
+    expect(
+      calls.filter((call) => call.operation === "issue_comments"),
+    ).toHaveLength(1);
+    const next = (await service.call("linear_comments", {
+      ...ref,
+      cursor: issue.commentsCursor,
+    })) as LinearCommentPage;
+    expect(next.comments).toHaveLength(30);
+    expect(next.comments[0].id).toBe("comment-30");
+    expect(next.cursor).toBe("comment-59");
+    expect(
+      calls
+        .filter((call) => call.operation === "issue_comments")
+        .map((call) => call.variables),
+    ).toMatchObject([
+      { first: 30, orderBy: "createdAt" },
+      { first: 30, after: "comment-29", orderBy: "createdAt" },
+    ]);
+    expect(calls.some((call) => call.operation === "comment")).toBe(false);
+  });
+  it("reads images through a narrow authorized source lookup and rejects a foreign comment", async () => {
+    const { service, calls, issue, controls } = await source();
+    const url = "https://uploads.linear.app/workspace/image.png";
+    issue.description = `![Source image](${url})`;
+    await expect(
+      service.call("linear_read_image", { ...ref, url }),
+    ).resolves.toMatchObject({ mimeType: "image/png" });
+    await expect(
+      service.call("linear_read_image", {
+        ...ref,
+        url,
+        commentId: "comment-100",
+      }),
+    ).resolves.toMatchObject({ mimeType: "image/png" });
+    expect(
+      calls.some((call) =>
+        ["issue_comments", "team_projects", "issue_children"].includes(
+          call.operation,
+        ),
+      ),
+    ).toBe(false);
+    controls.commentIssueId = "foreign-issue";
+    await expect(
+      service.call("linear_read_image", {
+        ...ref,
+        url,
+        commentId: "foreign-comment",
+      }),
+    ).rejects.toThrow("does not belong");
+    await expect(
+      service.call("linear_read_image", {
+        ...ref,
+        workspaceId: "foreign-workspace",
+        url,
+      }),
+    ).rejects.toThrow("workspace");
+    await expect(
+      service.call("linear_read_image", {
+        ...ref,
+        teamId: "foreign-team",
+        url,
+      }),
+    ).rejects.toThrow("team");
+  });
   it("resolves a native URL to the source UUIDs across teams without search or mutation", async () => {
     const { service, calls, issue } = await source();
     issue.team.id = "other-team";

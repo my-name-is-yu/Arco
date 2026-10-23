@@ -13,6 +13,7 @@ export const linearReadOnly = new Set<LinearToolName>([
   "linear_metadata",
   "linear_list_issues",
   "linear_get_issue",
+  "linear_comments",
   "linear_resolve_issue",
   "linear_read_image",
   "linear_templates",

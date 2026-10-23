@@ -244,8 +244,11 @@ export function createFixtureGitHubOperations(options: {
       invalid("The repository for this fixture is yu/Arco.");
   }
   async function comment(ref: IssueRef, commentId: number, expected?: string) {
-    const issue = await service.get(ref);
-    const value = issue.comments.find(
+    await service.get(ref);
+    const issue = service.fixture
+      .issues()
+      .find((issue) => issue.repo === ref.repo && issue.number === ref.number);
+    const value = issue?.comments.find(
       (candidate) => candidate.databaseId === commentId,
     );
     if (!value)
@@ -357,7 +360,10 @@ export function createFixtureGitHubOperations(options: {
             selected.updatedAt = new Date().toISOString();
           }
         });
-        return result(input);
+        return {
+          ...(await result(input)),
+          changedComment: await comment(input, input.commentId),
+        };
       });
     },
     deleteComment(input) {

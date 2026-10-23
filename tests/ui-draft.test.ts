@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { draftConflict, resolveDraft } from "../src/ui/App";
-import type { IssueDetail } from "../src/shared/contracts";
+import { draftConflict, mergeCommentPages, resolveDraft } from "../src/ui/App";
+import type { Comment, IssueDetail } from "../src/shared/contracts";
 
 const source = (patch: Partial<IssueDetail> = {}): IssueDetail => ({
   repo: "yu/Arco",
@@ -29,6 +29,64 @@ const edited = () => ({
   baseTitle: "Original title",
   baseBody: "Original body",
   baseUpdatedAt: source().updatedAt,
+});
+
+describe("GitHub comment page revisions", () => {
+  const comment = (id: string, body: string, updatedAt: string): Comment => ({
+    id,
+    body,
+    updatedAt,
+    author: "yu",
+    url: `https://github.com/yu/Arco/issues/42#${id}`,
+  });
+  it("keeps a newly posted comment visible across a gap and deduplicates its native page", () => {
+    const first = comment("first", "First comment", "2026-10-22T00:00:00Z");
+    const posted = comment(
+      "posted",
+      "Posted beyond the loaded pages",
+      "2026-10-24T00:00:00Z",
+    );
+    expect(
+      mergeCommentPages(
+        [{ comments: [first], hasMore: true, nextPage: 2 }],
+        [posted],
+      ),
+    ).toEqual([first, posted]);
+    expect(
+      mergeCommentPages(
+        [
+          { comments: [first], hasMore: true, nextPage: 2 },
+          { comments: [posted], hasMore: false },
+        ],
+        [posted],
+      ),
+    ).toEqual([first, posted]);
+  });
+  it("lets a newer provider revision replace an acknowledged post without changing its position", () => {
+    const posted = comment(
+      "posted",
+      "Earlier acknowledged text",
+      "2026-10-24T00:00:00Z",
+    );
+    const native = comment(
+      "posted",
+      "Edited externally",
+      "2026-10-24T00:01:00Z",
+    );
+    expect(
+      mergeCommentPages([{ comments: [native], hasMore: false }], [posted]),
+    ).toEqual([native]);
+  });
+  it("keeps an acknowledged edit when GitHub returns an older body from the same second", () => {
+    const native = comment("posted", "Earlier text", "2026-10-24T00:00:00Z");
+    const acknowledged = { ...native, body: "Saved text in the same second" };
+    expect(
+      mergeCommentPages(
+        [{ comments: [native], hasMore: false }],
+        [acknowledged],
+      ),
+    ).toEqual([acknowledged]);
+  });
 });
 
 describe("Issue draft concurrency", () => {

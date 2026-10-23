@@ -223,32 +223,41 @@ export async function connectHost(): Promise<ArcoHost> {
         openai.modelContext?.getCurrent()?.structuredContent,
       );
     },
-    async readImage(issue, url, commentId) {
-      const result = await tools.run(() =>
-        app.callServerTool({
-          name:
-            issue.source === "github" ? "arco_read_image" : "linear_read_image",
-          arguments: {
-            ...(issue.source === "github"
-              ? { repo: issue.repo, number: issue.number }
-              : {
-                  connectionId: issue.connectionId,
-                  workspaceId: issue.workspaceId,
-                  teamId: issue.teamId,
-                  issueId: issue.issueId,
-                }),
-            url,
-            ...(commentId === undefined ? {} : { commentId }),
-          },
-        }),
+    async readImage(issue, url, commentId, options) {
+      const result = await tools.run(
+        () =>
+          app.callServerTool({
+            name:
+              issue.source === "github"
+                ? "arco_read_image"
+                : "linear_read_image",
+            arguments: {
+              ...(issue.source === "github"
+                ? { repo: issue.repo, number: issue.number }
+                : {
+                    connectionId: issue.connectionId,
+                    workspaceId: issue.workspaceId,
+                    teamId: issue.teamId,
+                    issueId: issue.issueId,
+                  }),
+              url,
+              ...(commentId === undefined ? {} : { commentId }),
+            },
+          }),
+        options,
       );
       if (result.isError)
         throw new Error("The source image preview could not be loaded.");
       return imageDataSchema.parse(result._meta?.image);
     },
-    async call<T>(name: string, args: Record<string, unknown>): Promise<T> {
-      const result = await tools.run(() =>
-        app.callServerTool({ name, arguments: args }),
+    async call<T>(
+      name: string,
+      args: Record<string, unknown>,
+      options?: Parameters<ArcoHost["call"]>[2],
+    ): Promise<T> {
+      const result = await tools.run(
+        () => app.callServerTool({ name, arguments: args }),
+        options,
       );
       if (result.isError) {
         const message = result.content?.find((item) => item.type === "text");

@@ -52,6 +52,7 @@ export const linearSchemas = {
     cursor: id.optional(),
   }),
   linear_get_issue: linearRefSchema,
+  linear_comments: linearRefSchema.extend({ cursor: id.optional() }),
   linear_resolve_issue: z
     .object({ connectionId: id.default("default"), url: z.string().max(2048) })
     .strict(),
@@ -167,6 +168,11 @@ export interface LinearComment {
   url: string;
   reactions: { id: string; emoji: string; userId: string }[];
 }
+export interface LinearCommentPage {
+  comments: LinearComment[];
+  hasMore: boolean;
+  cursor: string | null;
+}
 export interface LinearIssue extends LinearRef {
   source: "linear";
   identifier: string;
@@ -188,6 +194,9 @@ export interface LinearIssue extends LinearRef {
   children: { id: string; identifier: string; title: string }[];
   comments: LinearComment[];
   commentsHasMore: boolean;
+  commentsCursor?: string | null;
+  changedComment?: LinearComment;
+  deletedCommentId?: string;
   attachments: { id: string; title: string; url: string }[];
   relations: {
     id: string;
@@ -214,6 +223,9 @@ export type LinearIssueSummary = Omit<
   | "children"
   | "comments"
   | "commentsHasMore"
+  | "commentsCursor"
+  | "changedComment"
+  | "deletedCommentId"
   | "attachments"
   | "relations"
   | "reactions"

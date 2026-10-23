@@ -1898,3 +1898,7 @@
   margin-bottom: 6px;
   border-radius: 4px;
 }
+.source-image-placeholder {
+  display: block;
+  min-height: 96px;
+}

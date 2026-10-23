@@ -10,6 +10,7 @@ export default defineConfig({
     "loading-motion-browser.spec.ts",
     "hover-browser.spec.ts",
     "launch-browser.spec.ts",
+    "deferred-fetch-browser.spec.ts",
   ],
   fullyParallel: false,
   workers: 1,

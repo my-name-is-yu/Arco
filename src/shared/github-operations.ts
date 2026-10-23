@@ -3,6 +3,7 @@ import {
   issueRefSchema,
   repoSchema,
   type IssueDetail,
+  type Comment,
   type IssueRef,
   type Label,
 } from "./contracts";
@@ -277,6 +278,7 @@ export interface GitHubOperationResult {
   number?: number;
   issue?: IssueDetail;
   createdIssue?: IssueDetail;
+  changedComment?: Comment;
   label?: LabelDefinition;
   deleted?: boolean;
   projectItemId?: string;

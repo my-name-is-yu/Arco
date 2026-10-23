@@ -1,6 +1,7 @@
 import {
   accountIssuesInputSchema,
   commentInputSchema,
+  commentsInputSchema,
   createInputSchema,
   issueRefSchema,
   labelInputSchema,
@@ -177,7 +178,15 @@ export function createFixtureService(): FixtureGitHubService {
     issue.updatedAt = new Date(
       Math.max(Date.now(), Date.parse(issue.updatedAt) + 1),
     ).toISOString();
-    return structuredClone(issue);
+    return detail(issue);
+  }
+  function detail(issue: IssueDetail): IssueDetail {
+    return {
+      ...structuredClone(issue),
+      comments: structuredClone(issue.comments.slice(0, 30)),
+      commentsHasMore: issue.comments.length > 30,
+      commentsNextPage: issue.comments.length > 30 ? 2 : undefined,
+    };
   }
   return {
     fixture: {
@@ -298,7 +307,32 @@ export function createFixtureService(): FixtureGitHubService {
       };
     },
     async get(raw) {
-      return structuredClone(find(raw));
+      return detail(find(raw));
+    },
+    async comments(raw) {
+      const input = commentsInputSchema.parse(raw);
+      const issue = find(input);
+      const hasMore = issue.comments.length > input.page * 30;
+      return {
+        comments: structuredClone(
+          issue.comments.slice((input.page - 1) * 30, input.page * 30),
+        ),
+        hasMore,
+        ...(hasMore ? { nextPage: input.page + 1 } : {}),
+      };
+    },
+    async readMarkdown(raw, commentId) {
+      const issue = find(raw);
+      if (commentId === undefined) return issue.body;
+      const comment = issue.comments.find(
+        (comment) => comment.databaseId === commentId,
+      );
+      if (!comment)
+        throw new GitHubError(
+          "This comment does not belong to the selected issue.",
+          "invalid",
+        );
+      return comment.body;
     },
     async metadata(rawRepo) {
       if (repoSchema.parse(rawRepo) !== FIXTURE_REPO)
@@ -387,16 +421,25 @@ export function createFixtureService(): FixtureGitHubService {
       const input = commentInputSchema.parse(raw);
       return once(input.requestId, ["comment", input], async () => {
         const issue = find(input);
-        const id = `fixture-comment-${++commentSequence}`;
-        issue.comments.push({
+        commentSequence =
+          Math.max(
+            commentSequence,
+            ...issue.comments.map((comment) => comment.databaseId ?? 0),
+          ) + 1;
+        const id = `fixture-comment-${commentSequence}`;
+        const postedComment = {
           id,
           databaseId: commentSequence,
           body: input.body,
           author: "fixture-user",
           url: `${issue.url}#${id}`,
           updatedAt: new Date().toISOString(),
-        });
-        return touch(issue);
+        };
+        issue.comments.push(postedComment);
+        return {
+          ...touch(issue),
+          postedComment: structuredClone(postedComment),
+        };
       });
     },
     create(raw) {

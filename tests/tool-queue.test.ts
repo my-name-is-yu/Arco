@@ -12,6 +12,84 @@ function deferred<T>() {
 }
 
 describe("UI tool request queue", () => {
+  it("discards obsolete queued reads, preserving interactive order ahead of previews", async () => {
+    const queue = createToolQueue();
+    const first = deferred<void>();
+    const second = deferred<void>();
+    const started: string[] = [];
+    const occupied = [
+      queue.run(() => first.promise),
+      queue.run(() => second.promise),
+    ];
+    const stale = new AbortController();
+    const obsolete = queue.run(
+      async () => {
+        started.push("obsolete");
+      },
+      { signal: stale.signal, priority: "background" },
+    );
+    const rejected = expect(obsolete).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    const preview = queue.run(
+      async () => {
+        started.push("preview");
+      },
+      { priority: "background" },
+    );
+    const save = queue.run(async () => {
+      started.push("save");
+    });
+    const nextSave = queue.run(async () => {
+      started.push("next save");
+    });
+    stale.abort();
+    await rejected;
+    await expect(
+      queue.run(
+        async () => {
+          started.push("already obsolete");
+        },
+        { signal: stale.signal },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    first.resolve();
+    await Promise.all([save, nextSave, preview]);
+    expect(started).toEqual(["save", "next save", "preview"]);
+    second.resolve();
+    await Promise.all(occupied);
+  });
+
+  it("keeps started calls occupying their slots after navigation and never replays a save", async () => {
+    const queue = createToolQueue();
+    const controller = new AbortController();
+    const active = deferred<string>();
+    const write = deferred<string>();
+    const started: string[] = [];
+    const read = queue.run(
+      () => {
+        started.push("read");
+        return active.promise;
+      },
+      { signal: controller.signal, priority: "background" },
+    );
+    const save = queue.run(() => {
+      started.push("save");
+      return write.promise;
+    });
+    controller.abort();
+    const next = queue.run(async () => {
+      started.push("next");
+    });
+    expect(started).toEqual(["read", "save"]);
+    active.resolve("old result");
+    await expect(read).resolves.toBe("old result");
+    await next;
+    write.resolve("saved once");
+    await expect(save).resolves.toBe("saved once");
+    expect(started).toEqual(["read", "save", "next"]);
+  });
+
   it("runs at most two callbacks and starts waiting requests in arrival order", async () => {
     const queue = createToolQueue();
     const gates = Array.from({ length: 6 }, () => deferred<number>());

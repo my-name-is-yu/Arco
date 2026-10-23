@@ -40,6 +40,7 @@ try {
     "arco_open",
     "arco_open_project",
     "arco_get_issue",
+    "arco_comments",
     "arco_account_issues",
     "arco_repositories",
     "arco_update_issue",

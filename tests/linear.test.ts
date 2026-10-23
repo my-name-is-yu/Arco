@@ -9,6 +9,51 @@ import { type LinearIssue, type LinearMetadata } from "../src/shared/linear";
 
 const ref = { ...LINEAR_FIXTURE_SCOPE, issueId: "fixture-linear-42" };
 describe("Linear source contracts", () => {
+  it("pages comments and returns a newly acknowledged reply even beyond the first page", async () => {
+    const service = createLinearFixtureService();
+    for (let index = 0; index < 64; index++)
+      await service.call("linear_comment", {
+        ...ref,
+        requestId: randomUUID(),
+        action: "create",
+        body: `Comment ${index}`,
+      });
+    const first = (await service.call("linear_get_issue", ref)) as LinearIssue;
+    expect(first.comments).toHaveLength(30);
+    expect(first.commentsHasMore).toBe(true);
+    const second = (await service.call("linear_comments", {
+      ...ref,
+      cursor: first.commentsCursor,
+    })) as {
+      comments: LinearIssue["comments"];
+      hasMore: boolean;
+      cursor: string;
+    };
+    expect(second.comments).toHaveLength(30);
+    expect(second.hasMore).toBe(true);
+    expect(
+      second.comments.some((comment) =>
+        first.comments.some((prior) => prior.id === comment.id),
+      ),
+    ).toBe(false);
+    const created = (await service.call("linear_comment", {
+      ...ref,
+      requestId: randomUUID(),
+      action: "create",
+      body: "Reply after sixty-five comments",
+      parentId: first.comments[0].id,
+    })) as LinearIssue;
+    expect(created.comments).toHaveLength(30);
+    expect(created.changedComment).toMatchObject({
+      body: "Reply after sixty-five comments",
+      parentId: first.comments[0].id,
+    });
+    expect(
+      created.comments.some(
+        (comment) => comment.id === created.changedComment?.id,
+      ),
+    ).toBe(false);
+  });
   it("preserves native workflow, unrelated labels, threaded replies, and write deduplication", async () => {
     const service = createLinearFixtureService();
     const first = (await service.call("linear_get_issue", ref)) as LinearIssue;

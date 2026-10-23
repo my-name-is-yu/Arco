@@ -8,6 +8,7 @@ import {
 import {
   accountIssuesInputSchema,
   commentInputSchema,
+  commentsInputSchema,
   createInputSchema,
   issueRefSchema,
   labelInputSchema,
@@ -17,6 +18,9 @@ import {
   repoSchema,
   updateInputSchema,
   type GitHubService,
+  type Comment,
+  type CommentPage,
+  type CommentsInput,
   type IssueDetail,
   type IssueRef,
   type IssueSummary,
@@ -148,6 +152,7 @@ const apiCommentSchema = z.object({
   user: z.object({ login: z.string() }).nullable(),
   html_url: z.string(),
   updated_at: z.string(),
+  issue_url: z.string().optional(),
 });
 const apiRepositorySchema = z.object({
   node_id: z.string(),
@@ -171,6 +176,17 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 
 function labelDto(label: z.infer<typeof apiLabelSchema>): Label {
   return { id: String(label.id), name: label.name, color: label.color };
+}
+
+function commentDto(comment: z.infer<typeof apiCommentSchema>): Comment {
+  return {
+    id: comment.node_id,
+    ...(comment.id !== undefined ? { databaseId: comment.id } : {}),
+    body: comment.body,
+    author: comment.user?.login ?? "ghost",
+    url: comment.html_url,
+    updatedAt: comment.updated_at,
+  };
 }
 
 function summary(
@@ -409,19 +425,27 @@ export function createGitHubService(
     }
   }
 
+  async function commentPage(input: CommentsInput): Promise<CommentPage> {
+    const comments = parse(
+      z.array(apiCommentSchema),
+      await api(
+        `repos/${input.repo}/issues/${input.number}/comments?per_page=30&page=${input.page}`,
+      ),
+    );
+    const hasMore = comments.length === 30;
+    return {
+      comments: comments.map(commentDto),
+      hasMore,
+      ...(hasMore ? { nextPage: input.page + 1 } : {}),
+    };
+  }
+
   async function get(raw: IssueRef): Promise<IssueDetail> {
     const input = issueRefSchema.parse(raw);
     const issueRequest = issueRecord(input);
     const [issue, comments, projectData] = await Promise.all([
       issueRequest,
-      api(
-        `repos/${input.repo}/issues/${input.number}/comments?per_page=100`,
-        "GET",
-        undefined,
-        true,
-      ).then((value) =>
-        parse(z.array(z.array(apiCommentSchema)), value).flat(),
-      ),
+      commentPage({ ...input, page: 1 }),
       issueRequest.then((issue) => projects(input, issue.node_id)),
     ]);
     return {
@@ -429,15 +453,9 @@ export function createGitHubService(
       body: issue.body ?? "",
       issueType: issue.type ?? null,
       stateReason: issue.state_reason ?? null,
-      comments: comments.map((comment) => ({
-        id: comment.node_id,
-        ...(comment.id !== undefined ? { databaseId: comment.id } : {}),
-        body: comment.body,
-        author: comment.user?.login ?? "ghost",
-        url: comment.html_url,
-        updatedAt: comment.updated_at,
-      })),
-      commentsHasMore: false,
+      comments: comments.comments,
+      commentsHasMore: comments.hasMore,
+      commentsNextPage: comments.nextPage,
       ...projectData,
     };
   }
@@ -582,6 +600,31 @@ export function createGitHubService(
       };
     },
     get,
+    async comments(raw) {
+      const input = commentsInputSchema.parse(raw);
+      await issueRecord(input);
+      return commentPage(input);
+    },
+    async readMarkdown(raw, commentId) {
+      const input = issueRefSchema.parse(raw);
+      const issue = await issueRecord(input);
+      if (commentId === undefined) return issue.body ?? "";
+      const id = z.number().int().positive().parse(commentId);
+      const comment = parse(
+        apiCommentSchema,
+        await api(`repos/${input.repo}/issues/comments/${id}`),
+      );
+      if (
+        comment.id !== id ||
+        comment.issue_url?.toLowerCase() !==
+          `https://api.github.com/repos/${input.repo}/issues/${input.number}`.toLowerCase()
+      )
+        throw new GitHubError(
+          "This comment does not belong to the selected issue.",
+          "invalid",
+        );
+      return comment.body;
+    },
     metadata,
     update(raw) {
       const input = updateInputSchema.parse(raw);
@@ -695,14 +738,20 @@ export function createGitHubService(
       const input = commentInputSchema.parse(raw);
       return once(input.requestId, ["comment", input], async () => {
         await issueRecord(input);
-        await api(
-          `repos/${input.repo}/issues/${input.number}/comments`,
-          "POST",
-          { body: input.body },
-          false,
-          true,
+        const posted = parse(
+          apiCommentSchema,
+          await api(
+            `repos/${input.repo}/issues/${input.number}/comments`,
+            "POST",
+            { body: input.body },
+            false,
+            true,
+          ),
         );
-        return refreshAfterWrite(input);
+        return {
+          ...(await refreshAfterWrite(input)),
+          postedComment: commentDto(posted),
+        };
       });
     },
     create(raw) {

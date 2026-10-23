@@ -183,6 +183,16 @@ function setup(
       return { data: {} };
     }
     if (method !== "GET") {
+      if (endpoint?.endsWith("/issues/comments/101") && method === "PATCH")
+        return {
+          id: 101,
+          node_id: "IC_101",
+          issue_url: `https://api.github.com/repos/${FIXTURE_REPO}/issues/42`,
+          updated_at: "2026-10-22T01:00:00Z",
+          body: body.body,
+          html_url: `https://github.com/${FIXTURE_REPO}/issues/42#issuecomment-101`,
+          user: { login: "fixture-user" },
+        };
       if (endpoint?.startsWith(`repos/${FIXTURE_REPO}/labels`))
         return {
           id: 1,
@@ -325,11 +335,16 @@ describe("explicit additional GitHub operations", () => {
         expectedUpdatedAt: "stale",
       }),
     ).rejects.toMatchObject({ code: "conflict" });
-    await operations.editComment({
+    const edited = await operations.editComment({
       ...ref,
       requestId: "fresh-comment-edit",
       commentId: 101,
       body: "@file\n$(never)",
+    });
+    expect("changedComment" in edited && edited.changedComment).toMatchObject({
+      databaseId: 101,
+      body: "@file\n$(never)",
+      updatedAt: "2026-10-22T01:00:00Z",
     });
     expect(writes()).toHaveLength(1);
     expect(writes()[0][0]).not.toContain("@file\n$(never)");

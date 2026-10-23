@@ -32,6 +32,7 @@ import type { Draft, DraftKey } from "../shared/state";
 
 import { isSavedReceipt, type LinearRun } from "./linear-run";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { useLinearComments } from "./linear-comments";
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const ref = (issue: LinearIssue) => ({
@@ -178,6 +179,7 @@ export function LinearDetail({
   run: LinearRun;
   onNotice: (message: string) => void;
 }) {
+  const discussion = useLinearComments(host, issue);
   const [storedDraft, setStoredDraft] = useState<Draft>({
     title: issue.title,
     body: issue.body,
@@ -344,12 +346,7 @@ export function LinearDetail({
       />
     );
   }
-  function commentView(
-    comment: LinearComment,
-    seen = new Set<string>(),
-  ): React.ReactNode {
-    if (seen.has(comment.id)) return null;
-    const next = new Set(seen).add(comment.id);
+  function commentView(comment: LinearComment): React.ReactNode {
     return (
       <article
         className={`linear-comment ${comment.parentId ? "linear-comment-reply" : ""}`}
@@ -372,6 +369,7 @@ export function LinearDetail({
             ↗
           </button>
         </div>
+        {comment.parentId && <small>Reply to comment {comment.parentId}</small>}
         {commentEdit?.id === comment.id ? (
           <LinearCommentEditor
             host={host}
@@ -439,9 +437,6 @@ export function LinearDetail({
             </>
           )}
         </div>
-        {issue.comments
-          .filter((child) => child.parentId === comment.id)
-          .map((child) => commentView(child, next))}
       </article>
     );
   }
@@ -775,29 +770,24 @@ export function LinearDetail({
             </details>
             <section className="comments-section">
               <h2>
-                Comment {issue.comments.length}
-                {issue.commentsHasMore ? "+" : ""}
+                Comment {discussion.comments.length}
+                {discussion.hasNextPage ? "+" : ""}
               </h2>
-              {issue.comments
-                .filter(
-                  (comment) =>
-                    !comment.parentId ||
-                    !issue.comments.some(
-                      (parent) => parent.id === comment.parentId,
-                    ),
-                )
-                .map((comment) => commentView(comment))}
-              {issue.commentsHasMore && (
+              {discussion.comments.map((comment) => commentView(comment))}
+              {discussion.isError && (
+                <p role="alert">
+                  Could not load comments. {errorText(discussion.error)}
+                </p>
+              )}
+              {discussion.hasNextPage && (
                 <button
                   className="text-button"
-                  onClick={() =>
-                    void hostAction(
-                      () => host.openLink(issue.url),
-                      "Opened all comments in Linear.",
-                    )
-                  }
+                  disabled={discussion.isFetching}
+                  onClick={() => void discussion.fetchNextPage()}
                 >
-                  View all comments in Linear ↗
+                  {discussion.isFetchingNextPage
+                    ? "Loading comments…"
+                    : "Load more comments"}
                 </button>
               )}
               <form

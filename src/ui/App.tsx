@@ -14,6 +14,8 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  replaceEqualDeep,
+  type InfiniteData,
 } from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
@@ -70,6 +72,8 @@ import type {
   AccountIssuePage,
   AccountIssuesInput,
   Connection,
+  Comment,
+  CommentPage,
   IssueDetail,
   IssuePage,
   IssueRef,
@@ -132,6 +136,34 @@ export function draftConflict(issue: IssueDetail, draft: Draft): boolean {
 type Notice = { kind: "success" | "error"; text: string };
 const issueKey = (issue: IssueRef) =>
   ["issue", issue.repo, issue.number] as const;
+const commentsKey = (issue: IssueRef) =>
+  ["github", "comments", issue.repo, issue.number] as const;
+const commentPostsKey = (issue: IssueRef) =>
+  ["github", "comment-posts", issue.repo, issue.number] as const;
+const firstCommentPage = (issue: IssueDetail): CommentPage => ({
+  comments: issue.comments,
+  hasMore: issue.commentsHasMore,
+  nextPage: issue.commentsNextPage ?? (issue.commentsHasMore ? 2 : undefined),
+});
+
+export function mergeCommentPages(
+  pages: CommentPage[],
+  posted: Comment[],
+): Comment[] {
+  const comments = new Map<string, Comment>();
+  for (const comment of [
+    ...pages.flatMap((page) => page.comments),
+    ...posted,
+  ]) {
+    const previous = comments.get(comment.id);
+    if (
+      !previous ||
+      Date.parse(comment.updatedAt) >= Date.parse(previous.updatedAt)
+    )
+      comments.set(comment.id, comment);
+  }
+  return [...comments.values()];
+}
 const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -570,21 +602,29 @@ function Workspace({
   const detail = useQuery({
     queryKey: activeRef ? issueKey(activeRef) : ["issue", "none"],
     refetchInterval: 30_000,
-    queryFn: () =>
-      host.call<IssueDetail>("arco_get_issue", {
-        repo: activeRef!.repo,
-        number: activeRef!.number,
-      }),
+    queryFn: ({ signal }) =>
+      host.call<IssueDetail>(
+        "arco_get_issue",
+        {
+          repo: activeRef!.repo,
+          number: activeRef!.number,
+        },
+        { signal, priority: "background" },
+      ),
     enabled: source === "github" && Boolean(activeRef),
   });
   const sharedDetail = useQuery({
     queryKey: shared ? issueKey(shared) : ["issue", "shared-none"],
     refetchInterval: 30_000,
-    queryFn: () =>
-      host.call<IssueDetail>("arco_get_issue", {
-        repo: shared!.repo,
-        number: shared!.number,
-      }),
+    queryFn: ({ signal }) =>
+      host.call<IssueDetail>(
+        "arco_get_issue",
+        {
+          repo: shared!.repo,
+          number: shared!.number,
+        },
+        { signal, priority: "background" },
+      ),
     enabled: source === "github" && Boolean(shared),
   });
   const metadataRepo = activeRef?.repo ?? repo;
@@ -606,10 +646,17 @@ function Workspace({
       args: Record<string, unknown>;
     }) => host.call<IssueDetail>(name, args),
     onSuccess: async (result) => {
+      if (result.postedComment)
+        queryClient.setQueryData<Comment[]>(
+          commentPostsKey(result),
+          (previous = []) =>
+            mergeCommentPages([], [...previous, result.postedComment!]),
+        );
       queryClient.setQueryData(issueKey(result), result);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["issues"] }),
         queryClient.invalidateQueries({ queryKey: issueKey(result) }),
+        queryClient.invalidateQueries({ queryKey: commentsKey(result) }),
       ]);
     },
   });
@@ -1974,6 +2021,86 @@ function IssueContent({
   hostAction,
   shared,
 }: ContentProps) {
+  const client = useQueryClient();
+  const comments = useInfiniteQuery({
+    queryKey: commentsKey(issue),
+    initialPageParam: 1,
+    initialData: { pages: [firstCommentPage(issue)], pageParams: [1] },
+    structuralSharing: (previous, incoming) => {
+      const pages = incoming as InfiniteData<CommentPage, number>;
+      const current = client.getQueryData<IssueDetail>(issueKey(issue));
+      if (!current) return replaceEqualDeep(previous, pages);
+      // A continuation can finish after a newer detail refresh. Its captured
+      // first page must never replace the current issue's first page.
+      return replaceEqualDeep(previous, {
+        pages: [
+          firstCommentPage(current),
+          ...(current.commentsHasMore ? pages.pages.slice(1) : []),
+        ],
+        pageParams: current.commentsHasMore ? pages.pageParams : [1],
+      });
+    },
+    staleTime: Infinity,
+    refetchInterval: 30_000,
+    queryFn: ({ pageParam, signal }) => {
+      // The detail query refreshes the first page. Only explicitly loaded
+      // continuation pages need additional provider reads during refresh.
+      if (pageParam === 1)
+        return firstCommentPage(
+          client.getQueryData<IssueDetail>(issueKey(issue)) ?? issue,
+        );
+      return host.call<CommentPage>(
+        "arco_comments",
+        {
+          repo: issue.repo,
+          number: issue.number,
+          page: pageParam,
+        },
+        { signal, priority: "background" },
+      );
+    },
+    getNextPageParam: (page) => (page.hasMore ? page.nextPage : undefined),
+  });
+  const posted = useQuery<Comment[]>({
+    queryKey: commentPostsKey(issue),
+    queryFn: () => [],
+    initialData: [],
+    enabled: false,
+  });
+  useEffect(() => {
+    client.setQueryData<InfiniteData<CommentPage, number>>(
+      commentsKey(issue),
+      (previous) => ({
+        pages: [
+          firstCommentPage(issue),
+          ...(issue.commentsHasMore ? (previous?.pages.slice(1) ?? []) : []),
+        ],
+        pageParams: issue.commentsHasMore ? (previous?.pageParams ?? [1]) : [1],
+      }),
+    );
+  }, [client, issue]);
+  useEffect(() => {
+    const loaded = new Map(
+      comments.data.pages.flatMap((page) =>
+        page.comments.map((comment) => [comment.id, comment] as const),
+      ),
+    );
+    const confirmed = (comment: Comment) => {
+      const native = loaded.get(comment.id);
+      return (
+        native !== undefined &&
+        (Date.parse(native.updatedAt) > Date.parse(comment.updatedAt) ||
+          (native.updatedAt === comment.updatedAt &&
+            native.body === comment.body))
+      );
+    };
+    client.setQueryData<Comment[]>(commentPostsKey(issue), (previous) =>
+      previous?.some(confirmed)
+        ? previous.filter((comment) => !confirmed(comment))
+        : previous,
+    );
+  }, [client, comments.data, issue]);
+  const visibleComments = mergeCommentPages(comments.data.pages, posted.data);
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState(false);
   const [compareLatest, setCompareLatest] = useState(false);
@@ -2302,11 +2429,11 @@ function IssueContent({
               <h2 id={`comments-${issue.number}`}>
                 Comments{" "}
                 <span>
-                  {issue.comments.length}
-                  {issue.commentsHasMore ? "+" : ""}
+                  {visibleComments.length}
+                  {comments.hasNextPage ? "+" : ""}
                 </span>
               </h2>
-              {issue.comments.map((comment) => (
+              {visibleComments.map((comment) => (
                 <article className="comment" key={comment.id}>
                   <div className="comment-heading">
                     <span className="avatar">
@@ -2340,21 +2467,24 @@ function IssueContent({
                   <CommentActions host={host} issue={issue} comment={comment} />
                 </article>
               ))}
-              {!issue.comments.length && (
+              {!visibleComments.length && (
                 <p className="muted no-comments">No comments yet.</p>
               )}
-              {issue.commentsHasMore && (
+              {comments.hasNextPage && (
                 <button
                   className="text-button"
-                  onClick={() =>
-                    void hostAction(
-                      () => host.openLink(`${issue.url}#issuecomment`),
-                      "Opened all comments on GitHub.",
-                    )
-                  }
+                  disabled={comments.isFetching}
+                  onClick={() => void comments.fetchNextPage()}
                 >
-                  View remaining comments on GitHub ↗
+                  {comments.isFetchingNextPage
+                    ? "Loading comments…"
+                    : "Load more comments"}
                 </button>
+              )}
+              {comments.isError && (
+                <p className="inline-error" role="alert">
+                  Could not load comments. {errorText(comments.error)}
+                </p>
               )}
               <form
                 className="comment-form"

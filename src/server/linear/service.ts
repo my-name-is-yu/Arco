@@ -8,6 +8,7 @@ import {
   type Reaction,
   type Team,
   type Template,
+  type Comment,
 } from "@linear/sdk";
 import { z } from "zod";
 import {
@@ -23,6 +24,8 @@ import {
   type LinearLabel,
   type LinearTemplate,
   type LinearSavedReceipt,
+  type LinearCommentPage,
+  type LinearComment,
 } from "../../shared/linear";
 import { createWriteGuard } from "../github";
 import { createLinearAuth, type LinearAuth } from "./auth";
@@ -308,6 +311,39 @@ export function createLinearService(
       cycle: cycle ? { id: cycle.id, name: cycle.name ?? "Cycle" } : null,
     };
   }
+  async function commentData(item: Comment): Promise<LinearComment> {
+    const author = await item.user;
+    return {
+      id: item.id,
+      body: item.body,
+      author: author?.name ?? "Deleted user",
+      authorId: item.userId ?? "",
+      parentId: item.parentId ?? null,
+      updatedAt: item.updatedAt.toISOString(),
+      url: item.url,
+      reactions: item.reactions.map(reaction),
+    };
+  }
+  async function commentsPage(
+    issue: Issue,
+    cursor?: string,
+  ): Promise<LinearCommentPage> {
+    const connection = await issue.comments({
+      first: 30,
+      orderBy: PaginationOrderBy.CreatedAt,
+      ...(cursor ? { after: cursor } : {}),
+    });
+    const next = connection.pageInfo.endCursor ?? null;
+    if (connection.pageInfo.hasNextPage && (!next || next === cursor))
+      throw new Error(
+        "Linear comment pagination did not advance. Refresh and try again.",
+      );
+    return {
+      comments: await Promise.all(connection.nodes.map(commentData)),
+      hasMore: connection.pageInfo.hasNextPage,
+      cursor: next,
+    };
+  }
   async function detail(scope: LinearRef): Promise<LinearIssue> {
     const { client } = await context(scope);
     const issue = await checkedIssue(client, scope);
@@ -317,26 +353,11 @@ export function createLinearService(
         summary(scope, issue, meta),
         issue.parent,
         all(issue.children({ first: 100 })),
-        all(issue.comments({ first: 100 })),
+        commentsPage(issue),
         all(issue.attachments({ first: 100 })),
         all(issue.relations({ first: 100 })),
         all(issue.inverseRelations({ first: 100 })),
       ]);
-    const commentData = await Promise.all(
-      comments.map(async (item) => {
-        const [author, parent] = await Promise.all([item.user, item.parent]);
-        return {
-          id: item.id,
-          body: item.body,
-          author: author?.name ?? "Deleted user",
-          authorId: item.userId ?? "",
-          parentId: parent?.id ?? null,
-          updatedAt: item.updatedAt.toISOString(),
-          url: item.url,
-          reactions: item.reactions.map(reaction),
-        };
-      }),
-    );
     const relations = await Promise.all(
       [
         ...new Map(
@@ -370,8 +391,9 @@ export function createLinearService(
         identifier: item.identifier,
         title: item.title,
       })),
-      comments: commentData,
-      commentsHasMore: false,
+      comments: comments.comments,
+      commentsHasMore: comments.hasMore,
+      commentsCursor: comments.cursor,
       attachments: attachments.map((item) => ({
         id: item.id,
         title: item.title,
@@ -385,9 +407,20 @@ export function createLinearService(
     scope: LinearRef,
     acknowledgement?: string,
     receipt?: Pick<LinearSavedReceipt, "operation" | "commentId">,
+    commentChange?: { commentId?: string; deletedCommentId?: string },
   ): Promise<LinearIssue | LinearSavedReceipt> {
     try {
-      return await detail(scope);
+      const refreshed = await detail(scope);
+      if (commentChange?.commentId) {
+        const { client } = await context(scope);
+        const comment = await client.comment({ id: commentChange.commentId });
+        if ((await comment.issue)?.id !== scope.issueId)
+          throw new Error("The comment does not belong to the selected issue.");
+        refreshed.changedComment = await commentData(comment);
+      }
+      if (commentChange?.deletedCommentId)
+        refreshed.deletedCommentId = commentChange.deletedCommentId;
+      return refreshed;
     } catch {
       const message = `${acknowledgement ?? `The change was saved to Linear issue ${scope.issueId}.`} Its details could not be refreshed. Refresh before another change.`;
       if (receipt)
@@ -618,22 +651,36 @@ export function createLinearService(
     }
     if (name === "linear_get_issue")
       return detail(linearSchemas[name].parse(raw));
+    if (name === "linear_comments") {
+      const input = linearSchemas[name].parse(raw);
+      const { client } = await context(input);
+      return commentsPage(await checkedIssue(client, input), input.cursor);
+    }
     if (name === "linear_read_image") {
       const input = linearSchemas[name].parse(raw);
-      const issue = await detail(input);
-      const markdown = input.commentId
-        ? issue.comments.find((comment) => comment.id === input.commentId)?.body
-        : issue.body;
-      if (markdown === undefined)
+      const { client } = await context(input);
+      const issue = await checkedIssue(client, input);
+      const comment = input.commentId
+        ? await client.comment({ id: input.commentId })
+        : null;
+      if (
+        comment &&
+        (comment.id !== input.commentId ||
+          (await comment.issue)?.id !== issue.id)
+      )
         throw new Error("The image comment does not belong to this issue.");
-      return readIssueImage({
-        url: input.url,
-        markdown,
-        authorization: {
-          hostname: "uploads.linear.app",
-          value: `Bearer ${await auth.accessToken(input.connectionId)}`,
+      const markdown = comment ? comment.body : (issue.description ?? "");
+      return readIssueImage(
+        {
+          url: input.url,
+          markdown,
+          authorization: {
+            hostname: "uploads.linear.app",
+            value: `Bearer ${await auth.accessToken(input.connectionId)}`,
+          },
         },
-      });
+        { fetch: request },
+      );
     }
     if (name === "linear_templates")
       return templates(linearSchemas[name].parse(raw));
@@ -796,6 +843,7 @@ export function createLinearService(
             operation: "create_comment",
             ...(created.commentId ? { commentId: created.commentId } : {}),
           },
+          created.commentId ? { commentId: created.commentId } : undefined,
         );
       } else {
         if (!input.commentId) throw new Error("Choose a target comment.");
@@ -817,7 +865,14 @@ export function createLinearService(
             : await client.updateComment(comment.id, { body: input.body }),
         );
       }
-      return refreshAfterWrite(input);
+      return refreshAfterWrite(
+        input,
+        undefined,
+        undefined,
+        input.action === "delete"
+          ? { deletedCommentId: input.commentId }
+          : { commentId: input.commentId },
+      );
     }
     if (name === "linear_reaction") {
       const input = linearSchemas[name].parse(raw);
@@ -845,7 +900,12 @@ export function createLinearService(
           throw new Error("You can only remove your own matching reaction.");
         assertSuccess(await client.deleteReaction(existing.id));
       }
-      return refreshAfterWrite(input);
+      return refreshAfterWrite(
+        input,
+        undefined,
+        undefined,
+        input.commentId ? { commentId: input.commentId } : undefined,
+      );
     }
     if (name === "linear_relation") {
       const input = linearSchemas[name].parse(raw);

@@ -51,6 +51,10 @@ import { isSavedReceipt } from "./linear-run";
 import "./linear.css";
 import { isIssueUrlInput, linearIssueUrl } from "../shared/issue-url";
 import { DisclosureSummary } from "./DisclosureSummary";
+import {
+  linearCommentChangesKey,
+  type LinearCommentChanges,
+} from "./linear-comments";
 
 export const linearRef = (issue: LinearRef): LinearRef => ({
   connectionId: issue.connectionId,
@@ -99,6 +103,8 @@ const linearDataKeys = new Set([
   "linear-templates",
   "linear-issues",
   "linear-issue",
+  "linear-comments",
+  "linear-comment-changes",
 ]);
 
 export function LinearWorkspace({
@@ -363,7 +369,12 @@ export function LinearWorkspace({
     queryKey: ["linear-issue", active],
     refetchInterval:
       canRead && (mode === "fullscreen" || !shared) ? 30_000 : false,
-    queryFn: () => host.call<LinearIssue>("linear_get_issue", { ...active }),
+    queryFn: ({ signal }) =>
+      host.call<LinearIssue>(
+        "linear_get_issue",
+        { ...active },
+        { signal, priority: "background" },
+      ),
     enabled: canRead && Boolean(active),
   });
   const sharedIssue = useQuery({
@@ -372,7 +383,12 @@ export function LinearWorkspace({
       canRead && matchesConnection(shared) && mode !== "fullscreen" && shared
         ? 30_000
         : false,
-    queryFn: () => host.call<LinearIssue>("linear_get_issue", { ...shared }),
+    queryFn: ({ signal }) =>
+      host.call<LinearIssue>(
+        "linear_get_issue",
+        { ...shared },
+        { signal, priority: "background" },
+      ),
     enabled: canRead && Boolean(shared) && matchesConnection(shared),
   });
   const detailScope = useMemo(
@@ -410,9 +426,12 @@ export function LinearWorkspace({
           void cache.invalidateQueries(
             {
               predicate: (entry) =>
-                ["linear-issue", "linear-issues", "linear-metadata"].includes(
-                  String(entry.queryKey[0]),
-                ),
+                [
+                  "linear-issue",
+                  "linear-issues",
+                  "linear-metadata",
+                  "linear-comments",
+                ].includes(String(entry.queryKey[0])),
             },
             { cancelRefetch: false },
           );
@@ -501,8 +520,32 @@ export function LinearWorkspace({
         void cache.invalidateQueries({ queryKey: ["linear-issues"] });
         return result;
       }
+      if (
+        result &&
+        typeof result === "object" &&
+        "source" in result &&
+        result.source === "linear" &&
+        "issueId" in result
+      ) {
+        const issue = result as unknown as LinearIssue;
+        cache.setQueryData(["linear-issue", linearRef(issue)], issue);
+        if (issue.changedComment || issue.deletedCommentId)
+          cache.setQueryData<LinearCommentChanges>(
+            linearCommentChangesKey(issue),
+            (current = {}) => ({
+              ...current,
+              ...(issue.changedComment
+                ? { [issue.changedComment.id]: issue.changedComment }
+                : {}),
+              ...(issue.deletedCommentId
+                ? { [issue.deletedCommentId]: null }
+                : {}),
+            }),
+          );
+      }
       await Promise.all([
         cache.invalidateQueries({ queryKey: ["linear-issue"] }),
+        cache.invalidateQueries({ queryKey: ["linear-comments"] }),
         cache.invalidateQueries({ queryKey: ["linear-issues"] }),
         cache.invalidateQueries({ queryKey: ["linear-metadata"] }),
       ]);

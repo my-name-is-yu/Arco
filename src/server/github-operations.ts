@@ -55,6 +55,12 @@ const apiCommentSchema = z.object({
   issue_url: z.string(),
   updated_at: z.string(),
 });
+const changedCommentSchema = apiCommentSchema.extend({
+  node_id: z.string(),
+  body: z.string(),
+  html_url: z.string(),
+  user: z.object({ login: z.string() }).nullable(),
+});
 const apiReactionSchema = z.object({
   id: z.number(),
   content: reactionContentSchema,
@@ -389,12 +395,31 @@ export function createGitHubOperations(options: {
   function editComment(input: Input<"arco_edit_comment">) {
     return once(input.requestId, ["editComment", input], async () => {
       await commentRecord(input, input.commentId, input.expectedUpdatedAt);
-      await api(
-        `repos/${input.repo}/issues/comments/${input.commentId}`,
-        "PATCH",
-        { body: input.body },
+      const changed = parse(
+        changedCommentSchema,
+        await api(
+          `repos/${input.repo}/issues/comments/${input.commentId}`,
+          "PATCH",
+          { body: input.body },
+        ),
       );
-      return refresh(input);
+      if (
+        changed.id !== input.commentId ||
+        changed.issue_url.toLowerCase() !==
+          `https://api.github.com/${issuePath(input)}`.toLowerCase()
+      )
+        return invalid("GitHub returned a different comment after editing.");
+      return {
+        ...(await refresh(input)),
+        changedComment: {
+          id: changed.node_id,
+          databaseId: changed.id,
+          body: changed.body,
+          author: changed.user?.login ?? "ghost",
+          url: changed.html_url,
+          updatedAt: changed.updated_at,
+        },
+      };
     });
   }
   function deleteComment(input: Input<"arco_delete_comment">) {

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ArcoHost, IssueRef } from "../shared/contracts";
+import type { ArcoHost, Comment, IssueRef } from "../shared/contracts";
 
 const pendingByHost = new WeakMap<ArcoHost, Map<string, string>>();
 function pendingFor(host: ArcoHost) {
@@ -33,10 +33,20 @@ export function useGitHubOperation(host: ArcoHost, issue?: IssueRef) {
     const key = JSON.stringify([name, args]);
     const requestId = requests.current.get(key) ?? crypto.randomUUID();
     requests.current.set(key, requestId);
-    try {
-      const result = await host.call<T>(name, { ...args, requestId });
-      requests.current.delete(key);
-      after?.(result);
+    const reaction =
+      name === "arco_add_reaction" || name === "arco_remove_reaction";
+    const reactionKey = [
+      "github",
+      "reactions",
+      args.repo,
+      args.number,
+      args.commentId,
+    ];
+    const refresh = async () => {
+      if (reaction) {
+        await client.invalidateQueries({ queryKey: reactionKey, exact: true });
+        return;
+      }
       await Promise.all([
         client.invalidateQueries({ queryKey: ["issues"] }),
         client.invalidateQueries({ queryKey: ["metadata"] }),
@@ -49,15 +59,45 @@ export function useGitHubOperation(host: ArcoHost, issue?: IssueRef) {
             ]
           : []),
       ]);
+    };
+    try {
+      const result = await host.call<T>(name, { ...args, requestId });
+      requests.current.delete(key);
+      if (
+        issue &&
+        (name === "arco_edit_comment" || name === "arco_delete_comment")
+      ) {
+        const changed = (result as { changedComment?: Comment }).changedComment;
+        client.setQueryData<Comment[]>(
+          ["github", "comment-posts", issue.repo, issue.number],
+          (old = []) => {
+            if (!changed)
+              return old.filter(
+                (comment) => comment.databaseId !== args.commentId,
+              );
+            return old.some((comment) => comment.id === changed.id)
+              ? old.map((comment) =>
+                  comment.id === changed.id ? changed : comment,
+                )
+              : [...old, changed];
+          },
+        );
+      }
+      after?.(result);
+      await refresh();
       setSaved(true);
       return true;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
-      await client.invalidateQueries({ queryKey: ["github"] });
-      if (issue)
-        await client.invalidateQueries({
-          queryKey: ["issue", issue.repo, issue.number],
-        });
+      if (reaction)
+        await client.invalidateQueries({ queryKey: reactionKey, exact: true });
+      else {
+        await client.invalidateQueries({ queryKey: ["github"] });
+        if (issue)
+          await client.invalidateQueries({
+            queryKey: ["issue", issue.repo, issue.number],
+          });
+      }
       return false;
     } finally {
       lock.current = false;

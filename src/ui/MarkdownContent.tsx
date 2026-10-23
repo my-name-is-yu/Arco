@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import rehypeSanitize from "rehype-sanitize";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { markdownTaskAtLine } from "./markdown-tasks";
+import { useNearViewport } from "./useNearViewport";
 
 type ImageContext = {
   host: ArcoHost;
@@ -22,6 +23,7 @@ function SourceImage({
   image?: ImageContext;
   onOpen: (url: string) => void;
 }) {
+  const { ref, near } = useNearViewport<HTMLSpanElement>();
   const issue = image?.issue;
   const sourceRef =
     issue?.source === "github"
@@ -37,14 +39,18 @@ function SourceImage({
       image?.commentId,
       url,
     ],
-    queryFn: () => image!.host.readImage(image!.issue, url, image!.commentId),
-    enabled: Boolean(image),
+    queryFn: ({ signal }) =>
+      image!.host.readImage(image!.issue, url, image!.commentId, {
+        signal,
+        priority: "background",
+      }),
+    enabled: Boolean(image) && near,
     retry: false,
     staleTime: 10 * 60_000,
     gcTime: 10 * 60_000,
   });
   return (
-    <span className="source-image">
+    <span className="source-image" ref={ref}>
       {preview.data && (
         <img
           src={`data:${preview.data.mimeType};base64,${preview.data.data}`}
@@ -52,8 +58,10 @@ function SourceImage({
           loading="lazy"
         />
       )}
-      {image && preview.isPending && (
-        <span className="muted">Loading {alt}… </span>
+      {image && !preview.data && !preview.isError && (
+        <span className="muted source-image-placeholder">
+          {near ? `Loading ${alt}…` : alt}{" "}
+        </span>
       )}
       {preview.isError && (
         <span className="muted">Image preview unavailable. </span>

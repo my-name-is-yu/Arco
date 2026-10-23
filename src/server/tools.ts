@@ -6,6 +6,7 @@ import {
 import {
   accountIssuesInputSchema,
   commentInputSchema,
+  commentsInputSchema,
   createInputSchema,
   issueRefSchema,
   labelInputSchema,
@@ -23,6 +24,7 @@ export const dataSchemas = {
   arco_account_issues: accountIssuesInputSchema,
   arco_repositories: repositoriesInputSchema,
   arco_get_issue: issueRefSchema,
+  arco_comments: commentsInputSchema,
   arco_repo_metadata: z.object({ repo: repoSchema }),
   arco_update_issue: updateInputSchema,
   arco_change_labels: labelInputSchema,
@@ -50,6 +52,8 @@ export async function callDataTool(
       return service.repositories(repositoriesInputSchema.parse(args));
     case "arco_get_issue":
       return service.get(issueRefSchema.parse(args));
+    case "arco_comments":
+      return service.comments(commentsInputSchema.parse(args));
     case "arco_repo_metadata":
       return service.metadata(dataSchemas.arco_repo_metadata.parse(args).repo);
     case "arco_update_issue":

@@ -8,6 +8,7 @@ import {
   type LinearMetadata,
   type LinearService,
   type LinearToolName,
+  type LinearComment,
 } from "../../shared/linear";
 import { createWriteGuard } from "../github";
 import { FIXTURE_IMAGE_URL, readIssueImage } from "../images";
@@ -148,7 +149,31 @@ export function createLinearFixtureService(): LinearService {
     issue.updatedAt = new Date(
       Math.max(Date.now(), Date.parse(issue.updatedAt) + 1),
     ).toISOString();
-    return structuredClone(issue);
+    return detail(issue);
+  }
+  function commentsPage(issue: LinearIssue, cursor?: string) {
+    const start = cursor
+      ? issue.comments.findIndex((comment) => comment.id === cursor) + 1
+      : 0;
+    if (cursor && start === 0)
+      throw new Error(
+        "The comment cursor is no longer available. Refresh and try again.",
+      );
+    const comments = issue.comments.slice(start, start + 30);
+    return {
+      comments: structuredClone(comments),
+      hasMore: start + comments.length < issue.comments.length,
+      cursor: comments.at(-1)?.id ?? null,
+    };
+  }
+  function detail(issue: LinearIssue): LinearIssue {
+    const page = commentsPage(issue);
+    return {
+      ...structuredClone(issue),
+      comments: page.comments,
+      commentsHasMore: page.hasMore,
+      commentsCursor: page.cursor,
+    };
   }
   function patchIssue(
     issue: LinearIssue,
@@ -289,7 +314,11 @@ export function createLinearFixtureService(): LinearService {
       };
     }
     if (name === "linear_get_issue")
-      return structuredClone(find(linearSchemas[name].parse(raw)));
+      return detail(find(linearSchemas[name].parse(raw)));
+    if (name === "linear_comments") {
+      const input = linearSchemas[name].parse(raw);
+      return commentsPage(find(input), input.cursor);
+    }
     if (name === "linear_read_image") {
       const input = linearSchemas[name].parse(raw);
       const issue = find(input);
@@ -432,6 +461,7 @@ export function createLinearFixtureService(): LinearService {
     if (name === "linear_comment") {
       const input = linearSchemas[name].parse(raw);
       const issue = find(input);
+      let changedComment: LinearComment | undefined;
       if (input.action === "create") {
         if (
           !input.body ||
@@ -449,6 +479,7 @@ export function createLinearFixtureService(): LinearService {
           updatedAt: new Date().toISOString(),
           reactions: [],
         });
+        changedComment = issue.comments.at(-1);
       } else {
         const comment = issue.comments.find(
           (item) => item.id === input.commentId,
@@ -472,9 +503,18 @@ export function createLinearFixtureService(): LinearService {
           comment.updatedAt = new Date(
             Math.max(Date.now(), Date.parse(comment.updatedAt) + 1),
           ).toISOString();
+          changedComment = comment;
         }
       }
-      return touch(issue);
+      return {
+        ...touch(issue),
+        ...(changedComment
+          ? { changedComment: structuredClone(changedComment) }
+          : {}),
+        ...(input.action === "delete"
+          ? { deletedCommentId: input.commentId }
+          : {}),
+      };
     }
     if (name === "linear_reaction") {
       const input = linearSchemas[name].parse(raw);
@@ -504,7 +544,12 @@ export function createLinearFixtureService(): LinearService {
           (item) => item.id !== current.id,
         );
       }
-      return touch(issue);
+      return {
+        ...touch(issue),
+        ...(input.commentId
+          ? { changedComment: structuredClone(target as LinearComment) }
+          : {}),
+      };
     }
     if (name === "linear_relation") {
       const input = linearSchemas[name].parse(raw);

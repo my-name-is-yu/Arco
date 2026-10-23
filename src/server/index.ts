@@ -97,6 +97,7 @@ const readOnly = new Set<DataToolName>([
   "arco_account_issues",
   "arco_repositories",
   "arco_get_issue",
+  "arco_comments",
   "arco_repo_metadata",
   "search_mentions",
 ]);
@@ -219,7 +220,9 @@ const descriptions: Record<DataToolName, string> = {
   arco_repositories:
     "Discover repositories the authenticated account can explicitly access as owner, collaborator or organization member, 30 at a time. Does not scan repository issues or search public GitHub.",
   arco_get_issue:
-    "Read one GitHub issue, body, comments, and separate Projects statuses.",
+    "Read one GitHub issue, body, the first 30 comments, and separate Projects statuses. Use arco_comments for subsequent pages.",
+  arco_comments:
+    "Read one page of 30 comments for the selected GitHub issue. Follow nextPage only when the user requests more comments; a full page may require one final empty page request.",
   arco_repo_metadata: "Read repository labels and eligible assignees.",
   arco_update_issue:
     "Edit only supplied issue fields. expectedUpdatedAt detects known conflicts. A requestId is reusable only for the identical action; writes are never automatically retried.",

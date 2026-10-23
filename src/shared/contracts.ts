@@ -63,6 +63,9 @@ export const commentInputSchema = issueRefSchema.extend({
   requestId: z.string().min(8).max(100),
   body: z.string().min(1).max(65536),
 });
+export const commentsInputSchema = issueRefSchema.extend({
+  page: z.number().int().positive().default(1),
+});
 export const createInputSchema = z.object({
   repo: repoSchema,
   requestId: z.string().min(8).max(100),
@@ -86,6 +89,7 @@ export type RepositoriesInput = z.infer<typeof repositoriesInputSchema>;
 export type UpdateInput = z.infer<typeof updateInputSchema>;
 export type LabelInput = z.infer<typeof labelInputSchema>;
 export type CommentInput = z.infer<typeof commentInputSchema>;
+export type CommentsInput = z.infer<typeof commentsInputSchema>;
 export type CreateInput = z.infer<typeof createInputSchema>;
 export type ProjectInput = z.infer<typeof projectInputSchema>;
 export interface Label {
@@ -100,6 +104,11 @@ export interface Comment {
   author: string;
   url: string;
   updatedAt: string;
+}
+export interface CommentPage {
+  comments: Comment[];
+  hasMore: boolean;
+  nextPage?: number;
 }
 export interface ProjectStatus {
   projectId: string;
@@ -127,6 +136,8 @@ export interface IssueDetail extends IssueSummary {
   stateReason: string | null;
   comments: Comment[];
   commentsHasMore: boolean;
+  commentsNextPage?: number;
+  postedComment?: Comment;
   projects: ProjectStatus[];
   projectsError?: string;
 }
@@ -169,6 +180,8 @@ export interface GitHubService {
   accountIssues(input: AccountIssuesInput): Promise<AccountIssuePage>;
   repositories(input: RepositoriesInput): Promise<RepositoryPage>;
   get(input: IssueRef): Promise<IssueDetail>;
+  comments(input: CommentsInput): Promise<CommentPage>;
+  readMarkdown(input: IssueRef, commentId?: number): Promise<string>;
   metadata(repo: string): Promise<RepoMetadata>;
   update(input: UpdateInput): Promise<IssueDetail>;
   labels(input: LabelInput): Promise<IssueDetail>;
@@ -216,11 +229,16 @@ export interface ArcoHost {
   sharedIssue?(): SharedIssueRef | null;
   sharedAnnotations?(): SelectionAnnotationContext[] | null;
   annotationSnapshotId?(): string | null;
-  call<T>(name: string, args: Record<string, unknown>): Promise<T>;
+  call<T>(
+    name: string,
+    args: Record<string, unknown>,
+    options?: { signal?: AbortSignal; priority?: "background" | "interactive" },
+  ): Promise<T>;
   readImage(
     issue: ConversationIssue,
     url: string,
     commentId?: string | number,
+    options?: { signal?: AbortSignal; priority?: "background" | "interactive" },
   ): Promise<ImageData>;
   share(issue: ConversationIssue): Promise<void>;
   shareAnnotations(

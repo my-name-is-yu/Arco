@@ -1,6 +1,7 @@
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
 import { checkMarkdownSecurity } from "./markdown-security-helpers";
+import type { Comment, IssueDetail } from "../src/shared/contracts";
 import {
   sharedContextFromText,
   latestSharedSelection,
@@ -1438,6 +1439,199 @@ test("presentation changes preserve the GitHub draft without tool calls", async 
     app.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
   await expect(app.getByText(/request queue is full/)).toHaveCount(0);
+  expect(await events(page, "message")).toEqual([]);
+  expect(await events(page, "context")).toEqual([]);
+});
+
+test("GitHub comments append bounded pages, retain a posted comment through refresh, and reconcile edits and deletion", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  await page.clock.install();
+  let issue: IssueDetail | undefined;
+  let comments: Comment[] = Array.from({ length: 100 }, (_, index) => ({
+    id: `paged-comment-${index + 1}`,
+    databaseId: index + 1,
+    body: `Paged comment ${index + 1}`,
+    author: "fixture-user",
+    url: `https://github.com/yu/Arco/issues/42#issuecomment-${index + 1}`,
+    updatedAt: "2026-10-22T01:00:00Z",
+  }));
+  const pages: number[] = [];
+  let releasePage!: () => void;
+  const pendingPage = new Promise<void>((resolve) => {
+    releasePage = resolve;
+  });
+  const detail = (): IssueDetail => ({
+    ...issue!,
+    comments: comments.slice(0, 30),
+    commentsHasMore: comments.length > 30,
+    commentsNextPage: comments.length > 30 ? 2 : undefined,
+  });
+  const result = (value: object) => ({
+    structuredContent: value,
+    content: [{ type: "text", text: JSON.stringify(value) }],
+  });
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: {
+        number?: number;
+        page?: number;
+        body?: string;
+        commentId?: number;
+      };
+    };
+    if (input.name === "arco_get_issue" && input.arguments.number === 42) {
+      if (!issue) {
+        const response = await route.fetch();
+        issue = (await response.json()).structuredContent as IssueDetail;
+      }
+      return route.fulfill({ json: result(detail()) });
+    }
+    if (input.name === "arco_comments") {
+      const page = input.arguments.page!;
+      pages.push(page);
+      if (page === 2) await pendingPage;
+      const hasMore = comments.length > page * 30;
+      return route.fulfill({
+        json: result({
+          comments: comments.slice((page - 1) * 30, page * 30),
+          hasMore,
+          nextPage: hasMore ? page + 1 : undefined,
+        }),
+      });
+    }
+    if (input.name === "arco_comment") {
+      const id = comments.length + 1;
+      const postedComment: Comment = {
+        ...comments[0],
+        id: `paged-comment-${id}`,
+        databaseId: id,
+        body: input.arguments.body!,
+        url: `https://github.com/yu/Arco/issues/42#issuecomment-${id}`,
+        updatedAt: "2026-10-24T01:00:00Z",
+      };
+      comments.push(postedComment);
+      return route.fulfill({ json: result({ ...detail(), postedComment }) });
+    }
+    if (input.name === "arco_edit_comment") {
+      const changedComment = comments.find(
+        (comment) => comment.databaseId === input.arguments.commentId,
+      )!;
+      changedComment.body = input.arguments.body!;
+      changedComment.updatedAt = "2026-10-24T01:01:00Z";
+      return route.fulfill({
+        json: result({
+          repo: "yu/Arco",
+          number: 42,
+          issue: detail(),
+          changedComment,
+        }),
+      });
+    }
+    if (input.name === "arco_delete_comment") {
+      comments = comments.filter(
+        (comment) => comment.databaseId !== input.arguments.commentId,
+      );
+      return route.fulfill({
+        json: result({
+          repo: "yu/Arco",
+          number: 42,
+          issue: detail(),
+          deleted: true,
+        }),
+      });
+    }
+    if (input.name === "arco_reactions")
+      return route.fulfill({
+        json: result({
+          repo: "yu/Arco",
+          number: 42,
+          account: "fixture-user",
+          reactions: [],
+        }),
+      });
+    return route.continue();
+  });
+  await app.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(app.locator("article.comment")).toHaveCount(30);
+  expect(pages).toEqual([]);
+  await app
+    .getByRole("button", { name: "Load more comments", exact: true })
+    .click();
+  await expect.poll(() => pages.length).toBe(1);
+  comments[0].body = "Fresh first comment while page two is pending";
+  await page.clock.fastForward(30_100);
+  await expect(app.getByText(comments[0].body, { exact: true })).toHaveCount(1);
+  releasePage();
+  await expect(app.locator("article.comment")).toHaveCount(60);
+  await expect(app.getByText(comments[0].body, { exact: true })).toHaveCount(1);
+  expect(pages).toEqual([2]);
+  await app
+    .getByRole("textbox", { name: "Comment on GitHub" })
+    .fill("Posted beyond the loaded comment window");
+  await app.getByRole("button", { name: "Post comment", exact: true }).click();
+  await expect(
+    app
+      .locator("article.comment")
+      .getByText("Posted beyond the loaded comment window", { exact: true }),
+  ).toBeVisible();
+  await expect(app.locator("article.comment")).toHaveCount(61);
+  await app
+    .getByRole("textbox", { name: "Comment on GitHub" })
+    .fill("Second posted comment beyond the window");
+  await app.getByRole("button", { name: "Post comment", exact: true }).click();
+  await expect(app.locator("article.comment")).toHaveCount(62);
+  await app.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(app.locator("article.comment")).toHaveCount(62);
+  await expect(app.getByText("Paged comment 60", { exact: true })).toHaveCount(
+    1,
+  );
+  const posted = app
+    .locator("article.comment")
+    .filter({ hasText: "Posted beyond the loaded comment window" });
+  await posted.getByRole("button", { name: "Edit", exact: true }).click();
+  await posted
+    .getByRole("textbox", { name: "Edit comment", exact: true })
+    .fill("Edited posted comment beyond the window");
+  await posted
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect(
+    app.getByText("Edited posted comment beyond the window", { exact: true }),
+  ).toBeVisible();
+  await expect(app.locator("article.comment").nth(60)).toContainText(
+    "Edited posted comment beyond the window",
+  );
+  await expect(app.locator("article.comment").nth(61)).toContainText(
+    "Second posted comment beyond the window",
+  );
+  await app
+    .getByRole("button", { name: "Load more comments", exact: true })
+    .click();
+  await expect(app.locator("article.comment")).toHaveCount(92);
+  await app
+    .getByRole("button", { name: "Load more comments", exact: true })
+    .click();
+  await expect(app.locator("article.comment")).toHaveCount(102);
+  await expect(
+    app.getByText("Edited posted comment beyond the window", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    app.getByRole("button", { name: "Load more comments", exact: true }),
+  ).toHaveCount(0);
+  const edited = app
+    .locator("article.comment")
+    .filter({ hasText: "Edited posted comment beyond the window" });
+  await edited.getByRole("button", { name: "Delete", exact: true }).click();
+  await edited
+    .getByRole("button", { name: "Delete this comment", exact: true })
+    .click();
+  await expect(app.locator("article.comment")).toHaveCount(101);
+  await expect(
+    app.getByText("Edited posted comment beyond the window", { exact: true }),
+  ).toHaveCount(0);
   expect(await events(page, "message")).toEqual([]);
   expect(await events(page, "context")).toEqual([]);
 });

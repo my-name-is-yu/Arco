@@ -266,19 +266,12 @@ export function registerGitHubImageTool(
     async (raw): Promise<CallToolResult> => {
       try {
         const input = githubImageInputSchema.parse(raw);
-        const issue = await service.get({
-          repo: input.repo,
-          number: input.number,
-        });
-        const comment = input.commentId
-          ? issue.comments.find((value) => value.databaseId === input.commentId)
-          : undefined;
-        if (input.commentId && !comment)
-          throw new Error(
-            "The selected comment could not be found. Refresh the issue.",
-          );
+        const markdown = await service.readMarkdown(
+          { repo: input.repo, number: input.number },
+          input.commentId,
+        );
         const image = await readIssueImage(
-          { url: input.url, markdown: comment?.body ?? issue.body },
+          { url: input.url, markdown },
           options,
         );
         return {

@@ -73,6 +73,10 @@ try {
   const names = Object.keys(server.tools ?? {});
   assert(names.includes("arco_open"), "Arco failed to initialize");
   assert(
+    names.includes("arco_comments") && names.includes("linear_comments"),
+    "Installed Arco lacks bounded comment paging",
+  );
+  assert(
     names.includes("arco_open_project"),
     "Installed Arco lacks the project viewer",
   );
