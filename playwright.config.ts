@@ -7,6 +7,8 @@ export default defineConfig({
     "linear-browser.spec.ts",
     "account-browser.spec.ts",
     "issue-url-browser.spec.ts",
+    "loading-motion-browser.spec.ts",
+    "hover-browser.spec.ts",
   ],
   fullyParallel: false,
   workers: 1,

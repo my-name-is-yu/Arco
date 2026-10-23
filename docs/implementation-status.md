@@ -4,6 +4,14 @@
 
 UIの文言・日付・エラーは英語。元サービスから取得したタイトルや本文は翻訳しない。GitHubとLinearはsource切替で扱い、各source内でrepo／teamを切り替える。元のID・workflow・属性を保持し、共通workflowやサービス間同期は作らない。
 
+2026-10-23、注釈ゴミ箱の指摘を受け、3人のsubagentでボタン147・summary25の定義、選択式・入力領域の除外、SDK・配布物、テストを全面再点検した。合意範囲の実装漏れは見つからず、実画面でゴミ箱・保存が28→29.12px、SVGが18→18.72pxとなることと復帰・削除を確認した。旧CSSのタブも残っていたため最新版を開き直した。前回抜けていたTrash/Save本体などのテストを補強し、6シナリオ・延べ101回のhover検証、型・lint・formatが成功。製品コードと配布物は変更していない。[全面再点検と画面記録](design/hover-scale-validation-2026-10-23.md#追補-ゴミ箱と全操作の再点検)。
+
+2026-10-23、実行・開閉する操作へホバー時の拡大を追加した。ユーザーの希望により注釈・アイコン・文字付きボタン・リアクション・削除チップ・折りたたみ見出しを一律1.04倍・150msで揃える。選択式・入力・Issue行・本文リンクは拡大せず、折りたたみは見出し部分だけを動かす。本文・ハイライト・注釈の起点・layout寸法を保つ。再install後のCodex内反映と通常操作、fixtureでの実際のマウス操作を確認した。型・lint・unit/adapter185件・build・68 tools smoke・artifact・全browser93件が成功。[実装と画面記録](design/hover-scale-validation-2026-10-23.md)。
+
+2026-10-23、操作できる要素のホバーを統一した。独自button・リンク・summary・入力欄・checkbox・注釈へ淡い150msの反応を付け、SDK既存の動きに合わせた。選択色・値・寸法・focusを維持し、disabledとtouchではホバーを出さず、reduced-motionでは即時反映する。185件のunit/adapter、68 tools smoke、全93件のbrowserと型・lint・build・artifactが成功。再installしたCodex内Arcoの反映と、fixture画面で実際のポインタ操作を確認した。[実装と画面記録](design/hover-validation-2026-10-23.md)。
+
+2026-10-23、起動から初回取得を覆う全画面スケルトン、一覧・詳細・inline専用スケルトンと短い操作アニメーションを追加した。再取得中は本文・下書きを保ち、動きを減らす設定では演出を止める。型・lint・185件のunit/adapter、build・68 tools smoke・artifactと、87項目のbrowser確認が成功した（旧表示assertの2件は更新後の対象再実行で成功）。再install後の実ArcoでGitHub詳細・Linear接続スケルトン・実データへの復帰・ダイアログ開閉を確認した。遅延通信・更新中の下書き保持・390px・inline・reduced-motionはfixture画面でも確認した。[実装と画面記録](design/motion-loading-validation-2026-10-23.md)。
+
 2026-10-23夕方、Linearの接続名メニューに端末の接続解除を追加し、下書き・設定・Codexの添付を保持する。注釈はCodexのcontextを正として、snapshot UUIDに対応する端末内の位置情報から、一致する範囲だけ番号・ハイライト・コメント編集を復元する。GitHub Projectsの所属・属性定義・属性値は全ページを取得し、通常のStatus表示・変更も同じ処理を使う。
 
 注釈は同じOpened Arco ↗から開き直し、番号1・2とコメント「復元1」「復元2」が戻ることをユーザーが目視確認した。agentがDOMから直接確認した結果ではなく、新しい別カードへの引継ぎも保証しない。通常のメッセージに伴うモデル受信では、2件の選択文・origin・コメント・native Issue ID・snapshot UUIDが一致した。

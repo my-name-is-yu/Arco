@@ -2294,7 +2294,10 @@ test("compact GitHub keeps connection loading and errors distinct from repositor
   await frame.goto(frame.url());
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   try {
-    await expect(app.getByRole("status")).toHaveText("Loading issue…");
+    const loading = app.locator('[data-loading-skeleton="inline"]');
+    await expect(loading).toBeVisible();
+    await expect(loading).toHaveAttribute("aria-busy", "true");
+    await expect(loading).toHaveText("Loading Arco");
     await expect(
       app.getByRole("button", { name: "Choose repository", exact: true }),
     ).toHaveCount(0);
@@ -2304,7 +2307,7 @@ test("compact GitHub keeps connection loading and errors distinct from repositor
   await expect(app.getByRole("alert")).toHaveText(
     "Fixture GitHub connection check failed",
   );
-  await expect(app.getByText("Loading issue…", { exact: true })).toHaveCount(0);
+  await expect(app.locator("[data-loading-skeleton]")).toHaveCount(0);
   await expect(
     app.getByRole("button", { name: "Choose repository", exact: true }),
   ).toHaveCount(0);

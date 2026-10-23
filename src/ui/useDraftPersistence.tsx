@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ArcoHost } from "../shared/contracts";
 import type { Draft, DraftKey, DraftRecord } from "../shared/state";
 import { createLocalDrafts, LocalDraftConflict } from "./local-drafts";
+import { DisclosureSummary } from "./DisclosureSummary";
 
 const stores = new WeakMap<ArcoHost, ReturnType<typeof createLocalDrafts>>();
 function storeFor(host: ArcoHost) {
@@ -212,7 +213,7 @@ export function DraftStatus({
       <p>{status.error}</p>
       {status.state === "conflict" ? (
         <details>
-          <summary>Compare saved draft</summary>
+          <DisclosureSummary>Compare saved draft</DisclosureSummary>
           {status.remote?.draft ? (
             <>
               <label>

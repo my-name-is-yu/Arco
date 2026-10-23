@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
 import { build } from "esbuild";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -19,6 +20,12 @@ const port = z.coerce
   .max(65535)
   .parse(process.env.ARCO_DEV_PORT ?? 4174);
 const origin = `http://127.0.0.1:${port}`;
+const toolDelayMs = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .max(5000)
+  .parse(process.env.ARCO_DEV_TOOL_DELAY_MS ?? 0);
 const bundled = await build({
   entryPoints: ["tests/host.ts"],
   bundle: true,
@@ -88,6 +95,7 @@ const server = createServer(async (request, response) => {
       const client = sessions.get(input.session);
       if (!client)
         return json(response, { error: "Unknown fixture session" }, 404);
+      if (toolDelayMs) await delay(toolDelayMs);
       return json(
         response,
         await client.callTool({ name: input.name, arguments: input.arguments }),

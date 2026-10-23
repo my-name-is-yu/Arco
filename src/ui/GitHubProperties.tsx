@@ -15,6 +15,7 @@ import type {
 import { useGitHubOperation } from "./useGitHubOperation";
 import { SingleSelect } from "./SingleSelect";
 import { MultiSelect } from "./MultiSelect";
+import { DisclosureSummary } from "./DisclosureSummary";
 
 type Memberships = {
   memberships: {
@@ -414,7 +415,7 @@ function Projects({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
       ))}
       {memberships.data?.memberships.map((membership) => (
         <details className="project-membership" key={membership.itemId}>
-          <summary>{membership.title}</summary>
+          <DisclosureSummary>{membership.title}</DisclosureSummary>
           <ProjectFields
             host={host}
             issue={issue}
@@ -566,7 +567,7 @@ export function GitHubProperties({
       className="advanced-section"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>Edit attributes and membership</summary>
+      <DisclosureSummary>Edit attributes and membership</DisclosureSummary>
       {open && (
         <>
           <Catalog host={host} issue={issue} />

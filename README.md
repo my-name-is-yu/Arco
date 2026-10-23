@@ -17,6 +17,8 @@ npm run dev:fixture
 
 `dev:fixture`はbuild後に使います。ブラウザ検証用URLは表示されたloopback URLです。公開SDKのAppBridgeとstdio MCPを使い、架空のIssueだけを操作します。実GitHubへのfallbackはありません。
 
+読み込みを目視確認する場合は`ARCO_DEV_TOOL_DELAY_MS=2000 npm run dev:fixture`でfixtureのtool応答を遅らせられます（0〜5000ms、既定0）。[アニメーションとスケルトンの確認記録](docs/design/motion-loading-validation-2026-10-23.md)も参照してください。
+
 `npm run build`は配布候補の`dist/plugin/`と、fixture専用の`dist/dev/`を別々に生成します。UIは単一HTML、serverはNode ESM bundleです。配布候補にはfixtureデータを含めません。
 
 GitHubは公開`gh` CLIの既存認証を利用します。初回は接続済みアカウントのAssigned to meを表示し、Created by me・Mentioned me・All account repositoriesへ明示的に切り替えられます。repoはアクセス可能な候補から選んで絞り込めるため、一覧表示にrepoの入力は不要です。選択したscopeと表示条件は次回へ引き継ぎます。 GitHub・Linearとも検索欄へIssue URLを貼って直接開けます。アカウント一覧の範囲と検索条件は[取得仕様](docs/github-account-discovery.md)を参照してください。Projectsには追加の`project`認可が必要です。Arcoから共有CLIのtokenを取得・複製したり、暗黙にlogoutしたりしません。

@@ -239,7 +239,6 @@
   width: 16px;
   height: 16px;
 }
-.linear-reaction-add:hover,
 .linear-reaction-picker[open] > .linear-reaction-add {
   color: var(--arco-text);
   background: var(--arco-hover);
@@ -268,9 +267,6 @@
   border: 0;
   border-radius: 5px;
   background: transparent;
-}
-.linear-reaction-options button:hover {
-  background: var(--arco-hover);
 }
 .linear-template-preview {
   border: 1px solid var(--arco-border);
@@ -366,7 +362,6 @@
 .linear-account-menu > summary::-webkit-details-marker {
   display: none;
 }
-.linear-account-menu > summary:hover,
 .linear-account-menu[open] > summary {
   background: var(--arco-hover);
 }

@@ -6,7 +6,45 @@
     <title>Arco</title>
   </head>
   <body>
-    <div id="root">Connecting Arco…</div>
+    <div id="root">
+      <main
+        class="arco workspace loading-skeleton workspace-skeleton bootstrap-skeleton"
+        data-loading-skeleton="workspace"
+        role="status"
+        aria-label="Connecting Arco"
+        aria-busy="true"
+      >
+        <aside class="issue-sidebar" aria-hidden="true">
+          <div class="skeleton-sidebar-top">
+            <span class="skeleton-block" style="width: 100px"></span>
+            <span class="skeleton-block skeleton-pill"></span>
+            <span class="skeleton-block skeleton-search"></span>
+          </div>
+          <div class="skeleton-list-shape">
+            <div class="skeleton-row"><span class="skeleton-block"></span></div>
+            <div class="skeleton-row"><span class="skeleton-block"></span></div>
+            <div class="skeleton-row"><span class="skeleton-block"></span></div>
+            <div class="skeleton-row"><span class="skeleton-block"></span></div>
+          </div>
+        </aside>
+        <section class="detail-pane" aria-hidden="true">
+          <div class="detail-toolbar">
+            <span class="skeleton-block" style="width: 60px"></span>
+          </div>
+          <div class="skeleton-detail-shape">
+            <div class="skeleton-heading">
+              <span class="skeleton-block skeleton-title"></span
+              ><span class="skeleton-block" style="width: 190px"></span>
+            </div>
+            <div class="skeleton-body">
+              <span class="skeleton-block"></span
+              ><span class="skeleton-block"></span
+              ><span class="skeleton-block" style="width: 70%"></span>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/ui/main.tsx"></script>
   </body>
 </html>

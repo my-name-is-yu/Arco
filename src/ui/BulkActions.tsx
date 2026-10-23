@@ -17,6 +17,7 @@ import type {
 } from "../shared/github-operations";
 import { FieldEditor } from "./GitHubProperties";
 import { SingleSelect } from "./SingleSelect";
+import { DisclosureSummary } from "./DisclosureSummary";
 
 export interface BulkIssue extends IssueRef {
   title: string;
@@ -281,7 +282,7 @@ export function BulkActions({
         </button>
       </div>
       <details>
-        <summary>Review targets</summary>
+        <DisclosureSummary>Review targets</DisclosureSummary>
         <ul>
           {issues.map((issue) => (
             <li key={id(issue)}>

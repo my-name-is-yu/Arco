@@ -3,6 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
 import type { ProjectChoices } from "../shared/github-operations";
 import { SingleSelect } from "./SingleSelect";
+import { DisclosureSummary } from "./DisclosureSummary";
 
 export function ProjectScopePicker({
   host,
@@ -38,7 +39,9 @@ export function ProjectScopePicker({
       className="project-scope"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>Filter by Project{value ? ` · ${value}` : ""}</summary>
+      <DisclosureSummary>
+        Filter by Project{value ? ` · ${value}` : ""}
+      </DisclosureSummary>
       <form
         onSubmit={(event) => {
           event.preventDefault();

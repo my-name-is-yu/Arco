@@ -43,6 +43,13 @@ import {
   useDraftPersistence,
 } from "./useDraftPersistence";
 import { LinearWorkspace } from "./LinearWorkspace";
+import { AnimatedDialogBackdrop } from "./AnimatedDialogBackdrop";
+import {
+  InlineSkeleton,
+  IssueDetailSkeleton,
+  IssueListSkeleton,
+  WorkspaceSkeleton,
+} from "./LoadingSkeleton";
 import { useGitHubSettings } from "./useGitHubSettings";
 import type { DraftKey, Draft as SavedDraft, Settings } from "../shared/state";
 import { CommentActions, CopyValue, ReactionBar } from "./GitHubDiscussion";
@@ -70,6 +77,7 @@ import type {
   RepoMetadata,
   RepositoryPage,
 } from "../shared/contracts";
+import { DisclosureSummary } from "./DisclosureSummary";
 
 type Draft = {
   title: string;
@@ -783,6 +791,12 @@ function Workspace({ host }: { host: ArcoHost }) {
     changeRepo(value);
   };
   const selectedDetail = detail.data;
+  const initialIssuesLoading =
+    issues.isPending && connection.data?.connected === true;
+  const detailLoading =
+    !selectedDetail &&
+    ((detail.isPending && Boolean(activeRef)) ||
+      (initialIssuesLoading && !activeRef));
   const retainedIssue =
     sharedDetail.data ?? (!shared ? selectedDetail : undefined);
   const compactError = sharedDetail.isError
@@ -891,8 +905,23 @@ function Workspace({ host }: { host: ArcoHost }) {
     </>
   );
 
+  if (settings.query.isPending) return <WorkspaceSkeleton mode={mode} />;
+
   if (source === "linear")
     return <LinearWorkspace host={host} onSourceChange={setSource} />;
+
+  if (connection.isPending) return <WorkspaceSkeleton mode={mode} />;
+
+  if (
+    mode === "inline" &&
+    !retainedIssue &&
+    !compactError &&
+    connection.data?.connected &&
+    (initialIssuesLoading ||
+      (detail.isPending && Boolean(activeRef)) ||
+      (sharedDetail.isPending && Boolean(shared)))
+  )
+    return <InlineSkeleton />;
 
   if (mode === "inline")
     return (
@@ -998,9 +1027,7 @@ function Workspace({ host }: { host: ArcoHost }) {
             )}
           </>
         ) : (
-          <p className="muted" role="status">
-            Loading issue…
-          </p>
+          <p className="muted">Select an issue to view its details.</p>
         )}
         {connection.data?.mode === "fixture" && (
           <span className="fixture-tag">Local fixture · No GitHub writes</span>
@@ -1121,7 +1148,7 @@ function Workspace({ host }: { host: ArcoHost }) {
               </button>
             )}
             <details className="repo-add">
-              <summary>Add repository</summary>
+              <DisclosureSummary>Add repository</DisclosureSummary>
               <form
                 className="repo-form"
                 key={`repo-form:${repo}`}
@@ -1263,10 +1290,10 @@ function Workspace({ host }: { host: ArcoHost }) {
           </button>
         </div>
         <details className="search-options sidebar-filters">
-          <summary>
+          <DisclosureSummary>
             <Filter aria-hidden="true" />
             Filters
-          </summary>
+          </DisclosureSummary>
           <label>
             Sort by
             <SingleSelect
@@ -1338,13 +1365,13 @@ function Workspace({ host }: { host: ArcoHost }) {
             {issues.hasNextPage ? "+" : ""}
           </span>
         </div>
-        <div className="issue-list" ref={listRef} onScroll={rememberListScroll}>
-          {(connection.isPending ||
-            (issues.isPending && connection.data?.connected)) && (
-            <p className="list-message" role="status">
-              Loading issue…
-            </p>
-          )}
+        <div
+          className={`issue-list${issues.isFetching && !issues.isPending ? " refreshing" : ""}`}
+          ref={listRef}
+          onScroll={rememberListScroll}
+          aria-busy={issues.isFetching}
+        >
+          {initialIssuesLoading && <IssueListSkeleton />}
           {connection.isError && (
             <p className="list-message inline-error" role="alert">
               {errorText(connection.error)}
@@ -1477,8 +1504,9 @@ function Workspace({ host }: { host: ArcoHost }) {
         </div>
       </aside>
       <section
-        className="detail-pane"
+        className={`detail-pane${detail.isFetching && !detail.isPending ? " refreshing" : ""}`}
         aria-label="Issue details"
+        aria-busy={detail.isFetching || detailLoading}
         data-arco-issue={
           selectedDetail ? selectionIssueData(selectedDetail) : undefined
         }
@@ -1489,11 +1517,7 @@ function Workspace({ host }: { host: ArcoHost }) {
           </header>
         )}
         {!selectedDetail && detailFeedback}
-        {detail.isPending && activeRef && (
-          <div className="empty-state" role="status">
-            Loading issue…
-          </div>
-        )}
+        {detailLoading && <IssueDetailSkeleton />}
         {detail.isError && !selectedDetail && (
           <div className="empty-state" role="alert">
             <strong>Could not load this issue</strong>
@@ -1507,7 +1531,7 @@ function Workspace({ host }: { host: ArcoHost }) {
             </Button>
           </div>
         )}
-        {!activeRef && !detail.isError && (
+        {!activeRef && !detail.isError && !detailLoading && (
           <div className="empty-state">
             <span className="empty-icon">◉</span>
             <h1>Start a conversation with an issue</h1>
@@ -1541,276 +1565,271 @@ function Workspace({ host }: { host: ArcoHost }) {
           />
         )}
       </section>
-      {createOpen && (
-        <div
-          className="dialog-backdrop"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setCreateOpen(false);
+      <AnimatedDialogBackdrop
+        open={createOpen}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) setCreateOpen(false);
+        }}
+      >
+        <section
+          className="create-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-title"
+          onKeyDown={(event) => {
+            if (
+              event.defaultPrevented ||
+              (event.target instanceof Element &&
+                event.target.closest('[role="dialog"]') !== event.currentTarget)
+            )
+              return;
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              setCreateOpen(false);
+            }
+            if (event.key === "Tab") {
+              const elements = [
+                ...event.currentTarget.querySelectorAll<HTMLElement>(
+                  'button:not(:disabled), input:not(:disabled):not([tabindex="-1"]), textarea:not(:disabled), [role="button"][tabindex="0"]:not([aria-disabled="true"])',
+                ),
+              ];
+              const first = elements[0];
+              const last = elements[elements.length - 1];
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last?.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first?.focus();
+              }
+            }
           }}
         >
-          <section
-            className="create-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="create-title"
-            onKeyDown={(event) => {
-              if (
-                event.defaultPrevented ||
-                (event.target instanceof Element &&
-                  event.target.closest('[role="dialog"]') !==
-                    event.currentTarget)
-              )
-                return;
-              if (event.key === "Escape") {
-                event.stopPropagation();
-                setCreateOpen(false);
-              }
-              if (event.key === "Tab") {
-                const elements = [
-                  ...event.currentTarget.querySelectorAll<HTMLElement>(
-                    'button:not(:disabled), input:not(:disabled):not([tabindex="-1"]), textarea:not(:disabled), [role="button"][tabindex="0"]:not([aria-disabled="true"])',
-                  ),
-                ];
-                const first = elements[0];
-                const last = elements[elements.length - 1];
-                if (event.shiftKey && document.activeElement === first) {
-                  event.preventDefault();
-                  last?.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                  event.preventDefault();
-                  first?.focus();
-                }
-              }
+          <div className="dialog-heading">
+            <h2 id="create-title">Create issue</h2>
+            <button
+              className="icon-button"
+              aria-label="Close create issue"
+              onClick={() => setCreateOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          <p className="muted">
+            Create in: {repo}{" "}
+            {connection.data?.mode === "fixture" && "· Local fixture"}
+          </p>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save(
+                "arco_create_issue",
+                {
+                  repo,
+                  title: createDraft.title,
+                  body: createDraft.body,
+                  labels: createDraft.labels,
+                  assignees: createDraft.assignees,
+                  ...(createDraft.issueTypeName
+                    ? { issueTypeName: createDraft.issueTypeName }
+                    : {}),
+                },
+                (result) => {
+                  setRepoOverride(result.repo);
+                  setSelected({ repo: result.repo, number: result.number });
+                  setShowDetail(true);
+                  setCreateDraft({
+                    title: "",
+                    body: "",
+                    labels: [],
+                    assignees: [],
+                    issueTypeName: "",
+                  });
+                  setCreateOpen(false);
+                },
+              );
             }}
           >
-            <div className="dialog-heading">
-              <h2 id="create-title">Create issue</h2>
-              <button
-                className="icon-button"
-                aria-label="Close create issue"
-                onClick={() => setCreateOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <p className="muted">
-              Create in: {repo}{" "}
-              {connection.data?.mode === "fixture" && "· Local fixture"}
-            </p>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void save(
-                  "arco_create_issue",
-                  {
-                    repo,
+            {createDraftKey && (
+              <DraftStatus
+                status={persistence.statuses[draftStorageId(createDraftKey)]}
+                onRetry={() =>
+                  persistence.retry(createDraftKey, {
                     title: createDraft.title,
                     body: createDraft.body,
-                    labels: createDraft.labels,
-                    assignees: createDraft.assignees,
-                    ...(createDraft.issueTypeName
-                      ? { issueTypeName: createDraft.issueTypeName }
-                      : {}),
-                  },
-                  (result) => {
-                    setRepoOverride(result.repo);
-                    setSelected({ repo: result.repo, number: result.number });
-                    setShowDetail(true);
-                    setCreateDraft({
-                      title: "",
-                      body: "",
-                      labels: [],
-                      assignees: [],
-                      issueTypeName: "",
+                    comment: "",
+                    githubLabels: createDraft.labels,
+                    githubAssignees: createDraft.assignees,
+                    githubIssueTypeName: createDraft.issueTypeName || undefined,
+                  })
+                }
+                onResolve={(choice) => {
+                  const local: SavedDraft = {
+                    title: createDraft.title,
+                    body: createDraft.body,
+                    comment: "",
+                    githubLabels: createDraft.labels,
+                    githubAssignees: createDraft.assignees,
+                    githubIssueTypeName: createDraft.issueTypeName || undefined,
+                  };
+                  void persistence
+                    .resolve(createDraftKey, choice, local)
+                    .then((saved) => {
+                      if (saved === undefined) return;
+                      createDraftsRef.current = {
+                        ...createDraftsRef.current,
+                        [repo]: saved
+                          ? {
+                              title: saved.title,
+                              body: saved.body,
+                              labels: saved.githubLabels ?? [],
+                              assignees: saved.githubAssignees ?? [],
+                              issueTypeName: saved.githubIssueTypeName ?? "",
+                            }
+                          : {
+                              title: "",
+                              body: "",
+                              labels: [],
+                              assignees: [],
+                              issueTypeName: "",
+                            },
+                      };
+                      setCreateDrafts(createDraftsRef.current);
                     });
-                    setCreateOpen(false);
-                  },
-                );
-              }}
-            >
-              {createDraftKey && (
-                <DraftStatus
-                  status={persistence.statuses[draftStorageId(createDraftKey)]}
-                  onRetry={() =>
-                    persistence.retry(createDraftKey, {
-                      title: createDraft.title,
-                      body: createDraft.body,
-                      comment: "",
-                      githubLabels: createDraft.labels,
-                      githubAssignees: createDraft.assignees,
-                      githubIssueTypeName:
-                        createDraft.issueTypeName || undefined,
-                    })
-                  }
-                  onResolve={(choice) => {
-                    const local: SavedDraft = {
-                      title: createDraft.title,
-                      body: createDraft.body,
-                      comment: "",
-                      githubLabels: createDraft.labels,
-                      githubAssignees: createDraft.assignees,
-                      githubIssueTypeName:
-                        createDraft.issueTypeName || undefined,
-                    };
-                    void persistence
-                      .resolve(createDraftKey, choice, local)
-                      .then((saved) => {
-                        if (saved === undefined) return;
-                        createDraftsRef.current = {
-                          ...createDraftsRef.current,
-                          [repo]: saved
-                            ? {
-                                title: saved.title,
-                                body: saved.body,
-                                labels: saved.githubLabels ?? [],
-                                assignees: saved.githubAssignees ?? [],
-                                issueTypeName: saved.githubIssueTypeName ?? "",
-                              }
-                            : {
-                                title: "",
-                                body: "",
-                                labels: [],
-                                assignees: [],
-                                issueTypeName: "",
-                              },
-                        };
-                        setCreateDrafts(createDraftsRef.current);
-                      });
-                  }}
-                />
-              )}
-              <TemplatePicker
-                host={host}
-                repo={repo}
-                disabled={mutation.isPending}
-                onApply={setCreateDraft}
+                }}
               />
-              {(createDraft.labels.length > 0 ||
-                createDraft.assignees.length > 0 ||
-                Boolean(createDraft.issueTypeName)) && (
-                <div className="template-defaults">
-                  <strong>Initial attributes</strong>
-                  {createDraft.issueTypeName && (
+            )}
+            <TemplatePicker
+              host={host}
+              repo={repo}
+              disabled={mutation.isPending}
+              onApply={setCreateDraft}
+            />
+            {(createDraft.labels.length > 0 ||
+              createDraft.assignees.length > 0 ||
+              Boolean(createDraft.issueTypeName)) && (
+              <div className="template-defaults">
+                <strong>Initial attributes</strong>
+                {createDraft.issueTypeName && (
+                  <button
+                    type="button"
+                    className="label"
+                    disabled={mutation.isPending}
+                    title="Remove initial issue type"
+                    onClick={() =>
+                      setCreateDraft((previous) => ({
+                        ...previous,
+                        issueTypeName: "",
+                      }))
+                    }
+                  >
+                    Issue type: {createDraft.issueTypeName} ×
+                  </button>
+                )}
+                <div>
+                  {createDraft.labels.map((name) => (
                     <button
                       type="button"
                       className="label"
+                      key={name}
                       disabled={mutation.isPending}
-                      title="Remove initial issue type"
+                      title="Remove initial label"
                       onClick={() =>
                         setCreateDraft((previous) => ({
                           ...previous,
-                          issueTypeName: "",
+                          labels: previous.labels.filter(
+                            (value) => value !== name,
+                          ),
                         }))
                       }
                     >
-                      Issue type: {createDraft.issueTypeName} ×
+                      {name} ×
                     </button>
-                  )}
-                  <div>
-                    {createDraft.labels.map((name) => (
-                      <button
-                        type="button"
-                        className="label"
-                        key={name}
-                        disabled={mutation.isPending}
-                        title="Remove initial label"
-                        onClick={() =>
-                          setCreateDraft((previous) => ({
-                            ...previous,
-                            labels: previous.labels.filter(
-                              (value) => value !== name,
-                            ),
-                          }))
-                        }
-                      >
-                        {name} ×
-                      </button>
-                    ))}
-                  </div>
-                  <div>
-                    {createDraft.assignees.map((name) => (
-                      <button
-                        type="button"
-                        className="label"
-                        key={name}
-                        disabled={mutation.isPending}
-                        title="Remove initial assignee"
-                        onClick={() =>
-                          setCreateDraft((previous) => ({
-                            ...previous,
-                            assignees: previous.assignees.filter(
-                              (value) => value !== name,
-                            ),
-                          }))
-                        }
-                      >
-                        Assignee: {name} ×
-                      </button>
-                    ))}
-                  </div>
+                  ))}
                 </div>
-              )}
-              <label>
-                Title
-                <input
-                  autoFocus
-                  required
-                  maxLength={256}
-                  disabled={mutation.isPending}
-                  value={createDraft.title}
-                  onChange={(event) =>
-                    setCreateDraft((previous) => ({
-                      ...previous,
-                      title: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                Body
-                <textarea
-                  rows={9}
-                  disabled={mutation.isPending}
-                  value={createDraft.body}
-                  onChange={(event) =>
-                    setCreateDraft((previous) => ({
-                      ...previous,
-                      body: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <p className="muted">
-                Markdown is supported. Use GitHub for complex issue forms.
-              </p>
-              {notice?.kind === "error" && (
-                <p className="inline-error" role="alert">
-                  {notice.text}
-                </p>
-              )}
-              <div className="dialog-actions">
-                <Button
-                  color="secondary"
-                  variant="ghost"
-                  onClick={() => setCreateOpen(false)}
-                >
-                  Close
-                </Button>
-                <Button
-                  type="submit"
-                  color="primary"
-                  disabled={!createDraft.title.trim() || mutation.isPending}
-                  loading={mutation.isPending}
-                >
-                  {connection.data?.mode === "fixture"
-                    ? "Create fixture issue"
-                    : "Create on GitHub"}
-                </Button>
+                <div>
+                  {createDraft.assignees.map((name) => (
+                    <button
+                      type="button"
+                      className="label"
+                      key={name}
+                      disabled={mutation.isPending}
+                      title="Remove initial assignee"
+                      onClick={() =>
+                        setCreateDraft((previous) => ({
+                          ...previous,
+                          assignees: previous.assignees.filter(
+                            (value) => value !== name,
+                          ),
+                        }))
+                      }
+                    >
+                      Assignee: {name} ×
+                    </button>
+                  ))}
+                </div>
               </div>
-            </form>
-          </section>
-        </div>
-      )}
+            )}
+            <label>
+              Title
+              <input
+                autoFocus
+                required
+                maxLength={256}
+                disabled={mutation.isPending}
+                value={createDraft.title}
+                onChange={(event) =>
+                  setCreateDraft((previous) => ({
+                    ...previous,
+                    title: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Body
+              <textarea
+                rows={9}
+                disabled={mutation.isPending}
+                value={createDraft.body}
+                onChange={(event) =>
+                  setCreateDraft((previous) => ({
+                    ...previous,
+                    body: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <p className="muted">
+              Markdown is supported. Use GitHub for complex issue forms.
+            </p>
+            {notice?.kind === "error" && (
+              <p className="inline-error" role="alert">
+                {notice.text}
+              </p>
+            )}
+            <div className="dialog-actions">
+              <Button
+                color="secondary"
+                variant="ghost"
+                onClick={() => setCreateOpen(false)}
+              >
+                Close
+              </Button>
+              <Button
+                type="submit"
+                color="primary"
+                disabled={!createDraft.title.trim() || mutation.isPending}
+                loading={mutation.isPending}
+              >
+                {connection.data?.mode === "fixture"
+                  ? "Create fixture issue"
+                  : "Create on GitHub"}
+              </Button>
+            </div>
+          </form>
+        </section>
+      </AnimatedDialogBackdrop>
     </main>
   );
 }
@@ -1945,7 +1964,7 @@ function IssueContent({
         }
       />
       {feedback}
-      <div className="detail-scroll">
+      <div className="detail-scroll motion-content">
         <div className="issue-heading">
           <div className="issue-kicker">
             <span className={`state-pill ${issue.state}`}>
@@ -2421,7 +2440,7 @@ function IssueContent({
               )}
             </section>
             <details className="property-advanced">
-              <summary>More properties</summary>
+              <DisclosureSummary>More properties</DisclosureSummary>
               <GitHubProperties host={host} issue={issue} />
               <GitHubRelations host={host} issue={issue} />
               <LabelManager host={host} repo={issue.repo} />

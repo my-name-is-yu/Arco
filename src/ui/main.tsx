@@ -4,8 +4,10 @@ import { createRoot } from "react-dom/client";
 import { AppsSDKUIProvider } from "@openai/apps-sdk-ui/components/AppsSDKUIProvider";
 import { App } from "./App";
 import { connectHost } from "./host";
+import { WorkspaceSkeleton } from "./LoadingSkeleton";
 
 const root = createRoot(document.getElementById("root")!);
+root.render(<WorkspaceSkeleton />);
 connectHost()
   .then((host) => {
     root.render(

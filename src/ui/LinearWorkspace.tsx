@@ -39,10 +39,18 @@ import type { Draft, DraftKey } from "../shared/state";
 import { LinearBulkActions } from "./LinearBulkActions";
 import { LinearDetail } from "./LinearDetail";
 import { SingleSelect } from "./SingleSelect";
+import {
+  InlineSkeleton,
+  IssueDetailSkeleton,
+  IssueListSkeleton,
+  WorkspaceSkeleton,
+} from "./LoadingSkeleton";
+import { AnimatedDialogBackdrop } from "./AnimatedDialogBackdrop";
 import { selectionIssueData, isTextSelectionClick } from "./SelectionShare";
 import { isSavedReceipt } from "./linear-run";
 import "./linear.css";
 import { isIssueUrlInput, linearIssueUrl } from "../shared/issue-url";
+import { DisclosureSummary } from "./DisclosureSummary";
 
 export const linearRef = (issue: LinearRef): LinearRef => ({
   connectionId: issue.connectionId,
@@ -697,7 +705,7 @@ export function LinearWorkspace({
               {receipt.commentId ? ` · Comment ID: ${receipt.commentId}` : ""}
             </p>
             <details>
-              <summary>Request receipt</summary>
+              <DisclosureSummary>Request receipt</DisclosureSummary>
               <code>{receipt.requestId}</code>
             </details>
             <button
@@ -744,11 +752,42 @@ export function LinearWorkspace({
     </>
   );
 
+  const checkingConnection = connection.isPending && !connection.data;
+  const detailLoading =
+    !detail.data &&
+    canRead &&
+    ((Boolean(active) && detail.isPending) ||
+      (!active && Boolean(scope) && issues.isPending));
+  const resolvingWorkspace =
+    canRead && ((scopes.isPending && !scopes.data) || settings.query.isPending);
+  if (checkingConnection || resolvingWorkspace)
+    return (
+      <WorkspaceSkeleton
+        mode={mode}
+        label={
+          checkingConnection
+            ? "Checking Linear connection"
+            : "Loading Linear workspace"
+        }
+      />
+    );
+
+  if (
+    mode !== "fullscreen" &&
+    connected &&
+    !retained &&
+    ((shared && matchesConnection(shared) && sharedIssue.isPending) ||
+      (!shared && active && detail.isPending) ||
+      (!active && scope && issues.isPending))
+  )
+    return <InlineSkeleton />;
+
   if (mode !== "fullscreen" && connection.data?.connected && retained)
     return (
       <main
         className="arco compact-mode inline-mode"
         data-arco-issue={selectionIssueData(retained)}
+        aria-busy={shared ? sharedIssue.isFetching : detail.isFetching}
       >
         <div className="compact-top">
           <strong>Arco · Linear</strong>
@@ -779,6 +818,44 @@ export function LinearWorkspace({
         {notice && <p role="status">{notice}</p>}
       </main>
     );
+  if (mode !== "fullscreen") {
+    const failure =
+      connection.error ||
+      scopes.error ||
+      sharedIssue.error ||
+      detail.error ||
+      issues.error;
+    return (
+      <main className="arco compact-mode inline-mode">
+        <div className="compact-top">
+          <strong>Arco · Linear</strong>
+        </div>
+        <h1>
+          {failure
+            ? "Could not load Linear"
+            : !connected
+              ? "Connect Linear"
+              : !scope
+                ? "No Linear teams available"
+                : "Select a Linear Issue"}
+        </h1>
+        <p className="muted" role={failure ? "alert" : undefined}>
+          {failure
+            ? message(failure)
+            : "Open the workspace to connect Linear or browse your issues."}
+        </p>
+        <Button
+          color="secondary"
+          variant="outline"
+          size="sm"
+          onClick={openRetainedDetails}
+        >
+          Open details
+        </Button>
+        {notice && <p role="status">{notice}</p>}
+      </main>
+    );
+  }
   return (
     <main
       className={`arco workspace linear-workspace ${showDetail ? "show-detail" : ""}`}
@@ -858,8 +935,46 @@ export function LinearWorkspace({
               Check connection
             </button>
           </div>
+        ) : !scopes.data && scopes.isError ? (
+          <div className="list-message" role="alert">
+            <strong>Could not load Linear teams</strong>
+            <p>{message(scopes.error)}</p>
+            <Button
+              color="secondary"
+              variant="outline"
+              disabled={scopes.isFetching}
+              onClick={() => void scopes.refetch()}
+            >
+              Retry
+            </Button>
+          </div>
+        ) : !scope ? (
+          <div className="list-message">
+            <strong>No Linear teams available</strong>
+            <p>Arco could not find an accessible team in this workspace.</p>
+            <Button
+              color="secondary"
+              variant="outline"
+              disabled={scopes.isFetching}
+              onClick={() => void scopes.refetch()}
+            >
+              Retry
+            </Button>
+          </div>
         ) : (
           <>
+            {scopes.isError && (
+              <div className="list-message" role="alert">
+                <p>Could not refresh Linear teams. {message(scopes.error)}</p>
+                <button
+                  className="text-button"
+                  disabled={scopes.isFetching}
+                  onClick={() => void scopes.refetch()}
+                >
+                  Retry refresh
+                </button>
+              </div>
+            )}
             <label className="linear-team scope-picker">
               <span className="scope-label">
                 {scopes.data?.workspace.name || "Workspace"}
@@ -988,10 +1103,10 @@ export function LinearWorkspace({
               </button>
             </div>
             <details className="linear-filters sidebar-filters">
-              <summary>
+              <DisclosureSummary>
                 <Filter aria-hidden="true" />
                 Filters
-              </summary>
+              </DisclosureSummary>
               {(["assigneeId", "labelId", "projectId"] as const).map((key) => (
                 <label key={key}>
                   {
@@ -1081,10 +1196,12 @@ export function LinearWorkspace({
             <div
               className="issue-list"
               ref={list}
+              aria-busy={issues.isFetching}
               onScroll={() => {
                 if (issues.isSuccess) capturePosition();
               }}
             >
+              {issues.isPending && <IssueListSkeleton />}
               {rows.map((issue) => (
                 <div className="linear-list-row" key={issue.issueId}>
                   <input
@@ -1128,9 +1245,16 @@ export function LinearWorkspace({
                 </div>
               ))}
               {issues.isError && (
-                <p role="alert" className="inline-error">
-                  {message(issues.error)}
-                </p>
+                <div role="alert" className="list-message">
+                  <p className="inline-error">{message(issues.error)}</p>
+                  <button
+                    className="text-button"
+                    disabled={issues.isFetching}
+                    onClick={() => void issues.refetch()}
+                  >
+                    Retry
+                  </button>
+                </div>
               )}
               {issues.isSuccess && !rows.length && (
                 <p className="list-message">No matching Issues.</p>
@@ -1138,9 +1262,10 @@ export function LinearWorkspace({
               {issues.hasNextPage && (
                 <button
                   className="load-more"
+                  disabled={issues.isFetchingNextPage}
                   onClick={() => void issues.fetchNextPage()}
                 >
-                  Load more
+                  {issues.isFetchingNextPage ? "Loading…" : "Load more"}
                 </button>
               )}
             </div>
@@ -1177,10 +1302,12 @@ export function LinearWorkspace({
                 <span
                   className={`connection-dot ${connected ? "connected" : ""}`}
                 />
-                {connection.data?.account ||
-                  (connection.isError
-                    ? "Connection unavailable"
-                    : "Disconnected")}
+                <span className="disclosure-label">
+                  {connection.data?.account ||
+                    (connection.isError
+                      ? "Connection unavailable"
+                      : "Disconnected")}
+                </span>
                 <DotsHorizontalMoreMenu aria-hidden="true" />
               </summary>
               <div className="detail-utility-menu">
@@ -1204,6 +1331,7 @@ export function LinearWorkspace({
       <section
         className="detail-pane"
         aria-label="Linear Issue details"
+        aria-busy={(canRead && detail.isFetching) || detailLoading}
         data-arco-issue={
           connected && detail.data ? selectionIssueData(detail.data) : undefined
         }
@@ -1239,10 +1367,8 @@ export function LinearWorkspace({
             run={run}
             onNotice={setNotice}
           />
-        ) : detail.isPending && active ? (
-          <div className="empty-state" role="status">
-            Loading Linear issue…
-          </div>
+        ) : detailLoading ? (
+          <IssueDetailSkeleton />
         ) : detail.isError && active ? (
           <div className="empty-state" role="alert">
             <strong>Could not load this issue</strong>
@@ -1262,8 +1388,8 @@ export function LinearWorkspace({
           </div>
         )}
       </section>
-      {createOpen && scope && (
-        <div className="dialog-backdrop">
+      {scope && (
+        <AnimatedDialogBackdrop open={createOpen}>
           <section
             className="create-dialog"
             role="dialog"
@@ -1521,7 +1647,7 @@ export function LinearWorkspace({
               </Button>
             </div>
           </section>
-        </div>
+        </AnimatedDialogBackdrop>
       )}
     </main>
   );
@@ -1602,7 +1728,7 @@ function LinearTemplateDefaults({
     ]);
   return values.length ? (
     <details>
-      <summary>Initial template attributes</summary>
+      <DisclosureSummary>Initial template attributes</DisclosureSummary>
       <dl>
         {values.map(([name, value]) => (
           <div key={name}>

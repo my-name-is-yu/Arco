@@ -7,6 +7,7 @@ import type {
   LabelDefinition,
 } from "../shared/github-operations";
 import { useGitHubOperation } from "./useGitHubOperation";
+import { DisclosureSummary } from "./DisclosureSummary";
 
 export function LabelManager({ host, repo }: { host: ArcoHost; repo: string }) {
   const [open, setOpen] = useState(false);
@@ -37,7 +38,7 @@ export function LabelManager({ host, repo }: { host: ArcoHost; repo: string }) {
       className="advanced-section label-manager"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>Manage label definitions</summary>
+      <DisclosureSummary>Manage label definitions</DisclosureSummary>
       <p className="property-note">
         Repository: {repo}. Changing repository definitions is separate from
         adding or removing issue labels.

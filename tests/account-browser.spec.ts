@@ -316,7 +316,10 @@ test("compact personal feed resolves loading to empty without broadening scope",
     await page
       .getByRole("button", { name: "Mock inline", exact: true })
       .click();
-    await expect(app(page).getByRole("status")).toContainText("Loading issue");
+    const inlineLoading = app(page).locator('[data-loading-skeleton="inline"]');
+    await expect(inlineLoading).toBeVisible();
+    await expect(inlineLoading).toHaveAttribute("aria-busy", "true");
+    await expect(inlineLoading).toContainText("Loading issue");
     release();
     await expect(
       app(page).getByRole("heading", {

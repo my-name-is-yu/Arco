@@ -4,6 +4,7 @@ import { SingleSelect } from "./SingleSelect";
 import type { LinearMetadata, LinearScope } from "../shared/linear";
 
 import { isSavedReceipt, type LinearRun } from "./linear-run";
+import { DisclosureSummary } from "./DisclosureSummary";
 type Result = { issueId: string; success: boolean; error?: string };
 type Action =
   | "state"
@@ -85,7 +86,7 @@ export function LinearBulkActions({
         </button>
       </div>
       <details>
-        <summary>Review target IDs</summary>
+        <DisclosureSummary>Review target IDs</DisclosureSummary>
         <ul>
           {ids.map((id) => (
             <li key={id}>{id}</li>

@@ -31,6 +31,7 @@ import type {
 import type { Draft, DraftKey } from "../shared/state";
 
 import { isSavedReceipt, type LinearRun } from "./linear-run";
+import { DisclosureSummary } from "./DisclosureSummary";
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const ref = (issue: LinearIssue) => ({
@@ -417,7 +418,7 @@ export function LinearDetail({
                 Edit
               </button>
               <details>
-                <summary>Delete</summary>
+                <DisclosureSummary>Delete</DisclosureSummary>
                 <p>Delete this comment from Linear.</p>
                 <Button
                   color="danger"
@@ -506,7 +507,7 @@ export function LinearDetail({
         }
       />
       {feedback}
-      <div className="detail-scroll" ref={root}>
+      <div className="detail-scroll motion-content" ref={root}>
         <div className="issue-heading">
           <div className="issue-kicker">
             <span className="state-pill" style={{ color: issue.state.color }}>
@@ -566,7 +567,7 @@ export function LinearDetail({
                     onChange={(event) => edit({ title: event.target.value })}
                   />
                 </label>
-                <div className="linear-controls">
+                <div className="linear-controls" data-motion="selection">
                   <button
                     className="text-button"
                     onClick={() => setPreview(false)}
@@ -603,7 +604,9 @@ export function LinearDetail({
                       preserved.
                     </p>
                     <details>
-                      <summary>Compare latest description</summary>
+                      <DisclosureSummary>
+                        Compare latest description
+                      </DisclosureSummary>
                       <pre>{issue.body}</pre>
                     </details>
                     <button
@@ -718,7 +721,7 @@ export function LinearDetail({
               </section>
             )}
             <details className="linear-extra linear-upload">
-              <summary>Add file or URL</summary>
+              <DisclosureSummary>Add file or URL</DisclosureSummary>
               <p className="muted">
                 Files are stored in Linear. This Arco upload route supports
                 files up to 10 MiB per request. Add URLs using the Markdown
@@ -934,7 +937,7 @@ export function LinearDetail({
               />
             </section>
             <details className="property-advanced">
-              <summary>More properties</summary>
+              <DisclosureSummary>More properties</DisclosureSummary>
               <label>
                 Estimate
                 <SingleSelect
@@ -1002,7 +1005,7 @@ export function LinearDetail({
                 ),
               )}
               <details className="linear-extra">
-                <summary>Manage label definitions</summary>
+                <DisclosureSummary>Manage label definitions</DisclosureSummary>
                 <p className="muted">
                   Definitions apply across Issues. Manage label groups and scope
                   changes in Linear.
@@ -1127,7 +1130,7 @@ export function LinearDetail({
                 </Button>
                 {labelDraft.id && (
                   <details>
-                    <summary>Delete definition</summary>
+                    <DisclosureSummary>Delete definition</DisclosureSummary>
                     <p>
                       Delete “{labelDraft.name}” from this {labelDraft.scope}.
                       Issues will lose this label when its definition is
@@ -1154,7 +1157,9 @@ export function LinearDetail({
                 )}
               </details>
               <details className="linear-extra">
-                <summary>Parent, sub-issues and relations</summary>
+                <DisclosureSummary>
+                  Parent, sub-issues and relations
+                </DisclosureSummary>
                 <p>
                   Parent:{" "}
                   {issue.parent
@@ -1193,7 +1198,7 @@ export function LinearDetail({
                   </p>
                 ))}
                 <details>
-                  <summary>Create sub-issue</summary>
+                  <DisclosureSummary>Create sub-issue</DisclosureSummary>
                   <DraftStatus
                     status={persistence.statuses[draftStorageId(childKey)]}
                     onRetry={() =>

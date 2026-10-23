@@ -15,6 +15,7 @@ import {
   useDraftPersistence,
 } from "./useDraftPersistence";
 import type { Draft, DraftKey } from "../shared/state";
+import { DisclosureSummary } from "./DisclosureSummary";
 
 type RelationKind = "parent" | "child" | "blocked-by";
 export function GitHubRelations({
@@ -175,7 +176,9 @@ export function GitHubRelations({
       className="advanced-section relations-manager"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>Parent, sub-issues, and dependencies</summary>
+      <DisclosureSummary>
+        Parent, sub-issues, and dependencies
+      </DisclosureSummary>
       {query.isPending && open && (
         <p className="muted">Loading relationships…</p>
       )}

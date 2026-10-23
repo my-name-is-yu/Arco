@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@openai/apps-sdk-ui/css";
+@import "./motion.css";
 @source "../../node_modules/@openai/apps-sdk-ui/dist";
 
 .arco {
@@ -172,10 +173,6 @@
   flex: 0 0 auto;
   font-size: 18px !important;
   line-height: 1;
-}
-.icon-button:hover {
-  color: var(--arco-text);
-  background: var(--arco-hover);
 }
 .icon-button svg {
   width: 18px;
@@ -385,9 +382,6 @@
   border-radius: 8px;
   margin: 1px 0;
 }
-.issue-row:hover {
-  background: var(--arco-hover);
-}
 .issue-row.selected {
   background: var(--arco-selected);
 }
@@ -562,7 +556,6 @@
 .detail-utilities > summary::-webkit-details-marker {
   display: none;
 }
-.detail-utilities > summary:hover,
 .detail-utilities[open] > summary {
   color: var(--arco-text);
   background: var(--arco-hover);
@@ -597,10 +590,6 @@
   border-radius: 6px;
   font-size: 13px;
   text-align: left;
-}
-.detail-utility-menu .utility-item:hover,
-.detail-utility-menu .copy-value > button:hover {
-  background: var(--arco-hover);
 }
 .detail-utility-menu .utility-item svg {
   width: 17px;
@@ -1049,10 +1038,6 @@
   color: var(--arco-muted);
   font-size: 11px;
   text-align: left;
-}
-.text-button:hover {
-  color: var(--arco-text);
-  text-decoration: underline;
 }
 .comments-section {
   margin-top: 30px;
