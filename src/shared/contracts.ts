@@ -213,6 +213,7 @@ export type SharedIssueRef =
 export interface ArcoHost {
   sharedIssue?(): SharedIssueRef | null;
   sharedAnnotations?(): SelectionAnnotationContext[] | null;
+  annotationSnapshotId?(): string | null;
   call<T>(name: string, args: Record<string, unknown>): Promise<T>;
   readImage(
     issue: ConversationIssue,
@@ -220,7 +221,10 @@ export interface ArcoHost {
     commentId?: string | number,
   ): Promise<ImageData>;
   share(issue: ConversationIssue): Promise<void>;
-  shareAnnotations(annotations: SelectionAnnotationContext[]): Promise<void>;
+  shareAnnotations(
+    annotations: SelectionAnnotationContext[],
+    snapshotId?: string,
+  ): Promise<void>;
   openLink(url: string): Promise<void>;
   display(mode: DisplayMode): Promise<void>;
   subscribe(

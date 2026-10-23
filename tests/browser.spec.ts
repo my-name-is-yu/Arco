@@ -735,6 +735,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
   const collection = sharedContextFromText((await events(page, "context"))[3]);
   expect(collection).toEqual({
     source: "arco",
+    arcoAnnotationSnapshotId: expect.stringMatching(/^[a-f0-9-]{36}$/),
     annotations: [
       expect.objectContaining({
         number: 1,
@@ -817,6 +818,41 @@ test("two GitHub selections keep numbered markers and independent comments when 
   await expect(second).toHaveCount(0);
   await expect(dialog).toHaveCount(0);
   await expect.poll(() => retainedSelection(app)).toEqual([]);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("removing the native annotation group also removes its model-only data and Arco highlights", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  await selectText(app, ".issue-heading h1");
+  await addSelectionToChat(app);
+  await selectText(app, ".issue-body p");
+  await addSelectionToChat(app);
+  await expect(
+    app.getByRole("button", { name: /Edit selection comment/ }),
+  ).toHaveCount(2);
+  const updates = await events(page, "context");
+  const shared = updates.at(-1) as {
+    content: { _meta?: Record<string, unknown> }[];
+    structuredContent: Record<string, unknown>;
+  };
+  const group = shared.content[0]._meta?.["openai/group"];
+  const remaining = shared.content.filter(
+    (item) =>
+      JSON.stringify(item._meta?.["openai/group"]) !== JSON.stringify(group),
+  );
+  await updateHostContext(page, {
+    "openai/modelContext": remaining.length
+      ? { ...shared, content: remaining, updateId: "native-group-removed" }
+      : null,
+  });
+  await expect(
+    app.getByRole("button", { name: /Edit selection comment/ }),
+  ).toHaveCount(0);
+  await expect(selectionComment(app)).toHaveCount(0);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
+  expect(await events(page, "context")).toEqual(updates);
   expect(await events(page, "message")).toEqual([]);
 });
 
@@ -2393,3 +2429,341 @@ test("detail toolbar stays visible and utilities support keyboard and clipboard 
   expect(await events(page, "context")).toEqual([]);
   expect(await events(page, "message")).toEqual([]);
 });
+
+test("annotation restoration reconnects both Issue ranges and comments after iframe recreation without sharing again", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const comment = selectionComment(app).getByRole("textbox", {
+    name: "Optional comment",
+  });
+  const save = selectionComment(app).getByRole("button", {
+    name: "Save comment",
+    exact: true,
+  });
+  const title = await selectText(app, ".issue-heading h1");
+  await addSelectionToChat(app);
+  await comment.fill("Keep the first annotation comment");
+  await save.click();
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  const body = await selectText(app, ".issue-body p");
+  await addSelectionToChat(app);
+  await comment.fill("Keep the second annotation comment");
+  await save.click();
+  await expect.poll(() => events(page, "context")).toHaveLength(4);
+  const contextBeforeReload = await events(page, "context");
+  const frame = page
+    .frames()
+    .find((candidate) => candidate.url().endsWith("/arco.html"))!;
+  await frame.goto(frame.url());
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(app.locator(".workspace")).toBeVisible();
+  await expect.poll(() => retainedSelection(app)).toEqual([title, body]);
+  for (const [number, note] of [
+    [1, "Keep the first annotation comment"],
+    [2, "Keep the second annotation comment"],
+  ] as const) {
+    const marker = app.getByRole("button", {
+      name: `Edit selection comment ${number}`,
+      exact: true,
+    });
+    await expect(marker).toHaveText(String(number));
+    await marker.click();
+    await expect(comment).toHaveValue(note);
+    await comment.press("Escape");
+  }
+  expect(await events(page, "context")).toEqual(contextBeforeReload);
+  const thirdText = await selectText(
+    app,
+    ".comment [data-context-origin='comment'] p",
+  );
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(5);
+  await expect(
+    app.getByRole("button", {
+      name: "Edit selection comment 3",
+      exact: true,
+    }),
+  ).toHaveText("3");
+  const restored = sharedContextFromText((await events(page, "context")).at(-1))
+    .annotations as SharedAnnotation[];
+  expect(restored).toMatchObject([
+    {
+      number: 1,
+      issue: { source: "github", repo: "yu/Arco", number: 42 },
+      selection: { text: title, comment: "Keep the first annotation comment" },
+    },
+    {
+      number: 2,
+      issue: { source: "github", repo: "yu/Arco", number: 42 },
+      selection: { text: body, comment: "Keep the second annotation comment" },
+    },
+    { number: 3, selection: { text: thirdText, origin: "comment" } },
+  ]);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("annotation restoration hashes unselected input text and refuses a changed draft", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const source = app.getByRole("textbox", { name: "Comment on GitHub" });
+  const prefix = "PRIVATE_UNSELECTED_PREFIX_";
+  const text = "restore this selected slice";
+  const suffix = "_PRIVATE_UNSELECTED_SUFFIX";
+  const draft = prefix + text + suffix;
+  await source.fill(draft);
+  await expect(
+    app.locator(".detail-pane > .draft-storage-status"),
+  ).toContainText("saved on this device");
+  await source.scrollIntoViewIfNeeded();
+  await source.evaluate(
+    (element: HTMLTextAreaElement, { start, end }) => {
+      element.focus();
+      element.setSelectionRange(start, end);
+      element.dispatchEvent(new Event("select", { bubbles: true }));
+    },
+    { start: prefix.length, end: prefix.length + text.length },
+  );
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  await selectionComment(app).press("Escape");
+  const writes = (
+    (await events(page, "tool")) as {
+      name: string;
+      arguments: { anchors?: { anchor: unknown }[] };
+    }[]
+  ).filter((call) => call.name === "arco_write_annotation_snapshot");
+  expect(writes).toHaveLength(1);
+  expect(writes[0]!.arguments.anchors).toEqual([
+    expect.objectContaining({
+      anchor: expect.objectContaining({
+        rootKind: ".detail-pane",
+        selectionHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        target: expect.objectContaining({
+          kind: "editable",
+          start: prefix.length,
+          end: prefix.length + text.length,
+          valueHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+      }),
+    }),
+  ]);
+  const savedPositions = JSON.stringify(writes);
+  const shared = JSON.stringify(await events(page, "context"));
+  for (const privateText of [prefix, suffix, draft]) {
+    expect(savedPositions).not.toContain(privateText);
+    expect(shared).not.toContain(privateText);
+  }
+  expect(savedPositions).not.toContain(text);
+  expect(shared).toContain(text);
+  const frame = page
+    .frames()
+    .find((candidate) => candidate.url().endsWith("/arco.html"))!;
+  await frame.goto(frame.url());
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(app.locator(".workspace")).toBeVisible();
+  await expect(source).toHaveValue(draft);
+  await source.scrollIntoViewIfNeeded();
+  const mark = app.locator(".selection-retained-input mark");
+  await expect(mark).toHaveText(text);
+  const marker = app.getByRole("button", {
+    name: "Edit selection comment 1",
+    exact: true,
+  });
+  await expect(marker).toBeVisible();
+  const changedDraft = `Changed ${draft}`;
+  await source.fill(changedDraft);
+  await expect(marker).toHaveCount(0);
+  await expect(mark).toHaveCount(0);
+  await expect(
+    app.locator(".detail-pane > .draft-storage-status"),
+  ).toContainText("saved on this device");
+  const read = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/tool")) return false;
+    return (
+      (response.request().postDataJSON() as { name: string }).name ===
+      "arco_read_annotation_snapshot"
+    );
+  });
+  await frame.goto(frame.url());
+  await (await read).finished();
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(app.locator(".workspace")).toBeVisible();
+  await expect(source).toHaveValue(changedDraft);
+  await source.scrollIntoViewIfNeeded();
+  await source.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(marker).toHaveCount(0);
+  await expect(mark).toHaveCount(0);
+  await source.fill(draft);
+  await expect(mark).toHaveText(text);
+  await expect(marker).toBeVisible();
+  expect(await events(page, "context")).toHaveLength(1);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("annotation restoration reconnects generic UI and cross-Issue ranges in the same workspace", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const title = await selectText(app, ".sidebar-identity .wordmark");
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  await selectionComment(app).press("Escape");
+  const { text, sourceText } = await app
+    .locator(".issue-list")
+    .evaluate((list) => {
+      const titles = list.querySelectorAll(".issue-row .row-title");
+      const first = titles[0]!.firstChild!;
+      const second = titles[1]!.firstChild!;
+      const range = document.createRange();
+      range.setStart(first, 0);
+      range.setEnd(second, second.textContent!.length);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      list.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      return { text: selection.toString(), sourceText: range.toString() };
+    });
+  expect(text).toContain(firstTitle);
+  expect(text).toContain(secondTitle);
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  await selectionComment(app).press("Escape");
+  const sharedBeforeReload = await events(page, "context");
+  const shared = sharedContextFromText(sharedBeforeReload.at(-1));
+  expect(shared).toMatchObject({
+    source: "arco",
+    annotations: [
+      { number: 1, selection: { text: title, origin: "ui" } },
+      { number: 2, selection: { text, origin: "ui" } },
+    ],
+  });
+  for (const item of shared.annotations as SharedAnnotation[])
+    expect(item).not.toHaveProperty("issue");
+  const frame = page
+    .frames()
+    .find((candidate) => candidate.url().endsWith("/arco.html"))!;
+  await frame.goto(frame.url());
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(app.locator(".workspace")).toBeVisible();
+  await expect.poll(() => retainedSelection(app)).toEqual([title, sourceText]);
+  for (const number of [1, 2])
+    await expect(
+      app.getByRole("button", {
+        name: `Edit selection comment ${number}`,
+        exact: true,
+      }),
+    ).toHaveText(String(number));
+  expect(await events(page, "context")).toEqual(sharedBeforeReload);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+for (const change of ["replacement", "removal"] as const) {
+  test(`annotation restoration ignores a delayed snapshot after native ${change}`, async ({
+    page,
+  }) => {
+    const app = issueFrame(page);
+    await selectText(app, ".issue-heading h1");
+    await addSelectionToChat(app);
+    await expect.poll(() => events(page, "context")).toHaveLength(1);
+    await selectionComment(app).press("Escape");
+    const shared = (await events(page, "context"))[0] as {
+      content: unknown[];
+      structuredContent: Record<string, unknown>;
+    };
+    const id = shared.structuredContent.arcoAnnotationSnapshotId;
+    expect(id).toEqual(expect.any(String));
+    let releaseRead: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let readStarted = false;
+    let finishRead: () => void = () => {};
+    const delivered = new Promise<void>((resolve) => {
+      finishRead = resolve;
+    });
+    await page.route("**/tool", async (route) => {
+      const request = route.request().postDataJSON() as {
+        name: string;
+        arguments: { id?: string };
+      };
+      if (
+        request.name !== "arco_read_annotation_snapshot" ||
+        request.arguments.id !== id
+      ) {
+        await route.continue();
+        return;
+      }
+      const response = await route.fetch();
+      readStarted = true;
+      await blocked;
+      await route.fulfill({ response });
+      finishRead();
+    });
+    const frame = page
+      .frames()
+      .find((candidate) => candidate.url().endsWith("/arco.html"))!;
+    await frame.goto(frame.url());
+    try {
+      await expect.poll(() => readStarted).toBe(true);
+      await expect(
+        app.getByRole("heading", { name: firstTitle, exact: true }),
+      ).toBeVisible();
+      await updateHostContext(page, {
+        "openai/modelContext":
+          change === "removal"
+            ? null
+            : {
+                ...shared,
+                updateId: "fixture-replaced-annotation-snapshot",
+                structuredContent: {
+                  ...shared.structuredContent,
+                  arcoAnnotationSnapshotId:
+                    "2af82498-3814-4a1e-a1db-7acbcb91f386",
+                },
+              },
+      });
+      if (change === "replacement")
+        await expect
+          .poll(async () =>
+            (await events(page, "tool")).some(
+              (value) =>
+                (value as { name: string; arguments: { id?: string } }).name ===
+                  "arco_read_annotation_snapshot" &&
+                (value as { arguments: { id?: string } }).arguments.id !== id,
+            ),
+          )
+          .toBe(true);
+      else await expect(app.locator(".shared-target")).toHaveCount(0);
+    } finally {
+      releaseRead();
+    }
+    await delivered;
+    await app
+      .locator("body")
+      .evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+    await expect(app.locator(".selection-annotation-number")).toHaveCount(0);
+    await expect.poll(() => retainedSelection(app)).toEqual([]);
+    expect(await events(page, "context")).toHaveLength(1);
+    expect(await events(page, "message")).toEqual([]);
+  });
+}

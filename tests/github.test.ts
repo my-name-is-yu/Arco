@@ -24,40 +24,42 @@ const apiIssue = (overrides: Record<string, unknown> = {}) => ({
   repository_url: `https://api.github.com/repos/${FIXTURE_REPO}`,
   ...overrides,
 });
+const page = (nodes: unknown[], cursor: string | null = null) => ({
+  nodes,
+  pageInfo: { hasNextPage: cursor !== null, endCursor: cursor },
+});
+const membership = {
+  id: "item-42",
+  project: {
+    id: "project-A",
+    title: "Delivery",
+    url: "https://github.com/users/yu/projects/1",
+  },
+};
+const statusField = {
+  id: "field-A",
+  name: "Status",
+  dataType: "SINGLE_SELECT",
+  options: [
+    { id: "todo", name: "Todo" },
+    { id: "done", name: "Done" },
+  ],
+};
+const projectFields = {
+  data: {
+    project: { id: "project-A", fields: page([statusField]) },
+    item: {
+      id: "item-42",
+      project: { id: "project-A" },
+      content: { id: "I_42" },
+      fieldValues: page([{ optionId: "todo", field: { id: "field-A" } }]),
+    },
+  },
+};
 const projects = {
   data: {
     repository: {
-      issue: {
-        projectItems: {
-          pageInfo: { hasNextPage: false },
-          nodes: [
-            {
-              id: "item-42",
-              project: {
-                id: "project-A",
-                title: "Delivery",
-                fields: {
-                  pageInfo: { hasNextPage: false },
-                  nodes: [
-                    {
-                      id: "field-A",
-                      name: "Status",
-                      options: [
-                        { id: "todo", name: "Todo" },
-                        { id: "done", name: "Done" },
-                      ],
-                    },
-                  ],
-                },
-              },
-              fieldValues: {
-                pageInfo: { hasNextPage: false },
-                nodes: [{ optionId: "todo", field: { id: "field-A" } }],
-              },
-            },
-          ],
-        },
-      },
+      issue: { id: "I_42", projectItems: page([membership]) },
     },
   },
 };
@@ -68,6 +70,10 @@ function stubRun(
     projects?: unknown;
     search?: unknown;
     issue?: unknown;
+    projectRead?: (
+      query: string,
+      variables: Record<string, unknown>,
+    ) => unknown;
   } = {},
 ) {
   return vi.fn<GhRunner>(async (args, input) => {
@@ -85,7 +91,14 @@ function stubRun(
           }
         );
       if (overrides.projects instanceof Error) throw overrides.projects;
-      return overrides.projects ?? projects;
+      if (overrides.projectRead) {
+        const request = JSON.parse(input!);
+        return overrides.projectRead(request.query, request.variables);
+      }
+      return (
+        overrides.projects ??
+        (input?.includes("query ArcoProjectFields") ? projectFields : projects)
+      );
     }
     if (method !== "GET") return overrides.write?.(args, input) ?? apiIssue();
     if (endpoint === "user") return { login: "test-user" };
@@ -466,6 +479,145 @@ describe("write safety across the service boundary", () => {
       ).toBe(false);
     }
   });
+
+  it("loads later Project memberships and the 101st Status field before the normal Status mutation", async () => {
+    const seenMembershipCursors: unknown[] = [];
+    const run = stubRun({
+      projectRead: (query, variables) => {
+        if (query.includes("ArcoIssueMemberships")) {
+          seenMembershipCursors.push(variables.cursor);
+          return {
+            data: {
+              repository: {
+                issue: {
+                  id: "I_42",
+                  projectItems:
+                    variables.cursor === null
+                      ? page([], "memberships-1")
+                      : page([membership]),
+                },
+              },
+            },
+          };
+        }
+        expect(query).toContain("ArcoProjectFields");
+        return {
+          data: {
+            project: {
+              id: "project-A",
+              fields:
+                variables.fieldsCursor === null
+                  ? page(
+                      Array.from({ length: 100 }, (_, index) => ({
+                        id: `text-${index}`,
+                        name: `Text ${index}`,
+                        dataType: "TEXT",
+                      })),
+                      "fields-1",
+                    )
+                  : page([statusField]),
+            },
+            item: {
+              ...projectFields.data.item,
+              fieldValues:
+                variables.valuesCursor === null
+                  ? page([], "values-1")
+                  : projectFields.data.item.fieldValues,
+            },
+          },
+        };
+      },
+    });
+    const service = createGitHubService({ run });
+    const detail = await service.get(ref);
+    expect(detail.projectsError).toBeUndefined();
+    expect(detail.projects).toEqual([
+      {
+        projectId: "project-A",
+        projectTitle: "Delivery",
+        itemId: "item-42",
+        fieldId: "field-A",
+        fieldName: "Status",
+        optionId: "todo",
+        options: statusField.options,
+      },
+    ]);
+    expect(seenMembershipCursors).toEqual([null, "memberships-1"]);
+    await service.projectStatus({
+      ...ref,
+      projectId: "project-A",
+      itemId: "item-42",
+      fieldId: "field-A",
+      optionId: "done",
+      requestId: "later-status-field",
+    });
+    const mutations = run.mock.calls.filter(([, input]) =>
+      input?.includes("mutation ArcoProjectStatus"),
+    );
+    expect(mutations).toHaveLength(1);
+    expect(JSON.parse(mutations[0]![1]!).variables).toEqual({
+      projectId: "project-A",
+      itemId: "item-42",
+      fieldId: "field-A",
+      optionId: "done",
+    });
+  });
+
+  it.each(["fields", "memberships"])(
+    "stops normal Status writes when a later %s page cannot be read",
+    async (failure) => {
+      const run = stubRun({
+        projectRead: (query, variables) => {
+          if (query.includes("ArcoIssueMemberships")) {
+            if (variables.cursor)
+              throw new Error("Later membership unavailable");
+            return failure === "memberships"
+              ? {
+                  data: {
+                    repository: {
+                      issue: {
+                        id: "I_42",
+                        projectItems: page([membership], "next-memberships"),
+                      },
+                    },
+                  },
+                }
+              : projects;
+          }
+          if (variables.fieldsCursor)
+            throw new Error("Later fields unavailable");
+          return {
+            data: {
+              ...projectFields.data,
+              project: {
+                id: "project-A",
+                fields: page([statusField], "next-fields"),
+              },
+            },
+          };
+        },
+      });
+      const service = createGitHubService({ run });
+      const detail = await service.get(ref);
+      expect(detail.projects).toEqual([]);
+      expect(detail.projectsError).toContain("Unable to load Projects");
+      await expect(
+        service.projectStatus({
+          ...ref,
+          projectId: "project-A",
+          itemId: "item-42",
+          fieldId: "field-A",
+          optionId: "done",
+          requestId: `incomplete-${failure}`,
+        }),
+      ).rejects.toMatchObject({ code: "invalid" });
+      expect(
+        run.mock.calls.some(([, input]) =>
+          input?.includes("mutation ArcoProjectStatus"),
+        ),
+      ).toBe(false);
+    },
+  );
 
   it("validates Project status separately from Open/Closed", async () => {
     const service = createFixtureService();

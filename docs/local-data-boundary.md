@@ -1,6 +1,6 @@
 # Arco ユーザー端末優先のデータ境界
 
-更新日: 2026-10-22
+更新日: 2026-10-23
 状態: 無料pluginとして、UI + local stdio Node.js MCPから元サービスへ接続し、独自backendを作らない構成を採用済み。Code Reviewと同じ構成を優先し、設定・下書きはJSON、表示cacheはメモリから始める。credential保存・認可・起動は既存手段を先に検証し、追加依存は必要性を確認してから選ぶ。
 
 ## 意図と構成
@@ -14,7 +14,7 @@ flowchart LR
   Host --> Local[端末内のNode.js MCP]
   Local -->|Issueの取得・更新| Source[GitHub / Linear]
   Local --> Credentials[端末内のcredential storage]
-  Local --> State[メモリcache・端末内JSON設定と下書き]
+  Local --> State[メモリcache・端末内JSON設定・下書き・注釈位置]
 ```
 
 検索・本文・コメント・添付・属性更新はlocal MCPから、GitHub CLI等の公開接続経路を含む元サービスのAPIへ送る。Issueや進捗の正本は元サービスに置き、端末のcacheを独立したIssue管理DBにしない。
@@ -30,6 +30,7 @@ local MCPは通常のAPI接続用プロセスであり、独自agent runtime・�
 | 接続先の識別情報・scope・失効状態 | 端末 | tokenと接続先を対応させ、別利用者の接続と混同しない |
 | repo/team/Project一覧、検索条件・選択・閲覧状態 | 端末と元サービス | UIの表示範囲とproviderの認可範囲を区別する |
 | 下書き、表示設定、保存filter | OS標準の保存先にJSONで保持 | tokenを混ぜず、端末間同期を追加しない |
+| 注釈の位置 | 端末内の`annotations.json`に最新100 snapshotを保持 | UUID・注釈番号・Issue識別情報・DOM pathとoffset・hashを保存し、選択文・コメント・入力欄の全文は保存しない。Codexへは対応するsnapshot UUIDを添える |
 | 認可途中のstate・PKCE verifier・device code | 端末の短期情報 | 完了・取消・失効後に残さない |
 | Codexへの会話追加・モデル向けtool結果 | Codex/モデルへ渡す | 選択したIssue情報と操作に必要な結果に絞る |
 
@@ -66,6 +67,8 @@ atomic writeと更新競合対策は別であり、process内のPromise queueだ
 認可が未検証であることを理由に、source tokenをArco serverへ送る方式へ切り替えない。
 
 自前OAuthが必要な場合は、Node標準`fetch`・`crypto`・`http`による小さなprovider専用helperを候補とする。account/session frameworkは追加しない。Arcoの接続解除と元サービス側のgrant取消は別に扱い、共有`gh`認証を暗黙に削除しない。
+
+LinearのDisconnect Linearは端末内のcredentialを削除し、取得済み表示cacheを解除する。元サービスのgrantは取り消さず、保存済み下書き・設定とCodexの添付を保持する。
 
 ## 通信と会話連携の境界
 

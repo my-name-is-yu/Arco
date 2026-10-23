@@ -9,10 +9,16 @@ import {
   type SelectionAnnotationContext,
 } from "../shared/contracts";
 import type { LinearIssueSummary } from "../shared/linear";
+import {
+  annotationSnapshotSchema,
+  type AnnotationSnapshot,
+} from "../shared/annotation-state";
 import { selectionIssueSchema } from "./shared-context";
 import {
   captureSelectionAnchor,
   restoreSelectionTarget,
+  capturePersistableSelectionAnchor,
+  restorePersistableSelectionTarget,
   type SelectionAnchor,
 } from "./selection-anchor";
 import {
@@ -130,6 +136,49 @@ function sameAnnotations(
         item.number === b[index].number && sameSelection(item, b[index]),
     )
   );
+}
+
+async function annotationHash(context: SelectionAnnotationContext) {
+  const { number, issue, selection } = context;
+  const bytes = new TextEncoder().encode(
+    JSON.stringify([
+      number,
+      issue ?? null,
+      selection.text,
+      selection.origin,
+      selection.commentId ?? null,
+    ]),
+  );
+  return Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function matchesTargetContext(
+  target: AnnotationTarget,
+  context: SelectionAnnotationContext,
+) {
+  const start =
+    target.editable?.element ??
+    elementFor(target.range?.startContainer ?? null);
+  const end =
+    target.editable?.element ?? elementFor(target.range?.endContainer ?? null);
+  const region = start?.closest<HTMLElement>(
+    "[data-context-origin], [data-linear-context]",
+  );
+  const origin =
+    !target.editable && end && region?.contains(end)
+      ? (region.dataset.contextOrigin ?? region.dataset.linearContext)
+      : "ui";
+  return sameSelection(context, {
+    issue: issueFor(start, end),
+    selection: {
+      ...context.selection,
+      origin: origin === "body" || origin === "comment" ? origin : "ui",
+      commentId: origin === "comment" ? region?.dataset.commentId : undefined,
+    },
+  });
 }
 
 function annotationTarget(selected: Selected): AnnotationTarget {
@@ -273,6 +322,14 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
   );
   const current = useRef(annotations);
   const anchors = useRef(new Map<number, SelectionAnchor>());
+  const persisted = useRef(
+    new Map<number, AnnotationSnapshot["anchors"][number]>(),
+  );
+  const contextChanges = useRef(0);
+  const snapshot = useRef(host.annotationSnapshotId?.() ?? null);
+  const loadedSnapshot = useRef<string | null>(null);
+  const [snapshotId, setSnapshotId] = useState(snapshot.current);
+  const [restored, setRestored] = useState(0);
   const nextNumber = useRef(
     Math.max(0, ...annotations.map((item) => item.context.number)) + 1,
   );
@@ -287,6 +344,9 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     for (const number of anchors.current.keys())
       if (!next.some((item) => item.context.number === number))
         anchors.current.delete(number);
+    for (const number of persisted.current.keys())
+      if (!next.some((item) => item.context.number === number))
+        persisted.current.delete(number);
   }, []);
   const capture = useCallback(() => {
     if (lock.current) return;
@@ -296,53 +356,128 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
   useTextSelection(true, capture);
   const sync = useCallback(() => {
     const shared = host.sharedAnnotations?.() ?? [];
+    const nextSnapshot = host.annotationSnapshotId?.() ?? null;
+    const sameSnapshot = nextSnapshot === snapshot.current;
     if (
       sameAnnotations(
         current.current.map((item) => item.context),
         shared,
-      )
+      ) &&
+      sameSnapshot
     )
       return;
     commit(
       shared.map((context) => {
-        const previous = current.current.find(
-          (item) =>
-            item.context.number === context.number &&
-            sameSelection(
-              {
-                ...item.context,
-                selection: { ...item.context.selection, comment: undefined },
-              },
-              {
-                ...context,
-                selection: { ...context.selection, comment: undefined },
-              },
-            ),
-        );
+        const previous = sameSnapshot
+          ? current.current.find(
+              (item) =>
+                item.context.number === context.number &&
+                sameSelection(
+                  {
+                    ...item.context,
+                    selection: {
+                      ...item.context.selection,
+                      comment: undefined,
+                    },
+                  },
+                  {
+                    ...context,
+                    selection: { ...context.selection, comment: undefined },
+                  },
+                ),
+            )
+          : undefined;
         if (!previous) anchors.current.delete(context.number);
         return { context, target: previous?.target ?? null };
       }),
     );
+    if (!sameSnapshot) {
+      anchors.current.clear();
+      persisted.current.clear();
+      loadedSnapshot.current = null;
+      snapshot.current = nextSnapshot;
+      setSnapshotId(nextSnapshot);
+    }
     setEditing(null);
     nextNumber.current = Math.max(0, ...shared.map((item) => item.number)) + 1;
   }, [host, commit]);
   useEffect(() => {
-    const reconnect = () => {
-      let changed = false;
-      const next = current.current.map((item) => {
-        const number = item.context.number;
-        if (item.target) {
-          const anchor = captureSelectionAnchor(item.target);
-          if (anchor) anchors.current.set(number, anchor);
-          return item;
-        }
-        const anchor = anchors.current.get(number);
-        const target = anchor && restoreSelectionTarget(anchor);
-        if (!target) return item;
-        changed = true;
-        return { ...item, target };
+    if (!snapshotId || loadedSnapshot.current === snapshotId) return;
+    let cancelled = false;
+    void host
+      .call<{ snapshot: unknown }>("arco_read_annotation_snapshot", {
+        id: snapshotId,
+      })
+      .then((result) => {
+        if (
+          cancelled ||
+          snapshot.current !== snapshotId ||
+          host.annotationSnapshotId?.() !== snapshotId
+        )
+          return;
+        if (result.snapshot === null) return;
+        const saved = annotationSnapshotSchema.parse(result.snapshot);
+        if (saved.id !== snapshotId)
+          throw new Error(
+            "The saved annotation positions do not match this attachment.",
+          );
+        persisted.current = new Map(
+          saved.anchors.map((item) => [item.number, item]),
+        );
+        loadedSnapshot.current = snapshotId;
+        setRestored((value) => value + 1);
+      })
+      .catch((failure) => {
+        if (!cancelled)
+          setError(
+            failure instanceof Error
+              ? failure.message
+              : "Could not restore annotation positions.",
+          );
       });
-      if (changed) commit(next);
+    return () => {
+      cancelled = true;
+    };
+  }, [host, snapshotId]);
+  useEffect(() => {
+    let cancelled = false;
+    let running = false;
+    const reconnect = async () => {
+      if (running || cancelled) return;
+      running = true;
+      let changed = false;
+      const original = current.current;
+      try {
+        const next = await Promise.all(
+          original.map(async (item) => {
+            const number = item.context.number;
+            if (item.target) {
+              const anchor = captureSelectionAnchor(item.target);
+              if (anchor) anchors.current.set(number, anchor);
+              return item;
+            }
+            const anchor = anchors.current.get(number);
+            let target = anchor && restoreSelectionTarget(anchor);
+            const saved = persisted.current.get(number);
+            if (
+              !target &&
+              saved &&
+              saved.contextHash === (await annotationHash(item.context))
+            )
+              target = await restorePersistableSelectionTarget(
+                saved.anchor,
+                item.context.selection.text,
+              );
+            if (!target || !matchesTargetContext(target, item.context))
+              return item;
+            changed = true;
+            return { ...item, target };
+          }),
+        );
+        if (!cancelled && current.current === original && changed) commit(next);
+      } finally {
+        running = false;
+      }
     };
     const observer = new MutationObserver(reconnect);
     reconnect();
@@ -351,18 +486,26 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ["data-arco-issue"],
+      attributeFilter: [
+        "data-arco-issue",
+        "data-comment-id",
+        "data-context-origin",
+        "data-linear-context",
+      ],
     });
     document.addEventListener("input", reconnect);
     return () => {
+      cancelled = true;
       observer.disconnect();
       document.removeEventListener("input", reconnect);
     };
-  }, [annotations, commit]);
+  }, [annotations, commit, restored]);
   useEffect(
     () =>
       host.subscribe((event) => {
-        if (event !== "context" || lock.current) return;
+        if (event !== "context") return;
+        contextChanges.current += 1;
+        if (lock.current) return;
         setSelected(null);
         sync();
         window.getSelection()?.removeAllRanges();
@@ -454,16 +597,61 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     setError("");
     try {
       const contexts = next.map((item) => item.context);
-      await host.shareAnnotations(contexts);
+      const before = contextChanges.current;
+      const id = next.length ? crypto.randomUUID() : undefined;
+      const positions: AnnotationSnapshot["anchors"] = [];
+      for (const item of next) {
+        const contextHash = await annotationHash(item.context);
+        const anchor = item.target
+          ? await capturePersistableSelectionAnchor(
+              item.target,
+              item.context.selection.text,
+            )
+          : null;
+        const previous = persisted.current.get(item.context.number);
+        if (anchor)
+          positions.push({ number: item.context.number, contextHash, anchor });
+        else if (previous?.contextHash === contextHash)
+          positions.push(previous);
+      }
+      if (id)
+        await host.call("arco_write_annotation_snapshot", {
+          id,
+          anchors: positions,
+        });
+      if (contextChanges.current !== before) {
+        sync();
+        return false;
+      }
+      await host.shareAnnotations(contexts, id);
       if (
         host.sharedAnnotations &&
-        !sameAnnotations(host.sharedAnnotations() ?? [], contexts)
+        (!sameAnnotations(host.sharedAnnotations() ?? [], contexts) ||
+          (host.annotationSnapshotId &&
+            host.annotationSnapshotId() !== (id ?? null)))
       ) {
         sync();
         return false;
       }
+      const previousSnapshot = snapshot.current;
+      snapshot.current = id ?? null;
+      loadedSnapshot.current = id ?? null;
+      setSnapshotId(id ?? null);
+      persisted.current = new Map(positions.map((item) => [item.number, item]));
       commit(next);
       if (!next.length) nextNumber.current = 1;
+      if (!next.length && previousSnapshot)
+        await host
+          .call("arco_delete_annotation_snapshot", {
+            id: previousSnapshot,
+          })
+          .catch((failure) =>
+            setError(
+              failure instanceof Error
+                ? failure.message
+                : "Could not clear saved annotation positions.",
+            ),
+          );
       return true;
     } catch (failure) {
       setError(
@@ -474,6 +662,7 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
       return false;
     } finally {
       lock.current = false;
+      sync();
       setBusy(false);
     }
   };

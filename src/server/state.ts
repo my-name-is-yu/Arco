@@ -5,6 +5,11 @@ import { createHash, randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
 import { z } from "zod";
 import {
+  annotationSnapshotSchema,
+  annotationSnapshotIdSchema,
+  type AnnotationSnapshot,
+} from "../shared/annotation-state";
+import {
   settingsRecordSchema,
   settingsSchema,
   settingsUpdateSchema,
@@ -95,6 +100,12 @@ export function createStateStore(directory = stateDirectory()) {
     }
   }
   const settingsFile = join(directory, "settings.json");
+  const annotationsFile = join(directory, "annotations.json");
+  const annotationsSchema = z.record(
+    annotationSnapshotIdSchema,
+    annotationSnapshotSchema,
+  );
+  const readAnnotations = () => read(annotationsFile, annotationsSchema, {});
   const readSettings = () =>
     read(settingsFile, settingsRecordSchema, {
       revision: 0,
@@ -111,6 +122,33 @@ export function createStateStore(directory = stateDirectory()) {
   const readDraft = (key: DraftKey) =>
     read(draftFile(key), draftRecordSchema, { revision: 0, draft: null });
   return {
+    async readAnnotationSnapshot(id: string) {
+      const key = annotationSnapshotIdSchema.parse(id);
+      return { snapshot: (await readAnnotations())[key] ?? null };
+    },
+    async writeAnnotationSnapshot(input: AnnotationSnapshot) {
+      const snapshot = annotationSnapshotSchema.parse(input);
+      return locked(annotationsFile, async () => {
+        const snapshots = await readAnnotations();
+        const previous = snapshots[snapshot.id];
+        if (previous && JSON.stringify(previous) !== JSON.stringify(snapshot))
+          throw new StateConflict();
+        snapshots[snapshot.id] = snapshot;
+        for (const id of Object.keys(snapshots).slice(0, -100))
+          delete snapshots[id];
+        await writeAtomic(annotationsFile, snapshots);
+        return { saved: true };
+      });
+    },
+    async deleteAnnotationSnapshot(id: string) {
+      const key = annotationSnapshotIdSchema.parse(id);
+      return locked(annotationsFile, async () => {
+        const snapshots = await readAnnotations();
+        delete snapshots[key];
+        await writeAtomic(annotationsFile, snapshots);
+        return { deleted: true };
+      });
+    },
     readSettings,
     async updateSettings(input: z.input<typeof settingsUpdateSchema>) {
       const { expectedRevision, patch } = settingsUpdateSchema.parse(input);

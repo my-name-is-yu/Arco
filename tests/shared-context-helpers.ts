@@ -43,6 +43,10 @@ export function sharedContextFromText(value: unknown) {
   );
   expect(context).toEqual(structured);
   const visible = update.content.slice(0, -1);
+  expect(modelContent._meta?.["openai/group"]).toEqual(
+    visible[0]?._meta?.["openai/group"],
+  );
+  expect(modelContent._meta).not.toHaveProperty("openai/title");
   for (const content of visible) {
     expect(content.type).toBe("text");
     expect(content.annotations?.audience ?? []).not.toContain("assistant");
@@ -99,7 +103,16 @@ export function sharedContextFromText(value: unknown) {
       }
     }
     if (annotations.length > 1) {
-      expect(context).toEqual({ source: "arco", annotations });
+      expect(context).toEqual({
+        source: "arco",
+        annotations,
+        ...(context.arcoAnnotationSnapshotId
+          ? {
+              arcoAnnotationSnapshotId:
+                expect.stringMatching(/^[a-f0-9-]{36}$/),
+            }
+          : {}),
+      });
     } else {
       expect(context).toMatchObject({
         ...(annotations[0]!.issue ?? { source: "arco" }),

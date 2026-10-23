@@ -93,6 +93,30 @@ beforeEach(() => {
 });
 
 describe("host attachment context lifecycle", () => {
+  it("keeps an opaque position ID through a recreated view and clears it with native attachment removal", async () => {
+    fixture.update.mockResolvedValue(acknowledged("with-positions"));
+    const id = "d849445f-dbf3-4988-847b-81d2966dc0a2";
+    const host = await connectHost();
+    await host.shareAnnotations([annotationFor(1)], id);
+    const params = fixture.update.mock.calls[0][0];
+    expect(params.structuredContent).toMatchObject({
+      arcoAnnotationSnapshotId: id,
+    });
+    expect(host.annotationSnapshotId?.()).toBe(id);
+    fixture.context = {
+      "openai/modelContext": { ...params, updateId: "with-positions" },
+    };
+    const restored = await connectHost();
+    expect(restored.annotationSnapshotId?.()).toBe(id);
+    expect(restored.sharedAnnotations?.()).toEqual([annotationFor(1)]);
+    changed({ "openai/modelContext": null });
+    expect(restored.annotationSnapshotId?.()).toBeNull();
+    expect(restored.sharedAnnotations?.()).toBeNull();
+    await expect(
+      restored.shareAnnotations([annotationFor(1)], "../settings"),
+    ).rejects.toThrow();
+    expect(fixture.update).toHaveBeenCalledTimes(1);
+  });
   it.each([
     { label: "with an update ID", result: acknowledged("own-update") },
     { label: "without ACK metadata", result: {} },
@@ -139,6 +163,7 @@ describe("host attachment context lifecycle", () => {
         expect.objectContaining({
           type: "text",
           annotations: { audience: ["assistant"] },
+          _meta: { "openai/group": { title: "1 annotation" } },
         }),
       ]);
     },
@@ -178,6 +203,7 @@ describe("host attachment context lifecycle", () => {
       expect.objectContaining({
         type: "text",
         annotations: { audience: ["assistant"] },
+        _meta: { "openai/group": { title: "2 annotations" } },
       }),
     ]);
     expect(

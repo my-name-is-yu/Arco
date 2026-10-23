@@ -11,9 +11,11 @@ import {
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { imageDataSchema } from "../shared/images";
+import { annotationSnapshotIdSchema } from "../shared/annotation-state";
 import {
   sharedRefFromContext,
   sharedAnnotationsFromContext,
+  annotationSnapshotIdFromContext,
 } from "./shared-context";
 import { createToolQueue } from "./tool-queue";
 import { annotationAttachment, contextAttachment } from "./context-attachment";
@@ -81,6 +83,7 @@ export async function connectHost(): Promise<ArcoHost> {
   let contextRevision = 0;
   let sharedOverride: SharedIssueRef | null | undefined;
   let annotationsOverride: SelectionAnnotationContext[] | null | undefined;
+  let snapshotOverride: string | null | undefined;
   let attachmentBusy = false;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   const dataChanged = () => {
@@ -123,6 +126,9 @@ export async function connectHost(): Promise<ArcoHost> {
         annotationsOverride = sharedAnnotationsFromContext(
           modelContext?.structuredContent,
         );
+        snapshotOverride = annotationSnapshotIdFromContext(
+          modelContext?.structuredContent,
+        );
         notify("context");
       }
     }
@@ -163,12 +169,22 @@ export async function connectHost(): Promise<ArcoHost> {
       annotationsOverride = sharedAnnotationsFromContext(
         params.structuredContent,
       );
+      snapshotOverride = annotationSnapshotIdFromContext(
+        params.structuredContent,
+      );
       notify("context");
     } finally {
       attachmentBusy = false;
     }
   }
   return {
+    annotationSnapshotId() {
+      return snapshotOverride !== undefined
+        ? snapshotOverride
+        : annotationSnapshotIdFromContext(
+            openai.modelContext?.getCurrent()?.structuredContent,
+          );
+    },
     sharedIssue() {
       if (sharedOverride !== undefined) return sharedOverride;
       return sharedRefFromContext(
@@ -232,7 +248,9 @@ export async function connectHost(): Promise<ArcoHost> {
         ),
       );
     },
-    async shareAnnotations(annotations) {
+    async shareAnnotations(annotations, snapshotId) {
+      if (snapshotId !== undefined)
+        snapshotId = annotationSnapshotIdSchema.parse(snapshotId);
       const parsed = sharedAnnotationsFromContext({
         source: "arco",
         annotations,
@@ -269,7 +287,15 @@ export async function connectHost(): Promise<ArcoHost> {
           title: `#${number} ${preview.length > 64 ? `${preview.slice(0, 64)}…` : preview}`,
         };
       });
-      await attach(annotationAttachment(context, items));
+      await attach(
+        annotationAttachment(
+          {
+            ...context,
+            ...(snapshotId ? { arcoAnnotationSnapshotId: snapshotId } : {}),
+          },
+          items,
+        ),
+      );
     },
     async openLink(url) {
       const parsed = new URL(url);

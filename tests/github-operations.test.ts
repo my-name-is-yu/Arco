@@ -72,10 +72,26 @@ const projectDefinitions = [
   },
   { id: "project-users", name: "Reviewers", dataType: "ASSIGNEES" },
 ];
-const page = (nodes: unknown[]) => ({
+const page = (nodes: unknown[], cursor: string | null = null) => ({
   nodes,
-  pageInfo: { hasNextPage: false, endCursor: null },
+  pageInfo: { hasNextPage: cursor !== null, endCursor: cursor },
 });
+function projectPage(
+  fields: ReturnType<typeof page> | undefined,
+  values: ReturnType<typeof page> | undefined,
+) {
+  return {
+    data: {
+      project: { id: "project-A", ...(fields ? { fields } : {}) },
+      item: {
+        id: "item-42",
+        project: { id: "project-A" },
+        content: { id: "fixture-issue-42" },
+        ...(values ? { fieldValues: values } : {}),
+      },
+    },
+  };
+}
 
 function setup(
   overrides: {
@@ -85,6 +101,7 @@ function setup(
     projectContentId?: string;
     fieldDefinitions?: unknown[];
     writeError?: boolean;
+    projectRead?: (variables: Record<string, unknown>) => unknown;
   } = {},
 ) {
   const service = overrides.service ?? createFixtureService();
@@ -105,7 +122,11 @@ function setup(
       throw new Error("token=never-display");
     if (endpoint === "graphql") {
       const query = String(body.query);
-      if (query.includes("ArcoProjectFields"))
+      if (query.includes("ArcoProjectFields")) {
+        if (overrides.projectRead)
+          return overrides.projectRead(
+            z.record(z.string(), z.unknown()).parse(body.variables),
+          );
         return {
           data: {
             project: { id: "project-A", fields: page(projectDefinitions) },
@@ -119,11 +140,13 @@ function setup(
             },
           },
         };
+      }
       if (query.includes("ArcoIssueMemberships"))
         return {
           data: {
             repository: {
               issue: {
+                id: "fixture-issue-42",
                 projectItems: page([
                   {
                     id: "item-42",
@@ -445,6 +468,230 @@ describe("explicit additional GitHub operations", () => {
       fieldId: "project-select",
       value: { singleSelectOptionId: "option-todo" },
     });
+  });
+
+  it("loads 101 fields across two definition pages and three independent value pages before editing the last field", async () => {
+    const firstFields = Array.from({ length: 100 }, (_, index) => ({
+      id: `field-${index + 1}`,
+      name: `Field ${index + 1}`,
+      dataType: index === 0 ? "NUMBER" : "TEXT",
+    }));
+    const firstValues = [{ field: { id: "field-1" }, number: 0 }];
+    const middleValues = firstFields.slice(1).map((field) => ({
+      field: { id: field.id },
+      text: `Value for ${field.id}`,
+    }));
+    const requested: Record<string, unknown>[] = [];
+    const { operations, writes } = setup({
+      projectRead: (variables) => {
+        requested.push(variables);
+        return projectPage(
+          variables.includeFields
+            ? variables.fieldsCursor === null
+              ? page(firstFields, "fields-1")
+              : page([projectDefinitions[3]])
+            : undefined,
+          variables.includeValues
+            ? variables.valuesCursor === null
+              ? page(firstValues, "values-1")
+              : variables.valuesCursor === "values-1"
+                ? page(middleValues, "values-2")
+                : page([
+                    {
+                      field: { id: "project-select" },
+                      optionId: "option-todo",
+                    },
+                  ])
+            : undefined,
+        );
+      },
+    });
+    const projectRef = { ...ref, projectId: "project-A", itemId: "item-42" };
+    const result = await operations.projectFields(projectRef);
+    expect(result.hasMore).toBe(false);
+    expect(result.fields).toHaveLength(101);
+    expect(result.fields[0]!.value).toBe(0);
+    expect(result.fields.at(-1)).toMatchObject({
+      id: "project-select",
+      value: "option-todo",
+    });
+    expect(
+      requested.map(
+        ({ fieldsCursor, valuesCursor, includeFields, includeValues }) => ({
+          fieldsCursor,
+          valuesCursor,
+          includeFields,
+          includeValues,
+        }),
+      ),
+    ).toEqual([
+      {
+        fieldsCursor: null,
+        valuesCursor: null,
+        includeFields: true,
+        includeValues: true,
+      },
+      {
+        fieldsCursor: "fields-1",
+        valuesCursor: "values-1",
+        includeFields: true,
+        includeValues: true,
+      },
+      {
+        fieldsCursor: null,
+        valuesCursor: "values-2",
+        includeFields: false,
+        includeValues: true,
+      },
+    ]);
+    await operations.setProjectField({
+      ...projectRef,
+      requestId: "page-101-save",
+      fieldId: "project-select",
+      value: "option-todo",
+    });
+    expect(writes()).toHaveLength(1);
+    expect(JSON.parse(writes()[0][1]!).variables).toMatchObject({
+      fieldId: "project-select",
+      value: { singleSelectOptionId: "option-todo" },
+    });
+  });
+
+  it.each([
+    "transport",
+    "graphql",
+    "schema",
+    "project",
+    "item",
+    "item-project",
+    "issue",
+    "values",
+  ])(
+    "stops a Project field write when a later page fails its %s check",
+    async (failure) => {
+      let reads = 0;
+      const { operations, writes } = setup({
+        projectRead: () => {
+          if (++reads === 1)
+            return projectPage(
+              page(
+                [projectDefinitions[0]],
+                failure === "values" ? null : "next-fields",
+              ),
+              page([], failure === "values" ? "next-values" : null),
+            );
+          if (failure === "transport") throw new Error("Unavailable");
+          if (failure === "graphql" || failure === "values")
+            return { errors: [{ message: "Denied" }] };
+          if (failure === "schema") return { data: null };
+          const response = projectPage(page([]), undefined);
+          if (failure === "project") response.data.project.id = "other-project";
+          if (failure === "item") response.data.item.id = "other-item";
+          if (failure === "item-project")
+            response.data.item.project.id = "other-project";
+          if (failure === "issue")
+            response.data.item.content.id = "other-issue";
+          return response;
+        },
+      });
+      await expect(
+        operations.setProjectField({
+          ...ref,
+          projectId: "project-A",
+          itemId: "item-42",
+          requestId: `failed-page-${failure}`,
+          fieldId: "project-text",
+          value: "Must not be written",
+        }),
+      ).rejects.toThrow();
+      expect(reads).toBe(2);
+      expect(writes()).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    { label: "missing", cursors: [null] },
+    { label: "empty", cursors: [""] },
+    { label: "repeated", cursors: ["a", "a"] },
+    { label: "cyclic", cursors: ["a", "b", "a"] },
+  ])(
+    "rejects $label cursors on either Project connection before writing",
+    async ({ cursors, label }) => {
+      for (const connection of ["fields", "values"] as const) {
+        let reads = 0;
+        const { operations, writes } = setup({
+          projectRead: () => {
+            const cursor = cursors[reads++];
+            const incomplete = {
+              ...page(connection === "fields" ? [projectDefinitions[0]] : []),
+              pageInfo: { hasNextPage: true, endCursor: cursor },
+            };
+            return projectPage(
+              connection === "fields"
+                ? incomplete
+                : page([projectDefinitions[0]]),
+              connection === "values" ? incomplete : page([]),
+            );
+          },
+        });
+        await expect(
+          operations.setProjectField({
+            ...ref,
+            projectId: "project-A",
+            itemId: "item-42",
+            requestId: `${connection}-${label}-cursor`,
+            fieldId: "project-text",
+            value: "Must not be written",
+          }),
+        ).rejects.toThrow("pagination did not advance");
+        expect(reads).toBe(cursors.length);
+        expect(writes()).toHaveLength(0);
+      }
+    },
+  );
+
+  it("deduplicates identical page entries but refuses conflicting field definitions or values", async () => {
+    for (const changed of [false, "definition", "value"] as const) {
+      let reads = 0;
+      const { operations } = setup({
+        projectRead: () => {
+          const second = ++reads > 1;
+          return projectPage(
+            page(
+              [
+                {
+                  ...projectDefinitions[0],
+                  ...(second && changed === "definition"
+                    ? { name: "Changed" }
+                    : {}),
+                },
+              ],
+              second ? null : "next-fields",
+            ),
+            page(
+              [
+                {
+                  field: { id: "project-text" },
+                  text:
+                    second && changed === "value"
+                      ? "Changed value"
+                      : "Original value",
+                },
+              ],
+              second ? null : "next-values",
+            ),
+          );
+        },
+      });
+      const reading = operations.projectFields({
+        ...ref,
+        projectId: "project-A",
+        itemId: "item-42",
+      });
+      if (changed)
+        await expect(reading).rejects.toThrow("data changed while loading");
+      else expect((await reading).fields).toHaveLength(1);
+    }
   });
 
   it("rejects a Project item belonging to another Issue and unsupported field types", async () => {

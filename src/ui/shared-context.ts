@@ -5,6 +5,14 @@ import {
   type SharedIssueRef,
 } from "../shared/contracts";
 import { linearRefSchema } from "../shared/linear";
+import { annotationSnapshotIdSchema } from "../shared/annotation-state";
+
+export function annotationSnapshotIdFromContext(value: unknown): string | null {
+  const result = z
+    .object({ arcoAnnotationSnapshotId: annotationSnapshotIdSchema })
+    .safeParse(value);
+  return result.success ? result.data.arcoAnnotationSnapshotId : null;
+}
 
 const sharedContext = z.discriminatedUnion("source", [
   issueRefSchema

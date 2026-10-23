@@ -352,3 +352,32 @@
   display: block;
   margin-top: 12px;
 }
+
+.linear-account-menu {
+  position: relative;
+  width: 100%;
+}
+.linear-account-menu > summary {
+  cursor: pointer;
+  list-style: none;
+  border-radius: 5px;
+  padding: 5px;
+}
+.linear-account-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.linear-account-menu > summary:hover,
+.linear-account-menu[open] > summary {
+  background: var(--arco-hover);
+}
+.linear-account-menu > summary > svg {
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+}
+.linear-account-menu > .detail-utility-menu {
+  top: auto;
+  bottom: calc(100% + 5px);
+  left: 0;
+  right: auto;
+}

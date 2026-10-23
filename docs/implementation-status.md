@@ -4,6 +4,16 @@
 
 UIの文言・日付・エラーは英語。元サービスから取得したタイトルや本文は翻訳しない。GitHubとLinearはsource切替で扱い、各source内でrepo／teamを切り替える。元のID・workflow・属性を保持し、共通workflowやサービス間同期は作らない。
 
+2026-10-23夕方、Linearの接続名メニューに端末の接続解除を追加し、下書き・設定・Codexの添付を保持する。注釈はCodexのcontextを正として、snapshot UUIDに対応する端末内の位置情報から、一致する範囲だけ番号・ハイライト・コメント編集を復元する。GitHub Projectsの所属・属性定義・属性値は全ページを取得し、通常のStatus表示・変更も同じ処理を使う。
+
+注釈は同じOpened Arco ↗から開き直し、番号1・2とコメント「復元1」「復元2」が戻ることをユーザーが目視確認した。agentがDOMから直接確認した結果ではなく、新しい別カードへの引継ぎも保証しない。通常のメッセージに伴うモデル受信では、2件の選択文・origin・コメント・native Issue ID・snapshot UUIDが一致した。
+
+続いて、Codex側でannotations group全体を削除してもハイライトが残る不具合を確認した。実機診断では表示用blockだけが削除され、group外のassistant向けJSONとstructured annotationsが残っていたため、JSONにも同じgroupを付けた。修正後は型・lint・format、unit/adapter **185件・21ファイル**、全browser **79件**、build・68 tools smoke・artifact検査が成功した。更新版の実機では、ユーザーが1件表示と、添付全体の削除でArcoの番号も消えることを確認した。agentも削除後の番号・コメント欄が0件であることをDOMで確認した。[削除後の実画面](design/references/2026-10-23-completion/03-annotation-group-deleted-native.png)。診断処理を除去して再installし、installed/buildのHTML・serverのSHA256一致を確認済み。UIは1,606,298 bytes、SHA256 `845cf404eebda833f4fe5c5a4ebec1103bc09ed8d3dfca4468c7f1b85576a502`。
+
+Projectsは17:19–17:20 JSTに、既存の非公開検証Projectと専用Issue #2だけでproduction MCPを検証した。5種類の属性の設定・取得・clear・復元、元Issue内容の保持、追加itemの取り外し、Projectの非公開・終了状態への復元が成功した。100件超の所属・属性定義・属性値と、2ページ目の失敗・cursor不整合時の更新拒否はfixtureで検証しており、実サービスに100件超の定義を作成したものではない。実行記録は`dist/dev/projects-pagination-live.json`と`dist/dev/projects-pagination-live-wrapper.json`。
+
+Linearは更新版の実Arcoで接続名メニューからDisconnect Linearを実行し、Connect Linearと解除完了通知への切替を確認した。同じ既存Yu workspace・read/write権限で再認可し、本人名と実Issue一覧への復帰を確認した。元Issueの変更は行っていない。下書き・設定・context保持と遅延応答・解除失敗の動作はbrowser fixtureで別に検証した。[解除後の実画面](design/references/2026-10-23-completion/01-linear-disconnected-native.png)／[再接続後の実画面](design/references/2026-10-23-completion/02-linear-reconnected-native.png)。
+
 2026-10-23のユーザー希望によりPiPは対応範囲から外した。会話内カード（inline）と詳細（fullscreen／会話横）、global/threadの入口は引き続き対象とする。過去のPiP観測は履歴として残し、現在の受入条件には含めない。
 
 同日の初回の簡素化では、Ask Codexを依頼欄とSend requestだけにし、Current chat／New chatの選択とPrepare draftを削除した。これは後述の検証を含めて変更履歴として残す。

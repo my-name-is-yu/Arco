@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import {
+  GitHubProjectsError,
+  readProjectFields,
+  readProjectMemberships,
+} from "./github-projects";
+import {
   accountIssuesInputSchema,
   commentInputSchema,
   createInputSchema,
@@ -152,58 +157,6 @@ const apiRepositorySchema = z.object({
   archived: z.boolean(),
   has_issues: z.boolean(),
 });
-const singleSelectSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  options: z.array(z.object({ id: z.string(), name: z.string() })),
-});
-const projectsSchema = z.object({
-  data: z.object({
-    repository: z
-      .object({
-        issue: z
-          .object({
-            projectItems: z.object({
-              pageInfo: z.object({ hasNextPage: z.boolean() }),
-              nodes: z.array(
-                z
-                  .object({
-                    id: z.string(),
-                    project: z.object({
-                      id: z.string(),
-                      title: z.string(),
-                      fields: z.object({
-                        pageInfo: z.object({ hasNextPage: z.boolean() }),
-                        nodes: z.array(z.unknown()),
-                      }),
-                    }),
-                    fieldValues: z.object({
-                      pageInfo: z.object({ hasNextPage: z.boolean() }),
-                      nodes: z.array(z.unknown()),
-                    }),
-                  })
-                  .nullable(),
-              ),
-            }),
-          })
-          .nullable(),
-      })
-      .nullable(),
-  }),
-});
-
-const PROJECT_QUERY = `query ArcoIssueProjects($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) { issue(number: $number) {
-    projectItems(first: 100) { pageInfo { hasNextPage } nodes {
-      id project { id title fields(first: 100) { pageInfo { hasNextPage } nodes {
-        ... on ProjectV2SingleSelectField { id name options { id name } }
-      } } }
-      fieldValues(first: 100) { pageInfo { hasNextPage } nodes {
-        ... on ProjectV2ItemFieldSingleSelectValue { optionId field { ... on ProjectV2FieldCommon { id } } }
-      } }
-    } }
-  } }
-}`;
 const PROJECT_MUTATION = `mutation ArcoProjectStatus($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
   updateProjectV2ItemFieldValue(input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId,
     value: { singleSelectOptionId: $optionId } }) { projectV2Item { id } }
@@ -417,71 +370,50 @@ export function createGitHubService(
 
   async function projects(
     input: IssueRef,
+    issueId: string,
   ): Promise<{ projects: ProjectStatus[]; projectsError?: string }> {
     try {
-      const [owner, name] = input.repo.split("/");
-      const response = parse(
-        projectsSchema,
-        await api("graphql", "POST", {
-          query: PROJECT_QUERY,
-          variables: { owner, name, number: input.number },
-        }),
-      );
-      const items = response.data.repository?.issue?.projectItems;
-      if (!items) throw new GitHubError("Unable to load Projects.");
+      const graphql = (query: string, variables: Record<string, unknown>) =>
+        api("graphql", "POST", { query, variables });
+      const memberships = await readProjectMemberships(graphql, input, issueId);
       const result: ProjectStatus[] = [];
-      let truncated = items.pageInfo.hasNextPage;
-      const valueSchema = z.object({
-        optionId: z.string().nullable(),
-        field: z.object({ id: z.string() }),
-      });
-      for (const item of items.nodes) {
-        if (!item) continue;
-        truncated ||=
-          item.project.fields.pageInfo.hasNextPage ||
-          item.fieldValues.pageInfo.hasNextPage;
-        for (const rawField of item.project.fields.nodes) {
-          const field = singleSelectSchema.safeParse(rawField);
-          if (!field.success || field.data.name !== "Status") continue;
-          const values = item.fieldValues.nodes.map((value) =>
-            valueSchema.safeParse(value),
-          );
-          const current = values.find(
-            (value) => value.success && value.data.field.id === field.data.id,
-          );
+      for (const membership of memberships) {
+        const fields = await readProjectFields(graphql, {
+          projectId: membership.projectId,
+          itemId: membership.itemId,
+          issueId,
+        });
+        for (const field of fields) {
+          if (field.type !== "single_select" || field.name !== "Status")
+            continue;
           result.push({
-            projectId: item.project.id,
-            projectTitle: item.project.title,
-            itemId: item.id,
-            fieldId: field.data.id,
-            fieldName: field.data.name,
-            optionId: current?.success ? current.data.optionId : null,
-            options: field.data.options,
+            projectId: membership.projectId,
+            projectTitle: membership.title,
+            itemId: membership.itemId,
+            fieldId: field.id,
+            fieldName: field.name,
+            optionId: typeof field.value === "string" ? field.value : null,
+            options: field.options,
           });
         }
       }
-      return {
-        projects: result,
-        ...(truncated
-          ? {
-              projectsError:
-                "Only some Projects data was loaded. Open GitHub to see the complete information.",
-            }
-          : {}),
-      };
-    } catch {
+      return { projects: result };
+    } catch (error) {
       return {
         projects: [],
         projectsError:
-          "Unable to load Projects. Check read:project in GitHub CLI and your access to the target.",
+          error instanceof GitHubProjectsError
+            ? error.message
+            : "Unable to load Projects. Check read:project in GitHub CLI and your access to the target.",
       };
     }
   }
 
   async function get(raw: IssueRef): Promise<IssueDetail> {
     const input = issueRefSchema.parse(raw);
+    const issueRequest = issueRecord(input);
     const [issue, comments, projectData] = await Promise.all([
-      issueRecord(input),
+      issueRequest,
       api(
         `repos/${input.repo}/issues/${input.number}/comments?per_page=100`,
         "GET",
@@ -490,7 +422,7 @@ export function createGitHubService(
       ).then((value) =>
         parse(z.array(z.array(apiCommentSchema)), value).flat(),
       ),
-      projects(input),
+      issueRequest.then((issue) => projects(input, issue.node_id)),
     ]);
     return {
       ...summary(input.repo, issue),

@@ -28,9 +28,9 @@ import {
   type IssueRef,
 } from "../shared/contracts";
 import { createWriteGuard, GitHubError, runGh, type GhRunner } from "./github";
+import { readProjectFields, readProjectMemberships } from "./github-projects";
 
 type Input<K extends GitHubOperationToolName> = z.infer<(typeof schemas)[K]>;
-const recordSchema = z.record(z.string(), z.unknown());
 const apiIssueSchema = z.object({
   id: z.number().int().positive(),
   node_id: z.string(),
@@ -687,53 +687,13 @@ export function createGitHubOperations(options: {
   async function issueProjects(
     input: Input<"arco_issue_projects">,
   ): Promise<IssueProjectMemberships> {
-    await issueRecord(input);
-    const [owner, name] = input.repo.split("/");
-    const memberships: IssueProjectMemberships["memberships"] = [];
-    const responseSchema = z.object({
-      data: z.object({
-        repository: z.object({
-          issue: z.object({ projectItems: connectionSchema }),
-        }),
-      }),
-    });
-    let cursor: string | null = null;
-    do {
-      const response: z.infer<typeof responseSchema> = parse(
-        responseSchema,
-        await graphql(
-          "query ArcoIssueMemberships($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){issue(number:$number){projectItems(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id project{id title url}}}}}}",
-          { owner, name, number: input.number, cursor },
-        ),
-      );
-      const items: z.infer<typeof connectionSchema> =
-        response.data.repository.issue.projectItems;
-      for (const raw of items.nodes) {
-        const item = parse(
-          z.object({
-            id: z.string(),
-            project: z.object({
-              id: z.string(),
-              title: z.string(),
-              url: z.string(),
-            }),
-          }),
-          raw,
-        );
-        memberships.push({
-          projectId: item.project.id,
-          itemId: item.id,
-          title: item.project.title,
-          url: item.project.url,
-        });
-      }
-      cursor = items.pageInfo.hasNextPage
-        ? (items.pageInfo.endCursor ?? null)
-        : null;
-      if (items.pageInfo.hasNextPage && !cursor)
-        throw new GitHubError("Unable to load the next page of Projects.");
-    } while (cursor);
-    return { repo: input.repo, number: input.number, memberships, errors: [] };
+    const issue = await issueRecord(input);
+    return {
+      repo: input.repo,
+      number: input.number,
+      memberships: await readProjectMemberships(graphql, input, issue.node_id),
+      errors: [],
+    };
   }
   function projectMembership(input: Input<"arco_project_membership">) {
     return once(input.requestId, ["projectMembership", input], async () => {
@@ -786,152 +746,18 @@ export function createGitHubOperations(options: {
     input: Input<"arco_project_fields">,
   ): Promise<ProjectFieldList> {
     const issue = await issueRecord(input);
-    const query = `query ArcoProjectFields($projectId: ID!, $itemId: ID!) {
-      project: node(id: $projectId) {
-        ... on ProjectV2 {
-          id
-          fields(first: 100) {
-            pageInfo { hasNextPage endCursor }
-            nodes {
-              ... on ProjectV2FieldCommon { id name dataType }
-              ... on ProjectV2SingleSelectField { options { id name } }
-              ... on ProjectV2IterationField {
-                configuration {
-                  iterations { id title startDate duration }
-                  completedIterations { id title startDate duration }
-                }
-              }
-            }
-          }
-        }
-      }
-      item: node(id: $itemId) {
-        ... on ProjectV2Item {
-          id project { id } content { ... on Issue { id } }
-          fieldValues(first: 100) {
-            pageInfo { hasNextPage endCursor }
-            nodes {
-              ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { id } } }
-              ... on ProjectV2ItemFieldNumberValue { number field { ... on ProjectV2FieldCommon { id } } }
-              ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2FieldCommon { id } } }
-              ... on ProjectV2ItemFieldSingleSelectValue { optionId field { ... on ProjectV2FieldCommon { id } } }
-              ... on ProjectV2ItemFieldIterationValue { iterationId field { ... on ProjectV2FieldCommon { id } } }
-            }
-          }
-        }
-      }
-    }`;
-    const response = parse(
-      z.object({
-        data: z.object({
-          project: z
-            .object({ id: z.string(), fields: connectionSchema })
-            .nullable(),
-          item: z
-            .object({
-              id: z.string(),
-              project: z.object({ id: z.string() }),
-              content: z.object({ id: z.string() }).nullable(),
-              fieldValues: connectionSchema,
-            })
-            .nullable(),
-        }),
-      }),
-      await graphql(query, {
-        projectId: input.projectId,
-        itemId: input.itemId,
-      }),
-    );
-    const { project, item } = response.data;
-    if (
-      !project ||
-      !item ||
-      project.id !== input.projectId ||
-      item.id !== input.itemId ||
-      item.project.id !== project.id ||
-      item.content?.id !== issue.node_id
-    )
-      return invalid("The issue, Project, and item do not belong together.");
-    const fields: ProjectFieldList["fields"] = [];
-    for (const raw of project.fields.nodes) {
-      const definition = z
-        .object({
-          id: z.string(),
-          name: z.string(),
-          dataType: z.string(),
-          options: z
-            .array(z.object({ id: z.string(), name: z.string() }))
-            .optional(),
-          configuration: z
-            .object({
-              iterations: z.array(
-                z.object({
-                  id: z.string(),
-                  title: z.string(),
-                  startDate: z.string(),
-                  duration: z.number(),
-                }),
-              ),
-              completedIterations: z.array(
-                z.object({
-                  id: z.string(),
-                  title: z.string(),
-                  startDate: z.string(),
-                  duration: z.number(),
-                }),
-              ),
-            })
-            .optional(),
-        })
-        .safeParse(raw);
-      if (!definition.success) continue;
-      const field = definition.data;
-      const values = item.fieldValues.nodes.map((node) =>
-        recordSchema.safeParse(node),
-      );
-      const current = values.find(
-        (value) =>
-          value.success &&
-          z.object({ id: z.string() }).safeParse(value.data.field).data?.id ===
-            field.id,
-      );
-      const value = current?.success ? current.data : {};
-      const type = field.dataType.toLowerCase();
-      fields.push({
-        id: field.id,
-        name: field.name,
-        type,
-        supported: [
-          "text",
-          "number",
-          "date",
-          "single_select",
-          "iteration",
-        ].includes(type),
-        value: fieldValue(
-          value.text ??
-            value.number ??
-            value.date ??
-            value.optionId ??
-            value.iterationId ??
-            null,
-        ),
-        options: field.options ?? [],
-        iterations: [
-          ...(field.configuration?.iterations ?? []),
-          ...(field.configuration?.completedIterations ?? []),
-        ],
-      });
-    }
+    const fields = await readProjectFields(graphql, {
+      projectId: input.projectId,
+      itemId: input.itemId,
+      issueId: issue.node_id,
+    });
     return {
       repo: input.repo,
       number: input.number,
       projectId: input.projectId,
       itemId: input.itemId,
       fields,
-      hasMore:
-        project.fields.pageInfo.hasNextPage ||
-        item.fieldValues.pageInfo.hasNextPage,
+      hasMore: false,
     };
   }
   function setProjectField(input: Input<"arco_set_project_field">) {

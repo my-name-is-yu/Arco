@@ -3,6 +3,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createStateStore } from "./state";
 import {
+  annotationSnapshotKeySchema,
+  annotationSnapshotSchema,
+} from "../shared/annotation-state";
+import {
   draftDeleteSchema,
   draftReadSchema,
   draftWriteSchema,
@@ -15,6 +19,9 @@ export const stateToolSchemas = {
   arco_read_draft: draftReadSchema,
   arco_write_draft: draftWriteSchema,
   arco_delete_draft: draftDeleteSchema,
+  arco_read_annotation_snapshot: annotationSnapshotKeySchema,
+  arco_write_annotation_snapshot: annotationSnapshotSchema,
+  arco_delete_annotation_snapshot: annotationSnapshotKeySchema,
 };
 export function registerStateTools(
   server: McpServer,
@@ -28,12 +35,18 @@ export function registerStateTools(
       {
         title: name,
         description:
-          "Read or explicitly save Arco settings / unsent drafts on this device. Contains no source credentials.",
+          "Read or explicitly save Arco settings, unsent drafts, or annotation positions on this device. Contains no source credentials.",
         inputSchema: stateToolSchemas[name].shape,
         annotations: {
-          readOnlyHint: ["arco_get_settings", "arco_read_draft"].includes(name),
+          readOnlyHint: [
+            "arco_get_settings",
+            "arco_read_draft",
+            "arco_read_annotation_snapshot",
+          ].includes(name),
           openWorldHint: false,
-          destructiveHint: name === "arco_delete_draft",
+          destructiveHint:
+            name === "arco_delete_draft" ||
+            name === "arco_delete_annotation_snapshot",
         },
         _meta: { ui: { visibility: ["app"] } },
       },
@@ -41,6 +54,21 @@ export function registerStateTools(
         try {
           let value;
           switch (name) {
+            case "arco_read_annotation_snapshot":
+              value = await store.readAnnotationSnapshot(
+                annotationSnapshotKeySchema.parse(input).id,
+              );
+              break;
+            case "arco_write_annotation_snapshot":
+              value = await store.writeAnnotationSnapshot(
+                annotationSnapshotSchema.parse(input),
+              );
+              break;
+            case "arco_delete_annotation_snapshot":
+              value = await store.deleteAnnotationSnapshot(
+                annotationSnapshotKeySchema.parse(input).id,
+              );
+              break;
             case "arco_get_settings":
               value = await store.readSettings();
               break;

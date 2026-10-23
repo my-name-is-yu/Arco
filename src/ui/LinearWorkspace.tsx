@@ -7,6 +7,7 @@ import {
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
   ArrowRotateCw,
+  DotsHorizontalMoreMenu,
   Filter,
   MagnifyingGlassSearch,
   Plus,
@@ -84,6 +85,13 @@ function requestsFor(host: ArcoHost) {
 }
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+const linearDataKeys = new Set([
+  "linear-scopes",
+  "linear-metadata",
+  "linear-templates",
+  "linear-issues",
+  "linear-issue",
+]);
 
 export function LinearWorkspace({
   host,
@@ -113,6 +121,8 @@ export function LinearWorkspace({
   const [notice, setNotice] = useState("");
   const [receipt, setReceipt] = useState(view.receipt);
   const [busy, setBusy] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const accountMenu = useRef<HTMLDetailsElement>(null);
   const lock = useRef(false);
   const requests = useMemo(() => requestsFor(host), [host]);
   const search = useRef<HTMLInputElement>(null);
@@ -151,30 +161,41 @@ export function LinearWorkspace({
   const connection = useQuery({
     queryKey: ["linear-connection"],
     queryFn: () => host.call<LinearConnection>("linear_connection", {}),
+    enabled: !disconnecting,
   });
+  const connected = connection.data?.connected === true;
+  const canRead = connected && !disconnecting;
   const auth = useQuery({
     queryKey: ["linear-auth"],
     queryFn: () =>
       host.call<{ state: string; message: string }>("linear_auth_status", {}),
-    refetchInterval: authPending ? 2000 : false,
+    enabled: !disconnecting,
+    refetchInterval: authPending && !disconnecting ? 2000 : false,
   });
   useEffect(() => {
-    if (auth.data?.state === "connected") {
+    if (!disconnecting && auth.data?.state === "connected") {
       setAuthPending(false);
       void cache.invalidateQueries({ queryKey: ["linear-connection"] });
     }
-  }, [auth.data?.state, cache]);
+  }, [auth.data?.state, cache, disconnecting]);
   const scopes = useQuery({
-    queryKey: ["linear-scopes", connection.data?.connectionId],
+    queryKey: [
+      "linear-scopes",
+      connection.data?.connectionId,
+      connection.data?.workspace?.id,
+      connection.data?.userId,
+    ],
     queryFn: () =>
       host.call<LinearScopes>("linear_scopes", {
         connectionId: connection.data!.connectionId,
       }),
-    enabled: connection.data?.connected === true,
+    enabled: canRead,
   });
   const savedTeam = settings.query.data?.settings.activeLinearTeam;
   const teamId =
-    teamOverride ||
+    (scopes.data?.teams.some((team) => team.id === teamOverride)
+      ? teamOverride
+      : undefined) ||
     (scopes.data?.teams.some((team) => team.id === savedTeam)
       ? savedTeam
       : undefined) ||
@@ -182,14 +203,23 @@ export function LinearWorkspace({
     "";
   const scope: LinearScope | null = useMemo(
     () =>
-      scopes.data && teamId
+      connected &&
+      scopes.data &&
+      scopes.data.workspace.id === connection.data?.workspace?.id &&
+      teamId
         ? {
             connectionId: connection.data?.connectionId ?? "default",
             workspaceId: scopes.data.workspace.id,
             teamId,
           }
         : null,
-    [scopes.data, teamId, connection.data?.connectionId],
+    [
+      connected,
+      scopes.data,
+      teamId,
+      connection.data?.connectionId,
+      connection.data?.workspace?.id,
+    ],
   );
   const scopeId = scope ? linearScopeKey(scope) : "";
   const currentFilter =
@@ -276,7 +306,7 @@ export function LinearWorkspace({
   const metadata = useQuery({
     queryKey: ["linear-metadata", scope],
     queryFn: () => host.call<LinearMetadata>("linear_metadata", { ...scope }),
-    enabled: Boolean(scope),
+    enabled: canRead && Boolean(scope),
   });
   const templates = useQuery({
     queryKey: ["linear-templates", scope],
@@ -284,7 +314,7 @@ export function LinearWorkspace({
       host.call<{ templates: LinearTemplate[] }>("linear_templates", {
         ...scope,
       }),
-    enabled: Boolean(scope) && createOpen,
+    enabled: canRead && Boolean(scope) && createOpen,
   });
   const selectedTemplate = templates.data?.templates.find(
     (template) => template.id === createDraft.templateId,
@@ -292,7 +322,7 @@ export function LinearWorkspace({
   const pageScope = JSON.stringify([scope, query, filters]);
   const issues = useInfiniteQuery({
     queryKey: ["linear-issues", pageScope],
-    refetchInterval: mode === "fullscreen" ? 30_000 : false,
+    refetchInterval: canRead && mode === "fullscreen" ? 30_000 : false,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       host.call<LinearPage>("linear_list_issues", {
@@ -305,24 +335,37 @@ export function LinearWorkspace({
       }),
     getNextPageParam: (last) =>
       last.hasMore ? (last.cursor ?? undefined) : undefined,
-    enabled: Boolean(scope) && !settings.query.isPending,
+    enabled: canRead && Boolean(scope) && !settings.query.isPending,
   });
   const rows = useMemo(
     () => issues.data?.pages.flatMap((page) => page.issues) ?? [],
     [issues.data],
   );
-  const active = selected ?? (rows[0] ? linearRef(rows[0]) : null);
+  const matchesConnection = (ref: LinearRef | null) =>
+    ref?.connectionId === connection.data?.connectionId &&
+    ref?.workspaceId === connection.data?.workspace?.id;
+  const active = connected
+    ? matchesConnection(selected)
+      ? selected
+      : rows[0]
+        ? linearRef(rows[0])
+        : null
+    : null;
   const detail = useQuery({
     queryKey: ["linear-issue", active],
-    refetchInterval: mode === "fullscreen" || !shared ? 30_000 : false,
+    refetchInterval:
+      canRead && (mode === "fullscreen" || !shared) ? 30_000 : false,
     queryFn: () => host.call<LinearIssue>("linear_get_issue", { ...active }),
-    enabled: Boolean(active),
+    enabled: canRead && Boolean(active),
   });
   const sharedIssue = useQuery({
     queryKey: ["linear-issue", shared],
-    refetchInterval: mode !== "fullscreen" && shared ? 30_000 : false,
+    refetchInterval:
+      canRead && matchesConnection(shared) && mode !== "fullscreen" && shared
+        ? 30_000
+        : false,
     queryFn: () => host.call<LinearIssue>("linear_get_issue", { ...shared }),
-    enabled: Boolean(shared),
+    enabled: canRead && Boolean(shared) && matchesConnection(shared),
   });
   const detailScope = useMemo(
     () =>
@@ -339,9 +382,13 @@ export function LinearWorkspace({
     queryKey: ["linear-metadata", detailScope],
     queryFn: () =>
       host.call<LinearMetadata>("linear_metadata", { ...detailScope }),
-    enabled: Boolean(detailScope),
+    enabled: canRead && Boolean(detailScope),
   });
-  const retained = shared ? sharedIssue.data : detail.data;
+  const retained = shared
+    ? matchesConnection(shared)
+      ? sharedIssue.data
+      : undefined
+    : detail.data;
   useEffect(
     () =>
       host.subscribe((event) => {
@@ -351,7 +398,7 @@ export function LinearWorkspace({
           return;
         }
         setMode(host.mode());
-        if (event === "data")
+        if (event === "data" && canRead)
           void cache.invalidateQueries(
             {
               predicate: (entry) =>
@@ -362,11 +409,11 @@ export function LinearWorkspace({
             { cancelRefetch: false },
           );
       }),
-    [host, cache],
+    [host, cache, canRead],
   );
   useEffect(() => {
-    if (!selected && rows[0]) setSelected(linearRef(rows[0]));
-  }, [selected, rows]);
+    if (canRead && !selected && rows[0]) setSelected(linearRef(rows[0]));
+  }, [canRead, selected, rows]);
   useLayoutEffect(() => {
     if (!issues.isSuccess || !list.current) {
       restoredScope.current = null;
@@ -421,7 +468,7 @@ export function LinearWorkspace({
     name: string,
     args: Record<string, unknown>,
   ): Promise<T | LinearSavedReceipt | undefined> {
-    if (lock.current) return;
+    if (lock.current || !connected) return;
     lock.current = true;
     setBusy(true);
     setNotice("");
@@ -478,6 +525,76 @@ export function LinearWorkspace({
       setNotice(message(error));
     }
   }
+  function disconnected(connectionId: string) {
+    cache.setQueryData<LinearConnection>(["linear-connection"], {
+      connectionId,
+      connected: false,
+      mode: "linear",
+      account: null,
+      userId: null,
+      workspace: null,
+      message: "Authorize Arco with Linear to connect.",
+    });
+    cache.setQueryData(["linear-auth"], {
+      state: "idle",
+      connected: false,
+      message: "",
+    });
+    cache.removeQueries({
+      predicate: (entry) => linearDataKeys.has(String(entry.queryKey[0])),
+    });
+    setAuthPending(false);
+    setTeamOverride("");
+    setSelected(null);
+    setShowDetail(false);
+    setCreateOpen(false);
+    setBulk([]);
+    setReceipt(null);
+    view.selected = null;
+    view.showDetail = false;
+    view.receipt = null;
+    selectionByScope.current.clear();
+    selectedStateTypes.current.clear();
+    setNotice(
+      "Disconnected Linear on this device. Your drafts and chat context are preserved.",
+    );
+  }
+  async function disconnect() {
+    if (lock.current || connection.data?.mode === "fixture") return;
+    lock.current = true;
+    setBusy(true);
+    setDisconnecting(true);
+    setNotice("");
+    urlRequest.current += 1;
+    setUrlBusy(false);
+    setSearchEntry(null);
+    setSearchError("");
+    const connectionId = connection.data?.connectionId ?? "default";
+    try {
+      await cache.cancelQueries({
+        predicate: (entry) => String(entry.queryKey[0]).startsWith("linear-"),
+      });
+      const result = await host.call<{ disconnected: boolean }>(
+        "linear_auth_disconnect",
+        { connectionId, revoke: false },
+      );
+      if (!result.disconnected)
+        throw new Error("Linear disconnection was not confirmed.");
+      disconnected(connectionId);
+    } catch (error) {
+      // The local credential may already be gone if the acknowledgement was lost.
+      const status = await host
+        .call<{ connected: boolean }>("linear_auth_status", { connectionId })
+        .catch(() => null);
+      if (status?.connected === false) disconnected(connectionId);
+      else setNotice(message(error));
+    } finally {
+      lock.current = false;
+      setDisconnecting(false);
+      setBusy(false);
+      accountMenu.current?.querySelector("summary")?.focus();
+    }
+  }
   const changeMode = (value: "inline" | "fullscreen") => {
     capturePosition();
     return hostAction(async () => {
@@ -514,6 +631,7 @@ export function LinearWorkspace({
         connectionId: connection.data?.connectionId ?? "default",
         url: value,
       });
+      if (request !== urlRequest.current) return;
       const issue = await host.call<LinearIssue>("linear_get_issue", {
         ...resolved,
       });
@@ -553,7 +671,7 @@ export function LinearWorkspace({
           LOCAL LINEAR FIXTURE · No writes to Linear
         </div>
       )}
-      {notice && (
+      {connected && notice && (
         <div className="notice" role="status">
           {notice}
           <button
@@ -729,6 +847,7 @@ export function LinearWorkspace({
               Authorize in Linear
             </Button>
             <p>{auth.data?.message}</p>
+            {notice && <p role="status">{notice}</p>}
             <button
               className="text-button"
               onClick={() => {
@@ -1034,23 +1153,62 @@ export function LinearWorkspace({
           </p>
         )}
         <footer className="sidebar-footer sidebar-account">
-          <span className="connection-line">
-            <span
-              className={`connection-dot ${connection.data?.connected ? "connected" : ""}`}
-            />
-            {connection.data?.account || "Disconnected"}
-            {connection.data?.mode === "fixture" && " · Linear fixture"}
-          </span>
+          {connection.data?.mode === "fixture" ? (
+            <span className="connection-line">
+              <span className="connection-dot connected" />
+              {connection.data.account} · Linear fixture
+            </span>
+          ) : (
+            <details
+              className="linear-account-menu"
+              ref={accountMenu}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.stopPropagation();
+                event.preventDefault();
+                event.currentTarget.open = false;
+                event.currentTarget.querySelector("summary")?.focus();
+              }}
+            >
+              <summary
+                className="connection-line"
+                aria-label="Linear connection actions"
+              >
+                <span
+                  className={`connection-dot ${connected ? "connected" : ""}`}
+                />
+                {connection.data?.account ||
+                  (connection.isError
+                    ? "Connection unavailable"
+                    : "Disconnected")}
+                <DotsHorizontalMoreMenu aria-hidden="true" />
+              </summary>
+              <div className="detail-utility-menu">
+                <button
+                  className="utility-item"
+                  disabled={
+                    busy || (!connected && !authPending && !connection.isError)
+                  }
+                  onClick={() => {
+                    if (accountMenu.current) accountMenu.current.open = false;
+                    void disconnect();
+                  }}
+                >
+                  Disconnect Linear
+                </button>
+              </div>
+            </details>
+          )}
         </footer>
       </aside>
       <section
         className="detail-pane"
         aria-label="Linear Issue details"
         data-arco-issue={
-          detail.data ? selectionIssueData(detail.data) : undefined
+          connected && detail.data ? selectionIssueData(detail.data) : undefined
         }
       >
-        {!detail.data && (
+        {(!connected || !detail.data) && (
           <>
             <header className="detail-toolbar">
               <span className="toolbar-tab">Linear Issue</span>
@@ -1058,7 +1216,7 @@ export function LinearWorkspace({
             {detailFeedback}
           </>
         )}
-        {detail.data ? (
+        {connected && detail.data ? (
           <LinearDetail
             key={`${detail.data.connectionId}/${detail.data.issueId}`}
             host={host}

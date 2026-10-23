@@ -26,6 +26,117 @@ async function events(page: Page, type: string) {
     .filter((value) => value.type === type)
     .map((value) => value.value);
 }
+async function mockLinearAuthorization(
+  page: Page,
+  options: { empty?: boolean } = {},
+) {
+  const state = {
+    connected: true,
+    empty: options.empty ?? false,
+    connectionError: false,
+    disconnectFailure: false,
+    loseAcknowledgement: false,
+    otherWorkspace: false,
+    disconnects: [] as Record<string, unknown>[],
+  };
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: Record<string, unknown>;
+    };
+    const respond = (data: object) =>
+      route.fulfill({
+        json: {
+          content: [{ type: "text", text: JSON.stringify(data) }],
+          structuredContent: data,
+        },
+      });
+    const fail = (text: string) =>
+      route.fulfill({
+        json: { isError: true, content: [{ type: "text", text }] },
+      });
+    if (input.name === "linear_auth_disconnect") {
+      state.disconnects.push(input.arguments);
+      if (state.disconnectFailure)
+        return fail(
+          "The Linear credential could not be removed from the OS credential store.",
+        );
+      state.connected = false;
+      if (state.loseAcknowledgement)
+        return fail("Simulated lost disconnection acknowledgement.");
+      return respond({ disconnected: true, providerRevoked: false });
+    }
+    if (input.name === "linear_auth_status")
+      return respond({
+        state: state.connected ? "connected" : "idle",
+        connected: state.connected,
+        message: "",
+      });
+    if (input.name === "linear_connection") {
+      if (state.connectionError)
+        return fail("The Linear connection is temporarily unavailable.");
+      if (!state.connected)
+        return respond({
+          connectionId: "default",
+          connected: false,
+          mode: "linear",
+          account: null,
+          userId: null,
+          workspace: null,
+          message: "Authorize Arco with Linear to connect.",
+        });
+      const response = await route.fetch();
+      const result = await response.json();
+      result.structuredContent.mode = "linear";
+      if (state.otherWorkspace)
+        result.structuredContent.workspace = {
+          id: "another-workspace",
+          name: "Another workspace",
+        };
+      return route.fulfill({ response, json: result });
+    }
+    if (input.name === "linear_scopes" && state.otherWorkspace)
+      return respond({
+        workspace: { id: "another-workspace", name: "Another workspace" },
+        teams: [{ id: "another-team", name: "Another team", key: "ALT" }],
+      });
+    if (
+      input.name === "linear_list_issues" &&
+      (state.empty || state.otherWorkspace)
+    )
+      return respond({ issues: [], hasMore: false, cursor: null });
+    if (input.name === "linear_metadata" && state.otherWorkspace) {
+      const response = await route.fetch({
+        postData: {
+          ...input,
+          arguments: {
+            ...input.arguments,
+            workspaceId: "fixture-linear-workspace",
+            teamId: "fixture-linear-team",
+          },
+        },
+      });
+      return route.fulfill({ response });
+    }
+    return route.continue();
+  });
+  const frame = page
+    .frames()
+    .find((candidate) => candidate.url().endsWith("/arco.html"))!;
+  await frame.goto(frame.url());
+  await expect(
+    app(page).getByLabel("Linear connection actions", { exact: true }),
+  ).toBeVisible();
+  return state;
+}
+
+async function disconnectLinear(page: Page) {
+  const ui = app(page);
+  await ui.getByLabel("Linear connection actions", { exact: true }).click();
+  await ui
+    .getByRole("button", { name: "Disconnect Linear", exact: true })
+    .click();
+}
 test.beforeEach(async ({ page }) => {
   errors.set(page, []);
   page.on("pageerror", (error) => errors.get(page)!.push(error.message));
@@ -1906,4 +2017,314 @@ test("Linear inline details report a refused fullscreen request and allow retry"
   });
   expect(await events(page, "context")).toHaveLength(1);
   expect(await events(page, "message")).toEqual([]);
+});
+
+test("Linear disconnect keeps local drafts, settings, and chat context while stopping background reads", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const authorization = await mockLinearAuthorization(page);
+  const ui = app(page);
+  await expect(
+    ui.getByRole("heading", { name: firstTitle, exact: true }),
+  ).toBeVisible();
+  await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const contexts = await events(page, "context");
+  await ui
+    .getByRole("textbox", { name: "Search Linear Issues", exact: true })
+    .fill("workflow");
+  await ui
+    .getByRole("textbox", { name: "Linear comment", exact: true })
+    .fill("Keep this unsent comment after disconnect");
+  await openIssueActions(ui);
+  await ui
+    .getByRole("button", { name: "Edit Linear description", exact: true })
+    .click();
+  await ui
+    .getByRole("textbox", { name: "Linear title", exact: true })
+    .fill("A preserved issue title draft");
+  await ui
+    .getByRole("textbox", { name: "Linear Markdown description", exact: true })
+    .fill("A preserved description draft");
+  await expect(
+    ui.locator(".detail-scroll > .draft-storage-status"),
+  ).toContainText("Draft saved on this device");
+  await ui
+    .getByRole("button", { name: "Close and keep draft", exact: true })
+    .click();
+  await ui
+    .getByRole("button", { name: "Create Linear Issue", exact: true })
+    .click();
+  const dialog = ui.getByRole("dialog", {
+    name: "Create Linear Issue",
+    exact: true,
+  });
+  await dialog
+    .getByRole("textbox", { name: "Title", exact: true })
+    .fill("A preserved new issue draft");
+  await dialog
+    .getByRole("textbox", { name: "Markdown description", exact: true })
+    .fill("A new description kept locally");
+  await expect(dialog.locator(".draft-storage-status")).toContainText(
+    "Draft saved on this device",
+  );
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await disconnectLinear(page);
+  await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
+  await expect(ui.getByRole("status")).toContainText(
+    "Disconnected Linear on this device",
+  );
+  expect(authorization.disconnects).toEqual([
+    { connectionId: "default", revoke: false },
+  ]);
+  await expect(
+    ui.getByLabel("Linear connection actions", { exact: true }),
+  ).toBeFocused();
+  const reads = async () =>
+    ((await events(page, "tool")) as { name: string }[]).filter((call) =>
+      [
+        "linear_scopes",
+        "linear_metadata",
+        "linear_templates",
+        "linear_list_issues",
+        "linear_get_issue",
+      ].includes(call.name),
+    );
+  const before = await reads();
+  await page
+    .getByRole("button", { name: "Mock external update #42", exact: true })
+    .click();
+  await expect.poll(() => events(page, "external-update")).toHaveLength(1);
+  await page.clock.fastForward(31_000);
+  await page.bringToFront();
+  await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
+  expect(await reads()).toEqual(before);
+  expect(await events(page, "context")).toEqual(contexts);
+  expect(await events(page, "message")).toEqual([]);
+
+  authorization.connected = true;
+  await ui
+    .getByRole("button", { name: "Check connection", exact: true })
+    .click();
+  await expect(
+    ui.getByRole("textbox", { name: "Search Linear Issues", exact: true }),
+  ).toHaveValue("workflow");
+  await expect(
+    ui.getByRole("textbox", { name: "Linear title", exact: true }),
+  ).toHaveValue("A preserved issue title draft");
+  await expect(
+    ui.getByRole("textbox", {
+      name: "Linear Markdown description",
+      exact: true,
+    }),
+  ).toHaveValue("A preserved description draft");
+  await expect(
+    ui.getByRole("textbox", { name: "Linear comment", exact: true }),
+  ).toHaveValue("Keep this unsent comment after disconnect");
+  await ui
+    .getByRole("button", { name: "Create Linear Issue", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("textbox", { name: "Title", exact: true }),
+  ).toHaveValue("A preserved new issue draft");
+  await expect(
+    dialog.getByRole("textbox", { name: "Markdown description", exact: true }),
+  ).toHaveValue("A new description kept locally");
+  expect(await events(page, "context")).toEqual(contexts);
+  const calls = (await events(page, "tool")) as { name: string }[];
+  expect(
+    calls.some((call) =>
+      [
+        "linear_create_issue",
+        "linear_update_issue",
+        "linear_comment",
+        "arco_delete_draft",
+      ].includes(call.name),
+    ),
+  ).toBe(false);
+});
+
+test("Linear disconnect reports credential removal failure and reconciles a lost acknowledgement", async ({
+  page,
+}) => {
+  const authorization = await mockLinearAuthorization(page);
+  const ui = app(page);
+  const comment = ui.getByRole("textbox", {
+    name: "Linear comment",
+    exact: true,
+  });
+  await comment.fill("Keep the draft when credential removal fails");
+  authorization.disconnectFailure = true;
+  await disconnectLinear(page);
+  await expect(ui.locator(".notice")).toContainText(
+    "could not be removed from the OS credential store",
+  );
+  await expect(comment).toHaveValue(
+    "Keep the draft when credential removal fails",
+  );
+  await expect(ui.getByText("Connect Linear", { exact: true })).toHaveCount(0);
+  await expect(
+    ui.getByLabel("Linear connection actions", { exact: true }),
+  ).toBeFocused();
+  authorization.disconnectFailure = false;
+  authorization.loseAcknowledgement = true;
+  await disconnectLinear(page);
+  await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
+  await expect(ui.getByRole("status")).toContainText(
+    "Disconnected Linear on this device",
+  );
+  expect(authorization.disconnects).toEqual([
+    { connectionId: "default", revoke: false },
+    { connectionId: "default", revoke: false },
+  ]);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("Linear disconnect ignores late issue and URL results without reopening the previous issue", async ({
+  page,
+}) => {
+  const authorization = await mockLinearAuthorization(page);
+  const ui = app(page);
+  await expect(
+    ui.getByRole("heading", { name: firstTitle, exact: true }),
+  ).toBeVisible();
+  let releaseDetail!: () => void;
+  let releaseUrl!: () => void;
+  let detailWaiting = false;
+  let urlWaiting = false;
+  const detailGate = new Promise<void>((resolve) => {
+    releaseDetail = resolve;
+  });
+  const urlGate = new Promise<void>((resolve) => {
+    releaseUrl = resolve;
+  });
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: { issueId?: string };
+    };
+    if (
+      input.name === "linear_get_issue" &&
+      input.arguments.issueId === "fixture-linear-43"
+    ) {
+      const response = await route.fetch();
+      detailWaiting = true;
+      await detailGate;
+      return route.fulfill({ response });
+    }
+    if (input.name === "linear_resolve_issue") {
+      const response = await route.fetch();
+      urlWaiting = true;
+      await urlGate;
+      return route.fulfill({ response });
+    }
+    return route.fallback();
+  });
+  try {
+    await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
+    await expect.poll(() => detailWaiting).toBe(true);
+    const search = ui.getByRole("textbox", {
+      name: "Search Linear Issues",
+      exact: true,
+    });
+    await search.fill("https://linear.app/fixture/issue/YU-42");
+    await search.press("Enter");
+    await expect.poll(() => urlWaiting).toBe(true);
+    await disconnectLinear(page);
+    releaseDetail();
+    await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
+    const before = (await events(page, "tool")) as { name: string }[];
+    releaseUrl();
+    await expect
+      .poll(
+        async () =>
+          ((await events(page, "tool-pressure")).at(-1) as { active: number })
+            ?.active,
+      )
+      .toBe(0);
+    expect(await events(page, "tool")).toEqual(before);
+    await expect(
+      ui.getByRole("heading", { name: secondTitle, exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      ui.getByRole("textbox", { name: "Linear comment", exact: true }),
+    ).toHaveCount(0);
+    expect(authorization.disconnects).toHaveLength(1);
+    expect(await events(page, "context")).toEqual([]);
+    expect(await events(page, "message")).toEqual([]);
+  } finally {
+    releaseDetail();
+    releaseUrl();
+  }
+});
+
+test("Linear disconnect stays reachable with no issues or connection errors and reconnects to the current workspace", async ({
+  page,
+}) => {
+  const authorization = await mockLinearAuthorization(page, { empty: true });
+  const ui = app(page);
+  await expect(
+    ui.getByText("No matching Issues.", { exact: true }),
+  ).toBeVisible();
+  const trigger = ui.getByLabel("Linear connection actions", { exact: true });
+  await trigger.click();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await expect(
+    ui.getByRole("button", { name: "Disconnect Linear", exact: true }),
+  ).toBeHidden();
+  await disconnectLinear(page);
+  await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
+  const before = (await events(page, "tool")).length;
+  authorization.connected = true;
+  authorization.otherWorkspace = true;
+  await ui
+    .getByRole("button", { name: "Check connection", exact: true })
+    .click();
+  await expect(selectControl(ui, "Linear Team")).toHaveAttribute(
+    "data-value",
+    "another-team",
+  );
+  await expect(
+    ui.getByText("Another workspace", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    ui.getByText("No matching Issues.", { exact: true }),
+  ).toBeVisible();
+  const calls = (
+    (await events(page, "tool")) as {
+      name: string;
+      arguments: Record<string, unknown>;
+    }[]
+  ).slice(before);
+  const scoped = calls.filter((call) =>
+    ["linear_metadata", "linear_list_issues", "linear_get_issue"].includes(
+      call.name,
+    ),
+  );
+  expect(scoped.length).toBeGreaterThan(0);
+  expect(
+    scoped.every(
+      (call) =>
+        call.arguments.workspaceId === "another-workspace" &&
+        call.arguments.teamId === "another-team",
+    ),
+  ).toBe(true);
+
+  authorization.connectionError = true;
+  const frame = page
+    .frames()
+    .find((candidate) => candidate.url().endsWith("/arco.html"))!;
+  await frame.goto(frame.url());
+  await expect(
+    ui.getByText("The Linear connection is temporarily unavailable.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await disconnectLinear(page);
+  await expect(ui.getByRole("status")).toContainText(
+    "Disconnected Linear on this device",
+  );
+  expect(authorization.disconnects).toHaveLength(2);
 });

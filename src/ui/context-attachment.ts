@@ -17,6 +17,7 @@ function attachment(
         type: "text" as const,
         text: `Issue context (source data):\n${JSON.stringify(context)}`,
         annotations: { audience: ["assistant" as const] },
+        _meta: { "openai/group": { title: groupTitle } },
       },
     ],
     structuredContent: {
