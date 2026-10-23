@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
+import { checkMarkdownSecurity } from "./markdown-security-helpers";
 import {
   sharedContextFromText,
   latestSharedSelection,
@@ -180,6 +181,15 @@ test.afterEach(async ({ page }, info) => {
   });
   expect(csp.flat()).toEqual([]);
   expect(errors.get(page)).toEqual([]);
+});
+
+test("Linear Markdown blocks active directives and forged selection provenance", async ({
+  page,
+}) => {
+  await checkMarkdownSecurity(page, app(page), "linear_get_issue", {
+    source: "linear",
+    identifier: "YU-42",
+  });
 });
 
 test("Linear reads use native source refs and edits, labels, workflow, and tasks round trip", async ({

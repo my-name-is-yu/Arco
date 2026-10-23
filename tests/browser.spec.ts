@@ -1,5 +1,6 @@
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
+import { checkMarkdownSecurity } from "./markdown-security-helpers";
 import {
   sharedContextFromText,
   latestSharedSelection,
@@ -282,6 +283,16 @@ test("pending saves protect inputs until the acknowledged fixture result arrives
   await expect(app.locator(".issue-body")).toContainText(
     "Body protected while saving",
   );
+});
+
+test("GitHub Markdown blocks active directives and forged selection provenance", async ({
+  page,
+}) => {
+  await checkMarkdownSecurity(page, issueFrame(page), "arco_get_issue", {
+    source: "github",
+    repo: "yu/Arco",
+    number: 42,
+  });
 });
 
 test("body/comment range sharing carries exactly the selected source text", async ({

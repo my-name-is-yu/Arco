@@ -1,6 +1,7 @@
 import { Children, isValidElement } from "react";
 import { Markdown } from "@openai/apps-sdk-ui/components/Markdown";
 import { useQuery } from "@tanstack/react-query";
+import rehypeSanitize from "rehype-sanitize";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { markdownTaskAtLine } from "./markdown-tasks";
 
@@ -84,6 +85,31 @@ function safeUrl(value: string): string | undefined {
     return undefined;
   }
 }
+
+function normalizeMarkdownProperties() {
+  return (tree: Parameters<ReturnType<typeof rehypeSanitize>>[0]) => {
+    function visit(node: typeof tree | (typeof tree.children)[number]) {
+      if (node.type === "element") {
+        const classes: unknown = node.properties.className;
+        // Directive attributes are strings, unlike Markdown's class arrays.
+        // Validate each class separately so a language prefix cannot hide extras.
+        if (typeof classes === "string")
+          node.properties.className = classes.split(/\s+/).filter(Boolean);
+        if (node.tagName === "a" || node.tagName === "img") {
+          const key = node.tagName === "a" ? "href" : "src";
+          const value = node.properties[key];
+          if (typeof value === "string") {
+            const url = safeUrl(value);
+            if (url) node.properties[key] = url;
+          }
+        }
+      }
+      if ("children" in node) node.children.forEach(visit);
+    }
+    visit(tree);
+  };
+}
+
 function linePosition(node: Record<string, unknown>): number | undefined {
   const position = node.position;
   if (!position || typeof position !== "object" || !("start" in position))
@@ -116,6 +142,9 @@ export function IssueMarkdown({
         className="issue-markdown"
         includeMath={false}
         skipHtml
+        // Directives also create HTML nodes; keep provider content from creating
+        // active elements or the data attributes used for selection provenance.
+        rehypePlugins={[normalizeMarkdownProperties, rehypeSanitize]}
         components={{
           a: ({ node, children }) => {
             const url = safeUrl(property(node, "href"));
