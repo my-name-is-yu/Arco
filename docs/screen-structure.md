@@ -5,7 +5,7 @@
 
 ## 現在の実装
 
-- 左側にsource切替、対象scope、検索・状態、補助条件のFilters、Issue一覧を置く。GitHubはrepo入力なしでAssigned to meを開き、Created by me・Mentioned me・All account repositoriesへ明示的に切り替える。repo候補はAPIから取得し、任意の絞込みに使う。個人一覧が空でも全repoへ自動で広げない。Linearはworkspace内のteamと元サービスの条件を選ぶ。
+- 左側にsource切替、一覧名、対象の切替、検索・状態、補助条件のFilters、Issue一覧を置く。GitHubはglobal入口からMy issuesを開き、thread入口からProject issuesを開く。後者はrepoを選択し、チャットごとに記憶する。現行Codex pluginでは作業場所を受け取れないため自動取得は使わない。My issuesは初回Assigned to meで、Created by me・Mentioned me・All account repositoriesへ明示的に切り替える。個人・repoの条件は別々に保存し、個人一覧が空でも全repoへ自動で広げない。repo追加と追加読み込みはManage repositoriesへまとめる。Linearはworkspace内のteamと元サービスの条件を選び、Git repoからの自動対応付けはしない。[起動情報の検証](project-viewers.md)を参照。
 - 詳細上部のtoolbarにIssue全体のAdd to chatを置く。Arco内のテキスト選択には小さなAdd to chatを表示し、追加ごとに前の注釈を保持して青いハイライト・連番と任意コメント欄を表示する。編集・コピー・公式で開く・fullscreenはIssue actionsへまとめる。
 - 本文とコメントを中央に続けて表示し、状態・担当者・ラベルなどを右側へ置く。追加の属性操作はMore properties等へまとめる。本文を読む前に補助操作を積み重ねない。
 - 詳細containerの幅に応じて右側の属性を一列へ戻す。狭い画面では一覧と詳細を切り替え、一覧の条件・選択・位置を保持する。inlineは一件の要約と詳細への入口を中心にする。2026-10-23のユーザー希望でPiPは採用を取り消した。
@@ -33,8 +33,8 @@ global・threadは起動入口。inline・fullscreenは表示モードであり�
 
 | 入口・表示                    | 役割                                | 中心となる内容                                                  |
 | ----------------------------- | ----------------------------------- | --------------------------------------------------------------- |
-| サイドバー入口 → 広い管理表示 | 仕事を探す・比較する・整理する。    | Project選択、Issue一覧・詳細、検索、一括操作、ラベル管理。      |
-| 会話横の入口・パネル          | 今のIssueを見ながら相談・実装する。 | Issue本文、コメント、Status、担当者、ラベル、会話への受け渡し。 |
+| サイドバー入口 → 広い管理表示 | 自分に関係するIssueを探す・整理する。 | My issues、担当・作成・メンションの切替、一覧・詳細。 |
+| 会話横の入口・パネル | プロジェクトのrepoを見ながら相談・実装する。 | Project issues、repoの一覧、Issue詳細、会話への受け渡し。 |
 | inline                        | 会話中で結果や対象を確認する。      | Issue要約、更新結果、詳細を開く入口。                           |
 | fullscreen                    | Issue管理に広い領域を使う。         | 一覧と詳細の併置、編集、複数選択での整理。                      |
 

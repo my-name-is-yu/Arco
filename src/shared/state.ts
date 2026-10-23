@@ -19,6 +19,9 @@ export const settingsSchema = z
   .object({
     githubRepos: z.array(repoSchema).max(100),
     activeGithubRepo: repoSchema.nullable(),
+    projectGithubRepos: z
+      .record(z.string().regex(/^[a-f0-9]{64}$/), repoSchema)
+      .refine((value) => Object.keys(value).length <= 100),
     githubAccountFilter: githubAccountFilterSchema,
     activeSource: z.enum(["github", "linear"]),
     linearTeams: z
@@ -69,6 +72,7 @@ export const settingsRecordSchema = z.object({
     githubAccountFilter: githubAccountFilterSchema
       .extend({ filter: accountIssueFilterSchema.default("assigned") })
       .default(defaultGithubAccountFilter),
+    projectGithubRepos: settingsSchema.shape.projectGithubRepos.default({}),
   }),
 });
 export const settingsUpdateSchema = z
@@ -134,6 +138,7 @@ export type DraftRecord = z.infer<typeof draftRecordSchema>;
 export const defaultSettings: Settings = {
   githubRepos: [],
   activeGithubRepo: null,
+  projectGithubRepos: {},
   githubAccountFilter: defaultGithubAccountFilter,
   activeSource: "github",
   linearTeams: [],

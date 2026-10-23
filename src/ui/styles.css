@@ -187,6 +187,34 @@
   color: var(--arco-muted);
   font-size: 12px;
 }
+.viewer-title {
+  margin: 0;
+  color: var(--arco-text);
+  font-size: 17px;
+  font-weight: 600;
+}
+.viewer-description {
+  margin: 0;
+  color: var(--arco-muted);
+  font-size: 12px;
+}
+.scope-picker .repository-management {
+  margin: 2px 0 0;
+}
+.repository-management > summary {
+  width: fit-content;
+}
+.repository-management .scope-actions {
+  margin-top: 10px;
+}
+.project-repository-empty {
+  display: grid;
+  gap: 8px;
+}
+.project-repository-empty p {
+  margin: 0;
+  color: var(--arco-muted);
+}
 .scope-select {
   width: 100%;
   min-width: 0;

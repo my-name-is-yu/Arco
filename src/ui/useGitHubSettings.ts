@@ -8,7 +8,12 @@ import {
   type SettingsRecord,
 } from "../shared/state";
 
-export function useGitHubSettings(host: ArcoHost) {
+export function useGitHubSettings(
+  host: ArcoHost,
+  project?: { key: string | null },
+) {
+  const projectView = project !== undefined;
+  const projectKey = project?.key;
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ["settings"],
@@ -70,10 +75,30 @@ export function useGitHubSettings(host: ArcoHost) {
   const register = useCallback(
     (repo: string, additional: string[] = []) =>
       update((latest) => ({
-        githubRepos: [...new Set([...latest.githubRepos, ...additional, repo])],
-        activeGithubRepo: repo,
+        githubRepos: [
+          ...new Set(
+            [...latest.githubRepos, ...additional].filter(
+              (saved) => saved !== repo,
+            ),
+          ),
+          repo,
+        ].slice(-100),
+        ...(projectView
+          ? projectKey
+            ? {
+                projectGithubRepos: Object.fromEntries(
+                  [
+                    ...Object.entries(latest.projectGithubRepos).filter(
+                      ([key]) => key !== projectKey,
+                    ),
+                    [projectKey, repo],
+                  ].slice(-100),
+                ),
+              }
+            : {}
+          : { activeGithubRepo: repo }),
       })),
-    [update],
+    [update, projectView, projectKey],
   );
   const setSource = useCallback(
     (source: "github" | "linear") => update(() => ({ activeSource: source })),

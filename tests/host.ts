@@ -14,6 +14,12 @@ import {
 } from "@openai/mcp-extensions/app";
 import { z } from "zod";
 import type { DisplayMode } from "../src/shared/contracts";
+import { type LaunchContext } from "../src/shared/launch";
+
+const parameters = new URL(location.href).searchParams;
+const projectEntry = parameters.get("entry") === "project";
+const launchTool = projectEntry ? "arco_open_project" : "arco_open";
+const projectKey = "1".repeat(64);
 
 const frame = document.querySelector<HTMLIFrameElement>("#arco")!;
 const eventsElement = document.querySelector<HTMLElement>("#events")!;
@@ -56,7 +62,30 @@ const bridge = new AppBridge(
   },
 );
 let displayMode: DisplayMode = "fullscreen";
-let sharedContext: OpenAIModelContextHostState = null;
+const sharedFixture = parameters.get("shared");
+let sharedContext: OpenAIModelContextHostState =
+  sharedFixture === "github" || sharedFixture === "linear"
+    ? {
+        updateId: "fixture-restored-issue",
+        content: [],
+        structuredContent:
+          sharedFixture === "github"
+            ? {
+                source: "github",
+                repo: "yu/Other",
+                number: 42,
+                arcoSharedIssue: 1,
+              }
+            : {
+                source: "linear",
+                connectionId: "default",
+                workspaceId: "fixture-linear-workspace",
+                teamId: "fixture-linear-team",
+                id: "fixture-linear-42",
+                arcoSharedIssue: 1,
+              },
+      }
+    : null;
 const displayFallback = document.createElement("input");
 displayFallback.type = "checkbox";
 const displayFallbackLabel = document.createElement("label");
@@ -66,6 +95,7 @@ function display(mode: DisplayMode) {
   displayMode = mode;
   bridge.setHostContext({
     theme: "dark",
+    toolInfo: { tool: { name: launchTool, inputSchema: { type: "object" } } },
     [OPENAI_MODEL_CONTEXT_KEY]: sharedContext,
     displayMode,
     availableDisplayModes: ["inline", "fullscreen"],
@@ -149,7 +179,26 @@ bridge.onrequestdisplaymode = async ({ mode }) => {
 bridge.oninitialized = async () => {
   statusElement.textContent = "ready";
   await bridge.sendToolInput({ arguments: {} });
-  await bridge.sendToolResult(await tool("arco_open", {}));
+  const result = await tool(launchTool, {});
+  if (projectEntry) {
+    const unresolved = parameters.get("repo") === "none";
+    const ambiguous = parameters.get("repo") === "ambiguous";
+    const launch: LaunchContext = {
+      view: "project",
+      repo: unresolved || ambiguous ? null : "yu/Arco",
+      projectKey,
+      projectName: unresolved ? null : "Arco",
+      candidates: unresolved
+        ? []
+        : ambiguous
+          ? ["yu/Arco", "yu/Other"]
+          : ["yu/Arco"],
+      reason: unresolved ? "unavailable" : ambiguous ? "ambiguous" : "detected",
+    };
+    result.structuredContent = { ...result.structuredContent, launch };
+  }
+  record("launch", result.structuredContent?.launch);
+  await bridge.sendToolResult(result);
 };
 
 for (const mode of ["inline", "fullscreen"] as const) {
@@ -216,11 +265,15 @@ document.querySelector<HTMLFormElement>("#mention-form")!.onsubmit = (
 };
 
 async function start() {
-  const response = await fetch("/session", { method: "POST" });
-  const result = (await response.json()) as { session?: string };
-  if (!response.ok || !result.session)
-    throw new Error("Fixture MCP session could not start");
-  session = result.session;
+  const existing = parameters.get("session");
+  if (existing) session = z.string().uuid().parse(existing);
+  else {
+    const response = await fetch("/session", { method: "POST" });
+    const result = (await response.json()) as { session?: string };
+    if (!response.ok || !result.session)
+      throw new Error("Fixture MCP session could not start");
+    session = result.session;
+  }
   await bridge.connect(
     new PostMessageTransport(frame.contentWindow!, frame.contentWindow!),
   );

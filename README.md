@@ -21,7 +21,9 @@ npm run dev:fixture
 
 `npm run build`は配布候補の`dist/plugin/`と、fixture専用の`dist/dev/`を別々に生成します。UIは単一HTML、serverはNode ESM bundleです。配布候補にはfixtureデータを含めません。
 
-GitHubは公開`gh` CLIの既存認証を利用します。初回は接続済みアカウントのAssigned to meを表示し、Created by me・Mentioned me・All account repositoriesへ明示的に切り替えられます。repoはアクセス可能な候補から選んで絞り込めるため、一覧表示にrepoの入力は不要です。選択したscopeと表示条件は次回へ引き継ぎます。 GitHub・Linearとも検索欄へIssue URLを貼って直接開けます。アカウント一覧の範囲と検索条件は[取得仕様](docs/github-account-discovery.md)を参照してください。Projectsには追加の`project`認可が必要です。Arcoから共有CLIのtokenを取得・複製したり、暗黙にlogoutしたりしません。
+GitHubは公開`gh` CLIの既存認証を利用します。メニューから開くとMy issuesを表示し、初回はAssigned to me、以後は個人用の条件を復元します。プロジェクト内から開くとProject issuesを表示し、選んだrepoをチャットごとに記憶します。現在のCodex plugin起動では作業場所を受け取れないため、repoは選択式です。個人・repoの表示条件は別々に保持し、リポジトリ管理はManage repositoriesにまとめています。[入口の分離と起動情報の検証](docs/project-viewers.md)を参照してください。
+
+My issuesではCreated by me・Mentioned me・All account repositoriesへ明示的に切り替えられます。GitHub・Linearとも検索欄へIssue URLを貼って直接開けます。アカウント一覧の範囲と検索条件は[取得仕様](docs/github-account-discovery.md)を参照してください。Projectsには追加の`project`認可が必要です。Arcoから共有CLIのtokenを取得・複製したり、暗黙にlogoutしたりしません。
 
 Linearは登録したOAuth client IDで本人の`read,write`権限を認可します。token pairはOS credential storeに保存し、利用不能な場合の平文fallbackはありません。[接続と実操作の検証](docs/linear-validation.md)を参照してください。設定・検索条件・未送信の下書きは端末内に保存します。
 

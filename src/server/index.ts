@@ -33,6 +33,8 @@ import { registerLinearTools } from "./linear/tools";
 import { createMentionSearch } from "./mentions";
 import { linearRefSchema } from "../shared/linear";
 import { registerGitHubImageTool } from "./images";
+import { personalLaunchContext } from "../shared/launch";
+import { conversationLaunchKey, resolveProjectLaunch } from "./launch";
 import { z } from "zod";
 
 declare const __ARCO_FIXTURE__: boolean;
@@ -130,7 +132,7 @@ registerAppTool(
   {
     title: "Arco",
     description:
-      "Open Arco Issue browser. Browsing does not send messages or change issues.",
+      "Open your personal Arco Issue tracker. Browsing does not send messages or change issues.",
     inputSchema: {},
     annotations: {
       readOnlyHint: true,
@@ -140,12 +142,52 @@ registerAppTool(
     _meta: {
       ui: { resourceUri: uri },
       "openai/ui": OpenAIUiToolMetadataSchema.parse({
-        entrypoints: [{ type: "global" }, { type: "thread" }],
+        entrypoints: [{ type: "global" }],
         preferredModelDisplayMode: "inline",
       }),
     },
   },
-  async () => result(await service.connection()),
+  async () =>
+    result({ ...(await service.connection()), launch: personalLaunchContext }),
+);
+
+registerAppTool(
+  server,
+  "arco_open_project",
+  {
+    title: "Arco",
+    description:
+      "Open the project Issue viewer. Uses explicit client workspace roots when available; otherwise choose a repository for this chat. Browsing does not change files or issues.",
+    inputSchema: {},
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+    },
+    _meta: {
+      ui: { resourceUri: uri },
+      "openai/ui": OpenAIUiToolMetadataSchema.parse({
+        entrypoints: [{ type: "thread" }],
+        preferredModelDisplayMode: "inline",
+      }),
+    },
+  },
+  async (_, extra) => {
+    const threadId = extra._meta?.threadId;
+    const launch = await resolveProjectLaunch({
+      listRoots: server.server.getClientCapabilities()?.roots
+        ? async () =>
+            (await server.server.listRoots(undefined, { timeout: 5000 })).roots
+        : undefined,
+    });
+    return result({
+      ...(await service.connection()),
+      launch: {
+        ...launch,
+        projectKey: launch.projectKey ?? conversationLaunchKey(threadId),
+      },
+    });
+  },
 );
 
 const descriptions: Record<DataToolName, string> = {

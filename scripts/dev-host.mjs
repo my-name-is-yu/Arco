@@ -62,7 +62,7 @@ const server = createServer(async (request, response) => {
       return json(response, { error: "Same origin requests only" }, 403);
     const path = new URL(request.url ?? "/", origin).pathname;
     if (request.method === "POST" && path === "/session") {
-      if (sessions.size >= 100)
+      if (sessions.size >= 256)
         return json(
           response,
           { error: "Restart mock host to reset fixture sessions" },

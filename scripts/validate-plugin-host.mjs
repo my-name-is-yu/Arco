@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { setTimeout, clearTimeout } from "node:timers";
@@ -71,6 +72,10 @@ try {
   assert(server, "Installed Arco server was not discovered");
   const names = Object.keys(server.tools ?? {});
   assert(names.includes("arco_open"), "Arco failed to initialize");
+  assert(
+    names.includes("arco_open_project"),
+    "Installed Arco lacks the project viewer",
+  );
   const open = await call("mcpServer/tool/call", {
     threadId,
     server: server.name,
@@ -83,12 +88,31 @@ try {
     tool: "linear_connection",
     arguments: { connectionId: "default" },
   });
+  const project = await call("mcpServer/tool/call", {
+    threadId,
+    server: server.name,
+    tool: "arco_open_project",
+    arguments: {},
+  });
+  assert(!project.isError, "Installed project viewer failed");
+  assert.equal(project.structuredContent?.launch?.view, "project");
+  assert.equal(project.structuredContent.launch.repo, null);
+  assert.equal(project.structuredContent.launch.projectName, null);
+  assert.equal(project.structuredContent.launch.reason, "unavailable");
+  assert.equal(
+    project.structuredContent.launch.projectKey,
+    createHash("sha256").update(`thread:${threadId}`).digest("hex"),
+    "Manual repository choices must use this chat's opaque key",
+  );
   console.log(
     JSON.stringify(
       {
         server: server.name,
         toolCount: names.length,
         openToolCompleted: !open.isError,
+        personalView: open.structuredContent?.launch?.view,
+        projectToolCompleted: !project.isError,
+        projectLaunch: project.structuredContent?.launch,
         linearToolCompleted: !linear.isError,
         githubConnected: open.structuredContent?.connected === true,
         linearConnected: linear.structuredContent?.connected === true,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -18,6 +19,7 @@ try {
   const tools = await client.listTools();
   for (const name of [
     "arco_open",
+    "arco_open_project",
     "arco_get_issue",
     "arco_account_issues",
     "arco_repositories",
@@ -35,10 +37,53 @@ try {
     );
   const open = tools.tools.find((tool) => tool.name === "arco_open");
   assert.equal(open._meta.ui.resourceUri, "ui://arco/issues");
-  assert.deepEqual(open._meta["openai/ui"].entrypoints, [
-    { type: "global" },
+  assert.deepEqual(open._meta["openai/ui"].entrypoints, [{ type: "global" }]);
+  const projectOpen = tools.tools.find(
+    (tool) => tool.name === "arco_open_project",
+  );
+  assert.equal(projectOpen._meta.ui.resourceUri, "ui://arco/issues");
+  assert.deepEqual(projectOpen._meta["openai/ui"].entrypoints, [
     { type: "thread" },
   ]);
+  const personalLaunch = await client.callTool({
+    name: "arco_open",
+    arguments: {},
+  });
+  assert.equal(personalLaunch.structuredContent.launch.view, "personal");
+  assert.equal(personalLaunch.structuredContent.launch.repo, null);
+  const personalInThread = await client.callTool({
+    name: "arco_open",
+    arguments: {},
+    _meta: { threadId: "fixture-thread" },
+  });
+  assert.deepEqual(
+    personalInThread.structuredContent.launch,
+    personalLaunch.structuredContent.launch,
+  );
+  const unresolvedProject = await client.callTool({
+    name: "arco_open_project",
+    arguments: {},
+  });
+  assert.equal(unresolvedProject.structuredContent.launch.view, "project");
+  assert.equal(unresolvedProject.structuredContent.launch.repo, null);
+  assert.equal(unresolvedProject.structuredContent.launch.projectKey, null);
+  assert.equal(
+    unresolvedProject.structuredContent.launch.reason,
+    "unavailable",
+  );
+  const projectInThread = await client.callTool({
+    name: "arco_open_project",
+    arguments: {},
+    _meta: { threadId: "fixture-thread" },
+  });
+  assert.equal(projectInThread.structuredContent.launch.view, "project");
+  assert.equal(projectInThread.structuredContent.launch.repo, null);
+  assert.equal(projectInThread.structuredContent.launch.projectName, null);
+  assert.equal(projectInThread.structuredContent.launch.reason, "unavailable");
+  assert.equal(
+    projectInThread.structuredContent.launch.projectKey,
+    createHash("sha256").update("thread:fixture-thread").digest("hex"),
+  );
   const resources = await client.listResources();
   assert(
     resources.resources.some((resource) => resource.uri === "ui://arco/issues"),

@@ -97,11 +97,11 @@ Code Review・Linearに近い使用感は採用済み。一覧と詳細を行き
 | U01 | 一覧から読む          | コンパクトな行を選ぶと同じ画面の詳細が切り替わる。詳細を閉じたり別Issueを読んだりしても一覧の位置・選択・検索条件が保たれる。                                                                                                                                           |
 | U02 | 一覧で整理する        | Status・担当者・ラベルを一覧や詳細の小さなメニューから変更できる。対応する一括操作は複数選択から同じ操作系で行う。                                                                                                                                                      |
 | U03 | 検索・キーボード操作  | タイトル検索とIssue URLの貼り付けで対象を開ける。検索、新規作成、一覧移動、詳細の開閉、主要な属性変更にキーボードから到達できる。キーはhostとの競合を確認して決める。                                                                                                   |
-| U04 | 見る対象を絞る        | GitHubは接続済みアカウントのAssigned to meを初期表示し、Created by me・Mentioned me・All account repositoriesを明示選択する。repo候補をAPIから取得し、任意で絞り込める。個人一覧が空でも全repoへ自動拡大しない。GitHub／Linearを切り替え、最後のscopeと条件を保存する。 |
+| U04 | 見る対象を絞る | GitHubのglobal入口はMy issues、thread入口はProject issuesを開く。現行Codex pluginではrepoを選択し、チャットごとに記憶する。個人ビューは初回Assigned to meで、作成・メンション・All account repositoriesへ明示切替する。個人とrepoの条件を別々に保存し、空でも範囲を自動拡大しない。 |
 | U05 | 情報を見渡す          | 高さを抑えた行と小さなツールバーを使い、本文の読みやすさを保つ。狭い領域では情報の優先順位を保って再配置する。                                                                                                                                                          |
 | U06 | 会話とIssueを往復する | Issue全体やArco内の選択テキストをAdd to chatでCodexへ渡し、Codexの通常入力欄から相談する。添付のタイトル・グループ表示はCodexが担う。CodexによるIssue更新は同じ詳細画面へ再取得して反映する。閲覧・選択だけでは共有せず、Arcoから依頼送信しない。                       |
 
-U04は2026-10-23に採用したD02に従い、repo入力なしでAssigned to meのOpen Issueを更新順に取得する。Created by me・Mentioned me・All account repositoriesへの切替と、取得した候補からのrepo絞込みは明示操作で行う。接続権限を超える公開repo全体の検索や、repoごとの全件走査は行わない。Open／ClosedとProjects Statusは別の値として扱い、Project未追加のIssueを消したり、独自のStatusで補ったりしない。
+U04は2026-10-23に更新したD02に従う。global入口の初回はrepo入力なしでAssigned to meのOpen Issueを更新順に取得する。thread入口は確定したrepoだけを取得し、repo不明時に個人一覧へ切り替えない。Created by me・Mentioned me・All account repositoriesへの切替と、repoの手動選択は明示操作で行う。接続権限を超える公開repo全体の検索や、repoごとの全件走査は行わない。Open／ClosedとProjects Statusは別の値として扱い、Project未追加のIssueを消したり、独自のStatusで補ったりしない。
 複数対象の表示と採用済み一括操作も無料で提供する。保存したビュー等の具体的なUIは引き続き採否・詳細を詰め、採用する場合も無料とする。以前の料金案にあった「単一対象まで無料」という境界は採用しない。
 初期ビューの範囲はD02で確定し、具体的なレイアウトと実Codex上の受入確認は分けて扱う。
 
@@ -190,7 +190,7 @@ GitHub ProjectsのStatusと既存属性値の編集は含め、Projects自体の
 
 | ID  | 項目                       | 決定・残る設計                                                                                                                                                                                                                                                                                                                        |
 | --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D02 | 初期ビューと横断範囲       | 2026-10-23、repo入力を初回条件にしないよう変更。接続済みGitHubアカウントのAssigned to meを初期表示し、Created by me・Mentioned me・All account repositoriesを明示選択する。repo候補もAPIから取得し、任意の絞込みにする。個人一覧が空でも全repoへ自動拡大しない。sourceはGitHub／Linearを切り替え、最後に選んだscopeと条件を保存する。 |
+| D02 | 初期ビューと横断範囲 | 2026-10-23、入口ごとに役割を分離。globalはMy issues、threadはProject issuesを開く。現行Codex pluginから作業場所を取得できないため、ユーザーの選択によりrepo選択式で提供し、選択はチャットごとに保存する。個人の初回はAssigned to meで、作成・メンション・All account repositoriesへ明示切替する。個人・repoの表示条件を分け、空でも範囲を自動拡大しない。 |
 | D04 | 最終版の操作対応表         | 確定。[Issue操作対応表](issue-operations.md)の操作・対応型・公式への受け渡し・非目標を採用。提供順は別途決める。                                                                                                                                                                                                                      |
 | D03 | 採用済み会話連携の詳細     | Issue全体とArco内の選択テキストをAdd to chatで共有し、閲覧対象とは分離する。添付のtitle/groupをCodexへ渡し、相談入力はCodexに任せる。tool通知と定期再取得を用い、実composerと全表示の受入確認は[実装・受入確認](implementation-status.md)に従う。Arcoから依頼送信・下書き準備・会話作成や既存chat/worktreeへの振り分けは行わない。    |
 | D01 | 表示ごとの画面構成         | 一覧と詳細を併置し、狭いパネルでは切り替える。inlineは共有対象の要約と詳細への入口を持つ。対応modeはinline／fullscreenとし、PiPは2026-10-23のユーザー希望で対象外。実Codexでの全遷移の確認を残す。                                                                                                                                    |

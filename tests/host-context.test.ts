@@ -1,10 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SelectionAnnotationContext } from "../src/shared/contracts";
+import {
+  personalLaunchContext,
+  type LaunchContext,
+} from "../src/shared/launch";
 import { connectHost } from "../src/ui/host";
 
 const fixture = vi.hoisted(() => ({
   context: {} as Record<string, unknown>,
   change: undefined as ((change: Record<string, unknown>) => void) | undefined,
+  toolResult: undefined as
+    | ((result: {
+        structuredContent?: Record<string, unknown>;
+        isError?: boolean;
+      }) => void)
+    | undefined,
+  connecting: undefined as (() => void) | undefined,
   update:
     vi.fn<
       (params: Record<string, unknown>) => Promise<Record<string, unknown>>
@@ -22,7 +33,10 @@ vi.mock("@modelcontextprotocol/ext-apps", () => ({
     set onhostcontextchanged(handler: typeof fixture.change) {
       fixture.change = handler;
     }
-    connect = async () => undefined;
+    set ontoolresult(handler: typeof fixture.toolResult) {
+      fixture.toolResult = handler;
+    }
+    connect = async () => fixture.connecting?.();
     setNotificationHandler = () => undefined;
     updateModelContext(params: Record<string, unknown>) {
       return fixture.update(params);
@@ -89,7 +103,99 @@ function deferred() {
 beforeEach(() => {
   fixture.context = { "openai/modelContext": null };
   fixture.change = undefined;
+  fixture.toolResult = undefined;
+  fixture.connecting = undefined;
   fixture.update.mockReset();
+});
+
+describe("host launch context", () => {
+  const projectLaunch: LaunchContext = {
+    view: "project",
+    repo: "yu/Arco",
+    projectKey: "a".repeat(64),
+    projectName: "Arco",
+    candidates: ["yu/Arco"],
+    reason: "detected",
+  };
+
+  it.each(["inline", "fullscreen", "pip"])(
+    "opens the global tool as personal regardless of %s display mode",
+    async (displayMode) => {
+      fixture.context = {
+        "openai/modelContext": null,
+        toolInfo: { tool: { name: "arco_open" } },
+        displayMode,
+      };
+      const host = await connectHost();
+      expect(host.launch?.()).toEqual(personalLaunchContext);
+      fixture.toolResult!({ structuredContent: { launch: projectLaunch } });
+      expect(host.launch?.()).toEqual(personalLaunchContext);
+    },
+  );
+
+  it("waits for a validated delayed project launch and keeps it through later tool and presentation updates", async () => {
+    fixture.context = {
+      "openai/modelContext": null,
+      toolInfo: { tool: { name: "arco_open_project" } },
+      displayMode: "inline",
+    };
+    const host = await connectHost();
+    const events: string[] = [];
+    host.subscribe((event) => events.push(event));
+    expect(host.launch?.()).toBeNull();
+    fixture.toolResult!({ structuredContent: { issues: [] } });
+    fixture.toolResult!({
+      structuredContent: { launch: { ...projectLaunch, repo: "../settings" } },
+    });
+    fixture.toolResult!({
+      isError: true,
+      structuredContent: { launch: projectLaunch },
+    });
+    expect(host.launch?.()).toBeNull();
+    expect(events).toEqual([]);
+
+    fixture.toolResult!({ structuredContent: { launch: projectLaunch } });
+    expect(host.launch?.()).toEqual(projectLaunch);
+    expect(events).toEqual(["launch"]);
+    fixture.toolResult!({
+      structuredContent: {
+        launch: { ...projectLaunch, repo: "yu/Other" },
+        issue: { repo: "yu/Other", number: 2 },
+      },
+    });
+    fixture.toolResult!({
+      structuredContent: { launch: personalLaunchContext },
+    });
+    changed({ theme: "dark", displayMode: "fullscreen" });
+    changed({ toolInfo: { tool: { name: "arco_open" } } });
+    expect(host.launch?.()).toEqual(projectLaunch);
+    expect(events).toEqual(["launch", "display"]);
+  });
+
+  it("registers the launch receiver before connecting and does not infer project scope from fullscreen", async () => {
+    fixture.context = {
+      "openai/modelContext": null,
+      displayMode: "fullscreen",
+    };
+    fixture.connecting = () => {
+      expect(fixture.toolResult).toBeTypeOf("function");
+      fixture.toolResult!({ structuredContent: { launch: projectLaunch } });
+    };
+    const host = await connectHost();
+    expect(host.launch?.()).toEqual(projectLaunch);
+  });
+
+  it("can recognize the global entrypoint when tool information arrives after connecting", async () => {
+    const host = await connectHost();
+    const events: string[] = [];
+    host.subscribe((event) => events.push(event));
+    expect(host.launch?.()).toBeNull();
+    changed({ displayMode: "fullscreen", theme: "light" });
+    expect(host.launch?.()).toBeNull();
+    changed({ toolInfo: { tool: { name: "arco_open" } } });
+    expect(host.launch?.()).toEqual(personalLaunchContext);
+    expect(events).toEqual(["display", "launch"]);
+  });
 });
 
 describe("host attachment context lifecycle", () => {

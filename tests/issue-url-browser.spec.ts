@@ -93,7 +93,7 @@ test("GitHub URL opens a different repository from account mode, and the optiona
     "data-value",
     "other/project",
   );
-  await frame(page).getByText("Add repository", { exact: true }).click();
+  await frame(page).getByText("Manage repositories", { exact: true }).click();
   await frame(page)
     .getByRole("textbox", { name: "Repository or URL" })
     .fill("https://github.com/yu/Arco/issues/43");

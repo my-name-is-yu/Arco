@@ -14,6 +14,7 @@ export interface SingleSelectGroup {
 
 export interface SingleSelectHandle {
   focus: () => void;
+  open: () => void;
 }
 
 type SdkOption = SingleSelectOption & { nativeValue: string };
@@ -57,9 +58,31 @@ export function SingleSelect({
 }) {
   const generatedId = useId();
   const groupRef = useRef<HTMLDivElement>(null);
-  const focus = () =>
-    groupRef.current?.querySelector<HTMLElement>('[role="button"]')?.focus();
-  useImperativeHandle(ref, () => ({ focus }));
+  const trigger = () =>
+    groupRef.current?.querySelector<HTMLElement>('[role="button"]');
+  const focus = () => trigger()?.focus();
+  useImperativeHandle(ref, () => ({
+    focus,
+    open: () => {
+      const control = trigger();
+      if (
+        !control ||
+        disabled ||
+        loading ||
+        control.getAttribute("aria-expanded") === "true"
+      )
+        return;
+      control.focus();
+      // The SDK ignores click() and opens through its keyboard handler.
+      control.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+  }));
 
   const grouped = options.length > 0 && "options" in options[0];
   const all = options.flatMap((option) =>

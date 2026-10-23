@@ -13,6 +13,11 @@ import { z } from "zod";
 import { imageDataSchema } from "../shared/images";
 import { annotationSnapshotIdSchema } from "../shared/annotation-state";
 import {
+  launchContextSchema,
+  personalLaunchContext,
+  type LaunchContext,
+} from "../shared/launch";
+import {
   sharedRefFromContext,
   sharedAnnotationsFromContext,
   annotationSnapshotIdFromContext,
@@ -75,8 +80,11 @@ export async function connectHost(): Promise<ArcoHost> {
   const openai = new OpenAIExtensions(app);
   const tools = createToolQueue();
   let displayMode = app.getHostContext()?.displayMode ?? "inline";
-  const listeners = new Set<(event: "data" | "display" | "context") => void>();
-  const notify = (event: "data" | "display" | "context") =>
+  let launchContext: LaunchContext | null = null;
+  const listeners = new Set<
+    (event: "data" | "display" | "context" | "launch") => void
+  >();
+  const notify = (event: "data" | "display" | "context" | "launch") =>
     listeners.forEach((listener) => listener(event));
   let contextVersion: string | null | undefined;
   let contextPresent = false;
@@ -95,6 +103,10 @@ export async function connectHost(): Promise<ArcoHost> {
   };
   const applyContext = (change?: Record<string, unknown>) => {
     const context = app.getHostContext();
+    if (!launchContext && context?.toolInfo?.tool.name === "arco_open") {
+      launchContext = personalLaunchContext;
+      notify("launch");
+    }
     if (context?.theme) applyDocumentTheme(context.theme);
     if (context?.styles?.variables)
       applyHostStyleVariables(context.styles.variables);
@@ -133,7 +145,18 @@ export async function connectHost(): Promise<ArcoHost> {
       }
     }
   };
-  app.ontoolresult = dataChanged;
+  app.ontoolresult = (result) => {
+    if (!launchContext && !result.isError) {
+      const parsed = launchContextSchema.safeParse(
+        result.structuredContent?.launch,
+      );
+      if (parsed.success) {
+        launchContext = parsed.data;
+        notify("launch");
+      }
+    }
+    dataChanged();
+  };
   app.onhostcontextchanged = applyContext;
   app.setNotificationHandler(ResourceUpdatedNotificationSchema, dataChanged);
   app.onteardown = async () => {
@@ -178,6 +201,9 @@ export async function connectHost(): Promise<ArcoHost> {
     }
   }
   return {
+    launch() {
+      return launchContext;
+    },
     annotationSnapshotId() {
       return snapshotOverride !== undefined
         ? snapshotOverride

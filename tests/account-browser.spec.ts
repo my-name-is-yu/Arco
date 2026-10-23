@@ -356,6 +356,8 @@ test("compact personal feed resolves loading to empty without broadening scope",
     await app(page)
       .getByRole("button", { name: "Choose a repository", exact: true })
       .click();
+    await expect(app(page).getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(scope.getByRole("button")).toBeFocused();
   } finally {
     release();

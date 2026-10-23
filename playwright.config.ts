@@ -9,6 +9,7 @@ export default defineConfig({
     "issue-url-browser.spec.ts",
     "loading-motion-browser.spec.ts",
     "hover-browser.spec.ts",
+    "launch-browser.spec.ts",
   ],
   fullyParallel: false,
   workers: 1,

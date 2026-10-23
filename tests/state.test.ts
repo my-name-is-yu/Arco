@@ -93,6 +93,7 @@ describe("local settings and drafts", () => {
     expect((await store.readSettings()).settings).toEqual({
       ...settings,
       githubFilters: {},
+      projectGithubRepos: {},
       linearFilters: {},
       githubAccountFilter: {
         filter: "assigned",

@@ -30,6 +30,7 @@ local MCPは通常のAPI接続用プロセスであり、独自agent runtime・�
 | 接続先の識別情報・scope・失効状態 | 端末 | tokenと接続先を対応させ、別利用者の接続と混同しない |
 | repo/team/Project一覧、検索条件・選択・閲覧状態 | 端末と元サービス | UIの表示範囲とproviderの認可範囲を区別する |
 | 下書き、表示設定、保存filter | OS標準の保存先にJSONで保持 | tokenを混ぜず、端末間同期を追加しない |
+| チャットと手動選択したGitHub repoの紐付け | 端末内の設定JSON | thread IDから作るSHA-256をキーにし、生のIDや作業pathを保存しない。直近100件を保持し、個人ビューの選択・条件と分ける。hostがworkspace rootsを提供する場合のみ作業場所由来のキーを使う |
 | 注釈の位置 | 端末内の`annotations.json`に最新100 snapshotを保持 | UUID・注釈番号・Issue識別情報・DOM pathとoffset・hashを保存し、選択文・コメント・入力欄の全文は保存しない。Codexへは対応するsnapshot UUIDを添える |
 | 認可途中のstate・PKCE verifier・device code | 端末の短期情報 | 完了・取消・失効後に残さない |
 | Codexへの会話追加・モデル向けtool結果 | Codex/モデルへ渡す | 選択したIssue情報と操作に必要な結果に絞る |

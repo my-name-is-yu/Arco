@@ -108,7 +108,7 @@ test.beforeEach(async ({ page }) => {
       ]);
     });
   });
-  await page.goto("/");
+  await page.goto("/?entry=project");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
   await choose(issueFrame(page), "GitHub scope", "yu/Arco");
   await expect(
@@ -2177,10 +2177,11 @@ test("compact GitHub resolves the account feed when no default or saved reposito
     else result.structuredContent.settings.activeGithubRepo = null;
     await route.fulfill({ response, json: result });
   });
-  const frame = page
-    .frames()
-    .find((candidate) => candidate.url().endsWith("/arco.html"))!;
-  await frame.goto(frame.url());
+  await page.goto("/");
+  await expect(selectControl(app, "GitHub scope")).toHaveAttribute(
+    "data-value",
+    "account:assigned",
+  );
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   await expect(
     app.getByRole("heading", { name: firstTitle, exact: true }),

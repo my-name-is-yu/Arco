@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { LinearIssue, LinearRef } from "./linear";
 import type { ImageData } from "./images";
+import type { LaunchContext } from "./launch";
 
 export const repoSchema = z
   .string()
@@ -211,6 +212,7 @@ export type ConversationIssue = IssueDetail | LinearIssue;
 export type SharedIssueRef =
   ({ source: "github" } & IssueRef) | ({ source: "linear" } & LinearRef);
 export interface ArcoHost {
+  launch?(): LaunchContext | null;
   sharedIssue?(): SharedIssueRef | null;
   sharedAnnotations?(): SelectionAnnotationContext[] | null;
   annotationSnapshotId?(): string | null;
@@ -228,7 +230,7 @@ export interface ArcoHost {
   openLink(url: string): Promise<void>;
   display(mode: DisplayMode): Promise<void>;
   subscribe(
-    listener: (event: "data" | "display" | "context") => void,
+    listener: (event: "data" | "display" | "context" | "launch") => void,
   ): () => void;
   mode(): DisplayMode;
 }
