@@ -3,5 +3,18 @@
   "name": "arco",
   "version": "0.1.0",
   "description": "GitHub and Linear Issue client for Codex.",
-  "mcpServers": "./mcp.json"
+  "mcpServers": "./mcp.json",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Arco",
+        "shortDescription": "GitHub and Linear Issues beside your Codex chat.",
+        "capabilities": ["Interactive", "Read", "Write"],
+        "composerIcon": "./assets/icon.svg",
+        "composerIconDark": "./assets/icon-dark.svg",
+        "logo": "./assets/icon.svg",
+        "logoDark": "./assets/icon-dark.svg"
+      }
+    }
+  }
 }
