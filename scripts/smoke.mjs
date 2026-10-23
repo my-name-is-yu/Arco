@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -16,6 +17,24 @@ transport.stderr?.on("data", (chunk) => {
 const client = new Client({ name: "Arco smoke", version: "1" });
 try {
   await client.connect(transport);
+  const icons = client.getServerVersion()?.icons;
+  assert.equal(icons?.length, 2, "Sidebar entrypoints need server icons");
+  for (const theme of ["light", "dark"]) {
+    const icon = icons.find((item) => item.theme === theme);
+    assert(icon, `Missing ${theme} sidebar icon`);
+    assert.equal(icon.mimeType, "image/svg+xml");
+    assert.deepEqual(icon.sizes, ["any"]);
+    const prefix = "data:image/svg+xml,";
+    assert(icon.src.startsWith(prefix));
+    assert.equal(
+      decodeURIComponent(icon.src.slice(prefix.length)),
+      await readFile(
+        `plugin/assets/${theme === "dark" ? "icon-dark" : "icon"}.svg`,
+        "utf8",
+      ),
+      `Sidebar must use the selected ${theme} Arco icon`,
+    );
+  }
   const tools = await client.listTools();
   for (const name of [
     "arco_open",

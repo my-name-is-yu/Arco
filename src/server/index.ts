@@ -36,13 +36,32 @@ import { registerGitHubImageTool } from "./images";
 import { personalLaunchContext } from "../shared/launch";
 import { conversationLaunchKey, resolveProjectLaunch } from "./launch";
 import { z } from "zod";
+import iconLight from "../../plugin/assets/icon.svg";
+import iconDark from "../../plugin/assets/icon-dark.svg";
 
 declare const __ARCO_FIXTURE__: boolean;
 const service = __ARCO_FIXTURE__
   ? createFixtureService()
   : createGitHubService({ defaultRepo: process.env.ARCO_GITHUB_REPO });
 const server = new McpServer(
-  { name: "Arco", version: "0.1.0" },
+  {
+    name: "Arco",
+    version: "0.1.0",
+    icons: [
+      {
+        src: `data:image/svg+xml,${encodeURIComponent(iconLight)}`,
+        mimeType: "image/svg+xml",
+        sizes: ["any"],
+        theme: "light",
+      },
+      {
+        src: `data:image/svg+xml,${encodeURIComponent(iconDark)}`,
+        mimeType: "image/svg+xml",
+        sizes: ["any"],
+        theme: "dark",
+      },
+    ],
+  },
   {
     capabilities: {
       extensions: { "openai/mentions": { searchTool: "search_mentions" } },

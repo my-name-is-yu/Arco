@@ -13,6 +13,7 @@ const options = {
   target: "node22",
   sourcemap: false,
   minifySyntax: true,
+  loader: { ".svg": "text" },
   external: ["@napi-rs/keyring"],
   banner: {
     js: "import { createRequire as __arcoCreateRequire } from 'node:module'; const require = __arcoCreateRequire(import.meta.url);",
