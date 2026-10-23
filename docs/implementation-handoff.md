@@ -37,7 +37,10 @@ Arcoの実装を、このチャットで開始してください。要件と基�
 - GitHubとLinearのIssue wrapper。両方の閲覧・作成・編集・進捗変更・会話連携を完成形に含める。正本は元サービス。
 - Code ReviewとLinearに近い操作感。一覧＋詳細、コンパクトな表示、素早い属性変更、検索・選択・スクロールの保持、キーボード操作。
 - GitHubのOpen/ClosedとProjects Status、Linearのworkflow stateを区別する。共通workflowの合成やサービス間同期は作らない。
-- 初版の会話連携は4項目すべて必須: 選択Issue/本文/コメント範囲のcontext共有、composerの`@Arco`検索・選択、現在/新しい会話への下書き準備と明示的な依頼開始、Codex tool更新を同じUIへ再取得・反映。
+- 初版の会話連携は4項目すべて必須: Issue全体のcontext共有、Arco全域のテキスト選択時に小さなAdd to chatから共有、composerの`@Arco`検索・選択、Codex tool更新を同じUIへ再取得・反映。2026-10-23のユーザー希望によりAsk Codex・Send request・依頼欄を削除した。Arcoは添付のtitle/groupを渡し、添付表示と相談入力・送信はCodexが担う。Issue作成・編集・コメントの端末内下書き保存は保持する。
+- 本文または単一コメントの内側に収まる選択はnativeのoriginを保持し、コメントにはnative comment IDを添える。タイトル・属性・一覧などはoriginをuiとし、安全に対応する単一Issueの最小限のnative識別情報だけを任意で添える。異なるIssue領域にまたがる範囲は一般のArcoコンテキストとし、任意のIssueへ対応させない。選択共有に本文全体を補わない。
+- 選択のAdd to chatで前の注釈を保持して追加し、青いハイライト・番号「1」「2」…と任意コメント欄を表示する。各番号からその項目の`selection.comment`だけを更新でき、閲覧先を変えても注釈を失わない。集合全体を公開modelContext一件として渡し、複数時は`source: arco`の`annotations`配列で各native Issueを保持する。一件時は従来のsourceとselectionも保持する。通常の会話入力・送信はCodexが担う。再編集・取消・host削除同期の挙動は[画面構成](screen-structure.md#会話とissueを往復する操作)に従う。
+- bridgeには各選択を番号・短文title付きの個別text content blockで渡し、共通の`N annotations`groupを付ける。assistant向けJSONは一件で、structuredContentにも全注釈を保持する。Codex側の具体的なチップ・項目一覧表示の実機確認状況は[実装・受入確認](implementation-status.md)に従う。
 - 閲覧対象の選択変更だけで会話送信・進捗変更をしない。閲覧対象と会話で扱う対象を区別する。
 - 2026-10-23の変更後は、global/thread入口、広い管理画面・会話横パネル・inline・fullscreenを提供する。ユーザーがPiPを不要と判断したため、実装・受入確認から外す。入口と表示modeを混同しない。
 - Codexアプリが動く環境を対象にする。macOS/Windows/Linuxを想定し、実際のhost対応OS/archで検証する。特定Macの絶対pathやUnix shellに固定しない。headless/CLI向け製品へ広げない。
@@ -78,8 +81,8 @@ Code Reviewと同様に、公開`gh` CLIの既存認証と`gh api`をまず検�
 
 ### 3. 会話4連携と表示の実機確認
 
-既存probeはinline描画とbridge初期化までの証拠。composerの選択、context共有、現在/新しい会話のdraftと送信、tool更新後の同一UI再取得は未確認なので、公開SDKで一つずつ実証する。
-ブラウザのmock host、stdio成功、schemaが`send:false`を受け付けたことを、Codex実機での送信成功と混同しない。Codex本体の非公開内部や認証cacheを調べる回避策は使わない。必要な画面確認はユーザーの協力を得て記録する。
+既存probeはinline描画とbridge初期化までの証拠。composerの選択、Issue全体と全域の選択共有、Codex側の添付表示、tool更新後の同一UI再取得の確認状況は[実装・受入確認](implementation-status.md)に従い、残る項目を公開SDKで一つずつ実証する。
+ブラウザのmock host、stdio成功、metadataの検証を、Codex実機での添付表示やモデル受信の成功と混同しない。過去のmessage.send検証は削除前の履歴として扱う。Codex本体の非公開内部や認証cacheを調べる回避策は使わない。必要な画面確認はユーザーの協力を得て記録する。
 実際に一つが未対応ならその境界を示し、勝手に初版要件から削らない。独自chat/runtimeで補わない。
 
 ### 4. Linearの認可
@@ -92,7 +95,7 @@ GitHubとは別に、Linearの既存公開接続を利用できるか、必要�
 
 まず一つの実装として「GitHubのIssue一覧→詳細→本文/属性編集・コメント等の操作→会話への受け渡し→更新結果の再取得」を通す。会話4連携を初版から落とさない。Code Reviewに近い密度で、一覧の状態とdraftを保持する。
 実書込みのテストはmock/fixtureから始め、実データは本人が検証用repo/Issue/Projectを指定してから行う。実Issueへのコメント・進捗・ラベル変更を任意の既存対象へ試さない。
-書込みの二重実行、ラベル保持、field/Project IDの混同、bulk部分失敗、送信とdraftの区別を意味のあるテストで確認する。視覚・キーボード確認とCodex実機の結果も残す。
+書込みの二重実行、ラベル保持、field/Project IDの混同、bulk部分失敗、全域の選択共有とorigin・native IDの対応、複数Issueにまたがる選択の一般コンテキスト化、元の選択文を変えない注釈更新とhost削除同期、Arcoからmessageを送信しないことを意味のあるテストで確認する。視覚・キーボード確認とCodex実機の結果も残す。
 
 source切替/混在、複数account/workspace、初期ビューの最終合意は未決。ブロックしない箇所は合理的な暫定案を明記して実装できるが、最初の1repo実装を完成形の恒久制限へ変えない。Linearと、採用したinline／fullscreenの完成形も維持する。
 

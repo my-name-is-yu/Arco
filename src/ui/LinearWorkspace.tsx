@@ -38,6 +38,7 @@ import type { Draft, DraftKey } from "../shared/state";
 import { LinearBulkActions } from "./LinearBulkActions";
 import { LinearDetail } from "./LinearDetail";
 import { SingleSelect } from "./SingleSelect";
+import { selectionIssueData, isTextSelectionClick } from "./SelectionShare";
 import { isSavedReceipt } from "./linear-run";
 import "./linear.css";
 import { isIssueUrlInput, linearIssueUrl } from "../shared/issue-url";
@@ -50,7 +51,6 @@ export const linearRef = (issue: LinearRef): LinearRef => ({
 });
 type ViewMemory = {
   selected: LinearRef | null;
-  shared: LinearRef | null;
   showDetail: boolean;
   selections: Map<string, LinearRef>;
   positions: Map<string, number>;
@@ -64,7 +64,6 @@ function viewFor(host: ArcoHost): ViewMemory {
     const shared = restored?.source === "linear" ? linearRef(restored) : null;
     view = {
       selected: shared,
-      shared,
       showDetail: false,
       selections: new Map(),
       positions: new Map(),
@@ -100,7 +99,10 @@ export function LinearWorkspace({
   const { load } = persistence;
   const [teamOverride, setTeamOverride] = useState(view.selected?.teamId ?? "");
   const [selected, setSelected] = useState<LinearRef | null>(view.selected);
-  const [shared, setShared] = useState<LinearRef | null>(view.shared);
+  const [shared, setShared] = useState<LinearRef | null>(() => {
+    const current = host.sharedIssue?.();
+    return current?.source === "linear" ? linearRef(current) : null;
+  });
   const [localFilters, setLocalFilters] = useState<
     Record<string, LinearFilter>
   >({});
@@ -142,9 +144,8 @@ export function LinearWorkspace({
   const createRef = useRef<Record<string, CreateDraft>>({});
   useEffect(() => {
     view.selected = selected;
-    view.shared = shared;
     view.showDetail = showDetail;
-  }, [view, selected, shared, showDetail]);
+  }, [view, selected, showDetail]);
   const [clientId, setClientId] = useState("210cd7ed4e0167355328ba0bb627b38c");
   const [authPending, setAuthPending] = useState(false);
   const connection = useQuery({
@@ -344,6 +345,11 @@ export function LinearWorkspace({
   useEffect(
     () =>
       host.subscribe((event) => {
+        if (event === "context") {
+          const restored = host.sharedIssue?.();
+          setShared(restored?.source === "linear" ? linearRef(restored) : null);
+          return;
+        }
         setMode(host.mode());
         if (event === "data")
           void cache.invalidateQueries(
@@ -622,7 +628,10 @@ export function LinearWorkspace({
 
   if (mode !== "fullscreen" && connection.data?.connected && retained)
     return (
-      <main className="arco compact-mode inline-mode">
+      <main
+        className="arco compact-mode inline-mode"
+        data-arco-issue={selectionIssueData(retained)}
+      >
         <div className="compact-top">
           <strong>Arco · Linear</strong>
           <span className="muted">{shared ? "Chat context" : "Browsing"}</span>
@@ -978,7 +987,13 @@ export function LinearWorkspace({
                   />
                   <button
                     className={`issue-row ${active?.issueId === issue.issueId ? "selected" : ""}`}
-                    onClick={() => {
+                    data-arco-issue={selectionIssueData(issue)}
+                    onClick={(event) => {
+                      if (
+                        event.detail > 0 &&
+                        isTextSelectionClick(event.currentTarget)
+                      )
+                        return;
                       setSelected(linearRef(issue));
                       setShowDetail(true);
                     }}
@@ -1028,7 +1043,13 @@ export function LinearWorkspace({
           </span>
         </footer>
       </aside>
-      <section className="detail-pane" aria-label="Linear Issue details">
+      <section
+        className="detail-pane"
+        aria-label="Linear Issue details"
+        data-arco-issue={
+          detail.data ? selectionIssueData(detail.data) : undefined
+        }
+      >
         {!detail.data && (
           <>
             <header className="detail-toolbar">
@@ -1058,7 +1079,6 @@ export function LinearWorkspace({
             connection={connection.data}
             busy={busy}
             run={run}
-            onShare={(issue) => setShared(linearRef(issue))}
             onNotice={setNotice}
           />
         ) : detail.isPending && active ? (

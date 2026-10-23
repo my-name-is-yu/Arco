@@ -107,6 +107,7 @@ export const draftSchema = z
     linearDescriptionTouched: z.boolean().optional(),
     linearReplyTo: z.string().min(1).max(200).optional(),
     promptText: z.string().max(65536).optional(),
+    // Accept earlier saved drafts; request sending no longer uses this value.
     promptTarget: z.enum(["self", "new"]).optional(),
     baseTitle: z.string().max(256).optional(),
     baseBody: z.string().max(65536).optional(),

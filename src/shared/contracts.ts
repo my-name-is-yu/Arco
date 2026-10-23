@@ -180,29 +180,51 @@ export interface GitHubService {
 export type DisplayMode = "inline" | "fullscreen" | "pip";
 export interface ContextSelection {
   text: string;
-  origin: "body" | "comment";
+  origin: "body" | "comment" | "ui";
   commentId?: string;
+  comment?: string;
+}
+export type SelectionIssue =
+  | Pick<
+      IssueSummary,
+      "source" | "repo" | "number" | "id" | "title" | "url" | "state"
+    >
+  | {
+      source: "linear";
+      connectionId: string;
+      workspaceId: string;
+      teamId: string;
+      id: string;
+      identifier: string;
+      title: string;
+      url: string;
+      state: LinearIssue["state"];
+    };
+export interface TextSelectionContext {
+  selection: ContextSelection;
+  issue?: SelectionIssue;
+}
+export interface SelectionAnnotationContext extends TextSelectionContext {
+  number: number;
 }
 export type ConversationIssue = IssueDetail | LinearIssue;
 export type SharedIssueRef =
   ({ source: "github" } & IssueRef) | ({ source: "linear" } & LinearRef);
 export interface ArcoHost {
   sharedIssue?(): SharedIssueRef | null;
+  sharedAnnotations?(): SelectionAnnotationContext[] | null;
   call<T>(name: string, args: Record<string, unknown>): Promise<T>;
   readImage(
     issue: ConversationIssue,
     url: string,
     commentId?: string | number,
   ): Promise<ImageData>;
-  share(issue: ConversationIssue, selection?: ContextSelection): Promise<void>;
-  prompt(
-    issue: ConversationIssue,
-    text: string,
-    target: "self" | "new",
-    send: boolean,
-  ): Promise<void>;
+  share(issue: ConversationIssue): Promise<void>;
+  shareAnnotations(annotations: SelectionAnnotationContext[]): Promise<void>;
   openLink(url: string): Promise<void>;
   display(mode: DisplayMode): Promise<void>;
-  subscribe(listener: (event: "data" | "display") => void): () => void;
+  subscribe(
+    listener: (event: "data" | "display" | "context") => void,
+  ): () => void;
   mode(): DisplayMode;
 }

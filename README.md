@@ -44,4 +44,4 @@ npm run test:live -- --repo owner/name --write
 - [Code Reviewを基にしたUI比較と整理](docs/design/ui-audit-2026-10-23.md)
 - [Linear接続と実操作の検証](docs/linear-validation.md)
 
-ブラウザのmock hostでの成功と、Codex実機のcomposer・下書き・送信・表示の成功は別に記録します。一般公開は行っていません。
+ブラウザのmock hostでの成功と、Codex実機のcomposerでのIssue選択・コンテキスト共有・表示の成功は別に記録します。Issue全体やArco内で選択したテキストをAdd to chatで共有し、相談はCodexの通常入力欄から行います。添付のタイトル・グループ表示はCodexが担います。一般公開は行っていません。

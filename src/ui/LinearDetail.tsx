@@ -19,7 +19,7 @@ import {
   useDraftPersistence,
 } from "./useDraftPersistence";
 import { resolveContentDraft, contentConflict } from "./content-drafts";
-import type { ArcoHost, ContextSelection } from "../shared/contracts";
+import type { ArcoHost } from "../shared/contracts";
 import { LINEAR_UPLOAD_MAX_BYTES } from "../shared/linear";
 import type {
   LinearComment,
@@ -162,7 +162,6 @@ export function LinearDetail({
   connection,
   busy,
   run,
-  onShare,
   onNotice,
 }: {
   feedback: ReactNode;
@@ -176,24 +175,19 @@ export function LinearDetail({
   connection?: LinearConnection;
   busy: boolean;
   run: LinearRun;
-  onShare: (issue: LinearIssue) => void;
   onNotice: (message: string) => void;
 }) {
   const [storedDraft, setStoredDraft] = useState<Draft>({
     title: issue.title,
     body: issue.body,
     comment: "",
-    promptText: "",
-    promptTarget: "self",
   });
   const [editing, setEditing] = useState(false);
-  const [selection, setSelection] = useState<ContextSelection | undefined>();
   const [preview, setPreview] = useState(false);
   const [commentEdit, setCommentEdit] = useState<{
     id: string;
     text: string;
   } | null>(null);
-  const [promptOpen, setPromptOpen] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
 
   const [relationTarget, setRelationTarget] = useState("");
@@ -322,46 +316,14 @@ export function LinearDetail({
       setHostBusy(false);
     }
   }
-  function selectedContext(): ContextSelection | undefined {
-    const selection = window.getSelection();
-    if (
-      !selection ||
-      selection.isCollapsed ||
-      !selection.rangeCount ||
-      !selection.toString().trim()
-    )
-      return;
-    const range = selection.getRangeAt(0);
-    const element =
-      range.commonAncestorContainer instanceof Element
-        ? range.commonAncestorContainer
-        : range.commonAncestorContainer.parentElement;
-    const target = element?.closest<HTMLElement>("[data-linear-context]");
-    if (!target || !root.current?.contains(target)) return;
-    return {
-      text: selection.toString(),
-      origin: target.dataset.linearContext === "comment" ? "comment" : "body",
-      ...(target.dataset.commentId
-        ? { commentId: target.dataset.commentId }
-        : {}),
-    };
-  }
   const update = (patch: Record<string, unknown>) =>
     run<LinearIssue>("linear_update_issue", {
       ...ref(issue),
       expectedUpdatedAt: issue.updatedAt,
       patch,
     });
-  const share = (selection?: ContextSelection) =>
-    hostAction(
-      async () => {
-        await host.share(issue, selection);
-        onShare(issue);
-      },
-      selection
-        ? `${issue.identifier} selection added to chat.`
-        : `${issue.identifier} added to chat.`,
-    );
+  const share = () =>
+    hostAction(() => host.share(issue), `${issue.identifier} added to chat.`);
   function reactions(items: LinearIssue["reactions"], commentId?: string) {
     return (
       <LinearReactions
@@ -496,26 +458,14 @@ export function LinearDetail({
           ) : undefined
         }
         primary={
-          <>
-            <Button
-              color="primary"
-              size="sm"
-              disabled={hostBusy}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void share(selection)}
-            >
-              {selection ? "Share selection" : "Add to chat"}
-            </Button>
-            <Button
-              color="secondary"
-              variant="outline"
-              size="sm"
-              aria-expanded={promptOpen}
-              onClick={() => setPromptOpen((value) => !value)}
-            >
-              Ask Codex
-            </Button>
-          </>
+          <Button
+            color="primary"
+            size="sm"
+            disabled={hostBusy}
+            onClick={() => void share()}
+          >
+            Add to chat
+          </Button>
         }
         utilities={
           <>
@@ -556,14 +506,7 @@ export function LinearDetail({
         }
       />
       {feedback}
-      <div
-        className="detail-scroll"
-        ref={root}
-        onMouseUp={() => setSelection(selectedContext())}
-        onKeyUp={(event) => {
-          if (event.key === "Shift") setSelection(selectedContext());
-        }}
-      >
+      <div className="detail-scroll" ref={root}>
         <div className="issue-heading">
           <div className="issue-kicker">
             <span className="state-pill" style={{ color: issue.state.color }}>
@@ -581,24 +524,6 @@ export function LinearDetail({
             </span>
             {dirty && <span className="draft-mark">Unsaved draft</span>}
           </p>
-          {selection && (
-            <div className="selection-preview">
-              <span>
-                {selection.origin === "body" ? "Body" : "Comment"} selection ·{" "}
-                {selection.text.length} characters
-              </span>
-              <blockquote>{selection.text}</blockquote>
-              <button
-                className="text-button"
-                onClick={() => {
-                  setSelection(undefined);
-                  window.getSelection()?.removeAllRanges();
-                }}
-              >
-                Clear selection
-              </button>
-            </div>
-          )}
           {shared && (
             <div className="shared-target">
               Shared issue: <strong>{shared.identifier}</strong>
@@ -628,74 +553,6 @@ export function LinearDetail({
             });
           }}
         />
-        {promptOpen && (
-          <section className="request-panel">
-            <strong>Issue: {issue.identifier}</strong>
-            <textarea
-              aria-label="Linear request for Codex"
-              value={draft.promptText ?? ""}
-              disabled={hostBusy}
-              onChange={(event) => edit({ promptText: event.target.value })}
-            />
-            <label>
-              Chat
-              <SingleSelect
-                label="Chat"
-                value={draft.promptTarget ?? "self"}
-                options={[
-                  { value: "self", label: "Current chat" },
-                  { value: "new", label: "New chat" },
-                ]}
-                onChange={(value) =>
-                  edit({
-                    promptTarget: value === "new" ? "new" : "self",
-                  })
-                }
-              />
-            </label>
-            <div className="linear-controls">
-              <Button
-                color="secondary"
-                variant="outline"
-                size="sm"
-                disabled={hostBusy || !draft.promptText?.trim()}
-                onClick={() =>
-                  void hostAction(async () => {
-                    await host.prompt(
-                      issue,
-                      draft.promptText!,
-                      draft.promptTarget ?? "self",
-                      false,
-                    );
-                  }, "Prepared an unsent draft.")
-                }
-              >
-                Prepare draft
-              </Button>
-              <Button
-                color="primary"
-                size="sm"
-                disabled={hostBusy || !draft.promptText?.trim()}
-                onClick={() =>
-                  void hostAction(async () => {
-                    await host.prompt(
-                      issue,
-                      draft.promptText!,
-                      draft.promptTarget ?? "self",
-                      true,
-                    );
-                  }, "Request sent.")
-                }
-              >
-                Send and start request
-              </Button>
-            </div>
-            <p className="muted">
-              This sends the description and Issue identity to the selected
-              chat. Browsing alone sends nothing.
-            </p>
-          </section>
-        )}
         <div className="issue-columns">
           <div className="issue-main">
             {editing ? (

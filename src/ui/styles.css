@@ -404,6 +404,7 @@
   color: #aa91df;
 }
 .row-content {
+  user-select: text;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -759,9 +760,6 @@
   align-items: center;
   flex-wrap: wrap;
 }
-.action-spacer {
-  flex: 1;
-}
 .shared-target {
   font-size: 10px;
   color: var(--arco-muted);
@@ -770,57 +768,125 @@
 .shared-target strong {
   font-weight: 500;
 }
-.selection-preview {
+.selection-share {
+  position: fixed;
+  z-index: 10000;
+  width: 116px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--arco-border);
+  border-radius: 12px;
   background: var(--arco-hover);
+  color: var(--arco-text);
+  box-shadow: 0 4px 16px #0003;
+  user-select: none;
+}
+.selection-share button {
+  width: 100%;
+  min-height: 32px;
+  border-radius: 11px;
+}
+.selection-share-error {
+  position: fixed;
+  bottom: 8px;
+  left: 50vw;
+  transform: translateX(-50%);
+  width: min(320px, calc(100vw - 16px));
+  max-height: 40vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 8px;
   border: 1px solid var(--arco-border);
   border-radius: 8px;
-  padding: 10px 12px;
-  margin-top: 13px;
-  font-size: 11px;
+  background: var(--arco-hover);
+  color: var(--arco-text);
+  font-size: 12px;
 }
-.selection-preview > span {
-  color: var(--arco-muted);
+:root::highlight(arco-selection) {
+  background-color: #193d68;
+  color: #fff;
 }
-.selection-preview blockquote {
-  border-left: 2px solid var(--arco-accent);
-  padding-left: 9px;
-  margin: 7px 0;
-  max-height: 70px;
-  overflow: auto;
-  white-space: pre-wrap;
+.selection-annotation-number {
+  position: fixed;
+  z-index: 9999;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1.5px solid #fff;
+  border-radius: 16px 16px 16px 3px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
 }
-.conversation-panel {
-  background: var(--arco-sidebar);
-  border: 1px solid var(--arco-border);
-  border-radius: 9px;
-  padding: 14px;
-  margin-top: 16px;
-}
-.conversation-target {
+.selection-comment {
+  position: fixed;
+  z-index: 10001;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  margin-bottom: 13px;
-}
-.conversation-target > span {
-  color: var(--arco-muted);
-}
-.conversation-panel > label {
-  display: block;
-  margin-bottom: 5px;
-  font-size: 11px;
-}
-.conversation-actions {
-  display: flex;
-  gap: 6px;
   align-items: center;
-  margin-top: 9px;
-  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 10px 8px 16px;
+  border: 1px solid var(--arco-border);
+  border-radius: 30px;
+  background: var(--arco-hover);
+  color: var(--arco-text);
+  box-shadow: 0 4px 16px #0003;
 }
-.conversation-panel > p {
-  font-size: 10px;
-  margin-top: 10px;
+.selection-comment textarea {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  max-height: 120px;
+  margin: 0;
+  padding: 4px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  resize: none;
+}
+.selection-comment textarea::placeholder {
+  color: var(--arco-muted);
+}
+.arco .selection-comment textarea:focus-visible {
+  outline: none;
+}
+.selection-comment button {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 5px;
+  background: var(--arco-text);
+  color: var(--arco-bg);
+}
+.selection-comment .selection-comment-remove {
+  background: transparent;
+  color: var(--arco-muted);
+}
+.selection-retained-input {
+  position: fixed;
+  z-index: 9998;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+}
+.selection-retained-input > div {
+  width: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+  border-color: transparent;
+}
+.selection-retained-input mark {
+  background: #193d68;
+  color: #fff;
 }
 .issue-columns {
   display: grid;
@@ -1269,9 +1335,6 @@
   .issue-actions {
     gap: 6px;
   }
-  .issue-actions > .action-spacer {
-    display: none;
-  }
   .dialog-backdrop {
     position: fixed;
     padding: 12px;
@@ -1312,9 +1375,6 @@
   }
 }
 @media (max-width: 400px) {
-  .conversation-actions > .action-spacer {
-    display: none;
-  }
   .shared-chip {
     max-width: 110px;
     overflow: hidden;

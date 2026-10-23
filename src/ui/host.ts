@@ -3,22 +3,28 @@ import {
   applyDocumentTheme,
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
-import { OpenAIExtensions } from "@openai/mcp-extensions/app";
+import {
+  OPENAI_MODEL_CONTEXT_KEY,
+  OpenAIExtensions,
+  type OpenAIModelContextUpdateResult,
+} from "@openai/mcp-extensions/app";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { imageDataSchema } from "../shared/images";
-import { sharedRefFromContext } from "./shared-context";
+import {
+  sharedRefFromContext,
+  sharedAnnotationsFromContext,
+} from "./shared-context";
 import { createToolQueue } from "./tool-queue";
+import { annotationAttachment, contextAttachment } from "./context-attachment";
 import type {
   ArcoHost,
-  ContextSelection,
   ConversationIssue,
+  SelectionAnnotationContext,
+  SharedIssueRef,
 } from "../shared/contracts";
 
-export function issueContext(
-  issue: ConversationIssue,
-  selection?: ContextSelection,
-) {
+function issueContext(issue: ConversationIssue) {
   if (issue.source === "linear")
     return {
       source: "linear",
@@ -30,21 +36,17 @@ export function issueContext(
       title: issue.title,
       url: issue.url,
       state: issue.state,
-      ...(selection
-        ? { selection }
-        : {
-            body: issue.body,
-            labels: issue.labels.map((label) => ({
-              id: label.id,
-              name: label.name,
-            })),
-            assignee: issue.assignee,
-            project: issue.project,
-            cycle: issue.cycle,
-            priority: issue.priority,
-            estimate: issue.estimate,
-            dueDate: issue.dueDate,
-          }),
+      body: issue.body,
+      labels: issue.labels.map((label) => ({
+        id: label.id,
+        name: label.name,
+      })),
+      assignee: issue.assignee,
+      project: issue.project,
+      cycle: issue.cycle,
+      priority: issue.priority,
+      estimate: issue.estimate,
+      dueDate: issue.dueDate,
     };
   return {
     source: issue.source,
@@ -54,14 +56,10 @@ export function issueContext(
     title: issue.title,
     url: issue.url,
     state: issue.state,
-    ...(selection
-      ? { selection }
-      : {
-          body: issue.body,
-          labels: issue.labels.map((label) => label.name),
-          assignees: issue.assignees,
-          projects: issue.projects,
-        }),
+    body: issue.body,
+    labels: issue.labels.map((label) => label.name),
+    assignees: issue.assignees,
+    projects: issue.projects,
   };
 }
 
@@ -75,9 +73,15 @@ export async function connectHost(): Promise<ArcoHost> {
   const openai = new OpenAIExtensions(app);
   const tools = createToolQueue();
   let displayMode = app.getHostContext()?.displayMode ?? "inline";
-  const listeners = new Set<(event: "data" | "display") => void>();
-  const notify = (event: "data" | "display") =>
+  const listeners = new Set<(event: "data" | "display" | "context") => void>();
+  const notify = (event: "data" | "display" | "context") =>
     listeners.forEach((listener) => listener(event));
+  let contextVersion: string | null | undefined;
+  let contextPresent = false;
+  let contextRevision = 0;
+  let sharedOverride: SharedIssueRef | null | undefined;
+  let annotationsOverride: SelectionAnnotationContext[] | null | undefined;
+  let attachmentBusy = false;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   const dataChanged = () => {
     if (refreshTimer !== undefined) return;
@@ -86,7 +90,7 @@ export async function connectHost(): Promise<ArcoHost> {
       notify("data");
     }, 100);
   };
-  const applyContext = () => {
+  const applyContext = (change?: Record<string, unknown>) => {
     const context = app.getHostContext();
     if (context?.theme) applyDocumentTheme(context.theme);
     if (context?.styles?.variables)
@@ -94,6 +98,33 @@ export async function connectHost(): Promise<ArcoHost> {
     if (context?.displayMode && context.displayMode !== displayMode) {
       displayMode = context.displayMode;
       notify("display");
+    }
+    const modelContext =
+      change === undefined || Object.hasOwn(change, OPENAI_MODEL_CONTEXT_KEY)
+        ? openai.modelContext?.getCurrent()
+        : undefined;
+    if (modelContext !== undefined) {
+      const nextVersion = modelContext?.updateId ?? null;
+      const present = modelContext !== null;
+      const pendingRemoval =
+        attachmentBusy &&
+        !present &&
+        change !== undefined &&
+        Object.keys(change).length === 1;
+      if (
+        nextVersion !== contextVersion ||
+        present !== contextPresent ||
+        pendingRemoval
+      ) {
+        contextRevision += 1;
+        contextVersion = nextVersion;
+        contextPresent = present;
+        sharedOverride = sharedRefFromContext(modelContext?.structuredContent);
+        annotationsOverride = sharedAnnotationsFromContext(
+          modelContext?.structuredContent,
+        );
+        notify("context");
+      }
     }
   };
   app.ontoolresult = dataChanged;
@@ -107,9 +138,46 @@ export async function connectHost(): Promise<ArcoHost> {
   };
   await app.connect();
   applyContext();
+  async function attach(params: Parameters<App["updateModelContext"]>[0]) {
+    if (attachmentBusy)
+      throw new Error(
+        "Wait for the current attachment to finish, then try again.",
+      );
+    attachmentBusy = true;
+    const revision = contextRevision;
+    try {
+      let receipt: OpenAIModelContextUpdateResult | undefined;
+      if (openai.modelContext)
+        receipt = await openai.modelContext.update(params);
+      else await app.updateModelContext(params);
+      // A native replacement or removal received while awaiting the ACK wins.
+      // An echo of this exact update may arrive before its acknowledgement.
+      if (
+        contextRevision !== revision &&
+        (!receipt || contextVersion !== receipt.updateId)
+      )
+        return;
+      contextVersion = receipt?.updateId ?? contextVersion;
+      contextPresent = true;
+      sharedOverride = sharedRefFromContext(params.structuredContent);
+      annotationsOverride = sharedAnnotationsFromContext(
+        params.structuredContent,
+      );
+      notify("context");
+    } finally {
+      attachmentBusy = false;
+    }
+  }
   return {
     sharedIssue() {
+      if (sharedOverride !== undefined) return sharedOverride;
       return sharedRefFromContext(
+        openai.modelContext?.getCurrent()?.structuredContent,
+      );
+    },
+    sharedAnnotations() {
+      if (annotationsOverride !== undefined) return annotationsOverride;
+      return sharedAnnotationsFromContext(
         openai.modelContext?.getCurrent()?.structuredContent,
       );
     },
@@ -150,49 +218,58 @@ export async function connectHost(): Promise<ArcoHost> {
         throw new Error("The server response contains no data.");
       return result.structuredContent as T;
     },
-    async share(issue, selection) {
+    async share(issue) {
       const identifier =
         issue.source === "github"
           ? `${issue.repo} #${issue.number}`
           : issue.identifier;
-      const context = issueContext(issue, selection);
-      const params = {
-        content: [
-          {
-            type: "text" as const,
-            text: `${identifier} ${issue.title}\n${issue.url}\n\nIssue context (source data):\n${JSON.stringify(context)}`,
-          },
-        ],
-        structuredContent: {
-          ...context,
-          arcoSharedIssue: 1,
-        },
-      };
-      if (openai.modelContext) await openai.modelContext.update(params);
-      else await app.updateModelContext(params);
+      const context = issueContext(issue);
+      await attach(
+        contextAttachment(
+          context,
+          `${identifier} ${issue.title}\n${issue.url}`,
+          `${identifier} ${issue.title}`,
+        ),
+      );
     },
-    async prompt(issue, text, target, send) {
-      if (!openai.message)
-        throw new Error(
-          "This host does not support preparing or sending requests to current or new chats.",
-        );
-      const result = await openai.message.send({
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `${text}\n\nIssue context (source data):\n${JSON.stringify(issueContext(issue))}`,
-          },
-        ],
-        _meta: {
-          "openai/message": {
-            target: target === "self" ? "active" : "new",
-            send,
-          },
-        },
+    async shareAnnotations(annotations) {
+      const parsed = sharedAnnotationsFromContext({
+        source: "arco",
+        annotations,
       });
-      if (result.isError)
-        throw new Error("The host did not accept the chat request.");
+      if (!parsed)
+        throw new Error(
+          "Annotations must have valid, unique positive numbers.",
+        );
+      if (!parsed.length) {
+        await attach({
+          content: [],
+          structuredContent: { source: "arco", annotations: [] },
+        });
+        return;
+      }
+      const first = parsed[0]!;
+      const context =
+        parsed.length === 1
+          ? {
+              ...(first.issue ?? { source: "arco" }),
+              selection: first.selection,
+              annotations: parsed,
+            }
+          : { source: "arco", annotations: parsed };
+      const items = parsed.map(({ number, issue, selection }) => {
+        const identifier = issue
+          ? issue.source === "github"
+            ? `${issue.repo} #${issue.number}`
+            : issue.identifier
+          : "Arco";
+        const preview = selection.text.replace(/\s+/g, " ").trim();
+        return {
+          text: `${number}. ${identifier}\n${selection.text}${selection.comment ? `\n\nComment: ${selection.comment}` : ""}`,
+          title: `#${number} ${preview.length > 64 ? `${preview.slice(0, 64)}…` : preview}`,
+        };
+      });
+      await attach(annotationAttachment(context, items));
     },
     async openLink(url) {
       const parsed = new URL(url);

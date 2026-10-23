@@ -178,31 +178,6 @@
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
 }
-.request-panel {
-  padding: 14px;
-  background: var(--arco-sidebar);
-  border: 1px solid var(--arco-border);
-  border-radius: 9px;
-  margin: 17px 0 23px;
-}
-.request-panel > strong {
-  display: block;
-  font-size: 11px;
-  margin-bottom: 10px;
-}
-.request-panel > label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--arco-muted);
-  font-size: 11px;
-  margin: 9px 0;
-}
-.request-panel > p {
-  font-size: 10px;
-  margin-top: 10px;
-}
 .linear-properties > label {
   font-size: 12px;
   color: var(--arco-muted);

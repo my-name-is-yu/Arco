@@ -123,13 +123,13 @@ Code ReviewのSQLiteはreview記録用であり、それだけを理由にArco�
 
 ## 品質確認
 
-| 段階         | 使用するもの・確認すること                                                                            |
-| ------------ | ----------------------------------------------------------------------------------------------------- |
-| 静的確認     | TypeScript strict、ESLint 10＋typescript-eslint＋React Hooks、Prettierを一つのformatterとして使用     |
-| ロジック・UI | Vitest＋Testing Library。ラベル保持、field/Project誤更新、bulk部分失敗、draft保持、未送信と送信の区別 |
-| ブラウザ     | Playwrightで一覧・詳細・編集・キーボード・狭い幅を確認。mock hostと実Codexを区別する                  |
-| 配布artifact | manifest/依存/外部assetsの残存、stdio initialize・tool/resourceの一覧と呼出し、クリーン環境の起動     |
-| Codex実機    | 採用したinline/fullscreen、composer選択、context共有、現在/新規会話のdraftと送信、更新後のUI反映      |
+| 段階         | 使用するもの・確認すること                                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| 静的確認     | TypeScript strict、ESLint 10＋typescript-eslint＋React Hooks、Prettierを一つのformatterとして使用                                 |
+| ロジック・UI | Vitest＋Testing Library。ラベル保持、field/Project誤更新、bulk部分失敗、draft保持、全域の選択共有とmessageを送信しないこと        |
+| ブラウザ     | Playwrightで一覧・詳細・編集・キーボード・狭い幅を確認。mock hostと実Codexを区別する                                              |
+| 配布artifact | manifest/依存/外部assetsの残存、stdio initialize・tool/resourceの一覧と呼出し、クリーン環境の起動                                 |
+| Codex実機    | 採用したinline/fullscreen、composer選択、Issue全体・全域の選択共有、Codex側のタイトル・グループ付き添付と通常入力、更新後のUI反映 |
 
 OSの完成形は、ユーザー指定どおりCodexアプリが動く環境を対象にする。macOS・Windows・Linuxを想定してOS固有のpathやshellへ寄せず、実際にhostが対応するOS/archで検証する。LinuxのCodex GUIやheadless/CLI対応まで確認済みという意味ではない。
 

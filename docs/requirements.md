@@ -38,7 +38,7 @@ Code Review・Linearに近い操作感を目指し、完成形で担う責務と
 | 対応サービス   | 完成形ではGitHub・Linearの両方を閲覧・編集・進捗変更・会話連携まで扱う。個人利用でGitHubへ管理を統一する当初の意向と、製品の対応範囲は分ける。                                                                                |
 | 進捗の保存先   | GitHubではProjectsのStatus、Linearでは元のworkflow stateを使う。各サービスの値を正とする。                                                                                                                                    |
 | 操作体験       | Codex内で普通のアプリとして快適に操作でき、選んだIssueをそのまま会話へ渡せる。                                                                                                                                                |
-| 初版の会話連携 | 選択内容のコンテキスト共有、`@Arco`でのIssue選択、現在／新しい会話への依頼、Codexによる更新のUI反映をすべて含める。                                                                                                           |
+| 初版の会話連携 | Issue全体の共有、Arco内の選択テキストの共有、`@Arco`でのIssue選択、Codexによる更新のUI反映を含める。添付表示と相談入力はCodexが担う。                                                                                         |
 | 使用感の参考   | Code ReviewとLinearに近づける。一覧と詳細の行き来、情報密度、検索、すばやい属性変更、キーボード操作を具体化する。                                                                                                             |
 | 表示形式       | 広い管理画面と会話横表示を軸とし、inline・fullscreenを用意する。PiPは2026-10-23に採用を取り消した。サイドバーと会話横の入口も対象とする。                                                                                     |
 | 学習目的       | 単なるツール連携にとどまらず、本格的なCodex pluginを実装する練習も兼ねる。                                                                                                                                                    |
@@ -99,7 +99,7 @@ Code Review・Linearに近い使用感は採用済み。一覧と詳細を行き
 | U03 | 検索・キーボード操作  | タイトル検索とIssue URLの貼り付けで対象を開ける。検索、新規作成、一覧移動、詳細の開閉、主要な属性変更にキーボードから到達できる。キーはhostとの競合を確認して決める。                                                                                                   |
 | U04 | 見る対象を絞る        | GitHubは接続済みアカウントのAssigned to meを初期表示し、Created by me・Mentioned me・All account repositoriesを明示選択する。repo候補をAPIから取得し、任意で絞り込める。個人一覧が空でも全repoへ自動拡大しない。GitHub／Linearを切り替え、最後のscopeと条件を保存する。 |
 | U05 | 情報を見渡す          | 高さを抑えた行と小さなツールバーを使い、本文の読みやすさを保つ。狭い領域では情報の優先順位を保って再配置する。                                                                                                                                                          |
-| U06 | 会話とIssueを往復する | 相談対象のIssueや選択範囲をCodexのコンテキストへ渡し、そのまま相談できる。添付、未送信の依頼文の準備、明示的な依頼開始を区別する。CodexによるIssue更新は同じ詳細画面へ再取得して反映する。閲覧中の行を変えるだけでは送信しない。                                        |
+| U06 | 会話とIssueを往復する | Issue全体やArco内の選択テキストをAdd to chatでCodexへ渡し、Codexの通常入力欄から相談する。添付のタイトル・グループ表示はCodexが担う。CodexによるIssue更新は同じ詳細画面へ再取得して反映する。閲覧・選択だけでは共有せず、Arcoから依頼送信しない。                       |
 
 U04は2026-10-23に採用したD02に従い、repo入力なしでAssigned to meのOpen Issueを更新順に取得する。Created by me・Mentioned me・All account repositoriesへの切替と、取得した候補からのrepo絞込みは明示操作で行う。接続権限を超える公開repo全体の検索や、repoごとの全件走査は行わない。Open／ClosedとProjects Statusは別の値として扱い、Project未追加のIssueを消したり、独自のStatusで補ったりしない。
 複数対象の表示と採用済み一括操作も無料で提供する。保存したビュー等の具体的なUIは引き続き採否・詳細を詰め、採用する場合も無料とする。以前の料金案にあった「単一対象まで無料」という境界は採用しない。
@@ -107,15 +107,21 @@ U04は2026-10-23に採用したD02に従い、repo入力なしでAssigned to me�
 
 ### 初版必須の会話連携
 
-ユーザーが次の4項目を初版に含めることを明示した。採用済みの要件と、Codex上での実装・実機確認の進捗は分けて管理する。
+2026-10-23のユーザー希望を反映し、次の4項目を初版に含める。採用済みの要件と、Codex上での実装・実機確認の進捗は分けて管理する。
 
-- 相談対象のIssue、本文やコメントの選択範囲をコンテキストとして共有し、「このIssueの実装方針を考えて」と続けられる。
+- Issue全体をAdd to chatでコンテキストとして共有し、Codexの通常入力欄から相談を続けられる。
+- Arco内のテキストを選択すると小さなAdd to chatが現れ、その明示操作で選択範囲を共有する。Arcoは複数の選択を青く保持し、追加順の番号と各項目の任意コメント欄を表示する。添付のtitle/groupを渡し、タイトル・グループ付きの添付表示はCodexが担う。
 - 会話入力欄の`@Arco`からIssueを検索・選択できる。
-- 「調査を依頼」などの明示的な操作から、Issueと依頼文を現在または新しい会話へ渡せる。未送信の下書きと即時の依頼開始は別に設計する。
 - CodexもMCP toolで同じsourceのIssueを読み書きでき、Arcoがその結果を再取得して詳細やカードに反映する。UIの更新通知が自動で全画面へ配信される前提にはしない。
 
-公開仕様では`ui/update-model-context`、`ui/message`のtarget/send拡張、composer mentionsが根拠になる。4項目は実装済みで、実GitHubのIssue全体・本文／コメントの選択範囲のモデル受信と、同じ詳細へのtool更新反映を確認した。Linearのモデル受信、実composerのmention・下書き／送信、inlineからの復帰等の残る確認は[実装・受入確認](implementation-status.md#codex実画面の受入確認)に記録する。fixtureやhost成功通知だけで、実composerの受入確認を完了したとは扱わない。
-参考: [コンテキスト拡張](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#uiupdate-model-context-extensions)、[依頼先と送信動作](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#prompt-target-and-send-behavior)、[Composer mentions](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#composer-at-mentions)。
+本文または単一コメントの内側に収まる選択ではnativeのoriginを保持し、コメントにはnative comment IDを添える。タイトル・属性・一覧などのテキストはoriginをuiとし、単一Issueに安全に対応する場合だけ最小限のnative識別情報を添える。異なるIssue領域にまたがる範囲は一般のArcoコンテキストとして共有し、任意のIssueを対象に選ばない。選択共有にIssue本文全体を補わない。
+
+追加した選択と任意コメントを注釈集合として保持し、各番号から他の項目を変えずに再編集できる。閲覧先の変更で注釈を失わない。集合全体を公開modelContext一件として更新し、複数時は`source: arco`の`annotations`配列に各選択とnative Issue識別情報を保持する。任意の単一Issueへまとめず、一件時は従来のsourceとselectionも保持する。通常の会話入力・送信はCodexが担う。注釈の保存・取消と表示の詳細は[画面構成](screen-structure.md#会話とissueを往復する操作)に従う。
+
+各選択を番号・短文title付きの個別content blockとし、共通の`N annotations`groupをCodexへ渡す。全注釈のデータは一件のassistant向けJSONとstructuredContentに保持し、添付の項目表示はCodexが担う。
+
+公開仕様では`ui/update-model-context`とcomposer mentionsが根拠になる。旧UIでは実GitHub・LinearのIssue全体・本文／コメント範囲のモデル受信と、同じ詳細へのtool更新反映を確認した。全域の選択共有、添付表示、実composerのmention、inlineからの復帰等の確認は[実装・受入確認](implementation-status.md#codex実画面の受入確認)に記録する。fixtureやhost成功通知だけで実Codexの受入確認を完了したとは扱わない。
+参考: [コンテキスト拡張](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#uiupdate-model-context-extensions)、[Composer mentions](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#composer-at-mentions)。
 
 参考: [Code Reviewの調査](code-review-reference.md)、[Linear My issues](https://linear.app/docs/my-issues)、[Linear Display options](https://linear.app/docs/display-options)、[Linear Custom Views](https://linear.app/docs/custom-views)。
 
@@ -123,22 +129,22 @@ U04は2026-10-23に採用したD02に従い、repo入力なしでAssigned to me�
 
 F12の会話連携は初版必須。その他の操作も完成形の採用範囲は[Issue操作対応表](issue-operations.md)で確定した。提供順と初版の範囲は別に決める。Linearの全操作を初版で提供するまで自動的に確定したとは扱わない。
 
-| ID  | 領域                   | 操作・表示                                                                                                                                                                           |
-| --- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| F01 | Codex内の表示          | 会話と併用できる画面を開く。Codex内の実際の表示と操作を確認する。                                                                                                                    |
-| F02 | 対象の選択             | sourceと権限のあるrepo・team等を選択・切り替え、対象範囲を明示する。                                                                                                                 |
-| F03 | 一覧                   | テキスト検索、元サービスの状態・担当者・ラベルでの絞り込み、並べ替え。GitHubのPRはIssue一覧に混在させない。                                                                          |
-| F04 | 詳細                   | タイトル、Markdown本文、担当者、ラベル、状態、コメントを表示する。                                                                                                                   |
-| F05 | Issue操作              | 作成、タイトル・本文の編集、元サービスの状態変更。GitHubではClose／Reopenを扱う。                                                                                                    |
-| F06 | 担当者・ラベル         | Issueへの追加・取り外し。                                                                                                                                                            |
-| F07 | コメント               | 閲覧・投稿と、権限に応じた編集・削除。                                                                                                                                               |
-| F08 | ラベル定義             | 元のrepo・workspace・teamの範囲で一覧・作成・名前/色/説明の変更・削除。group再編やscope移動は公式へ渡す。                                                                            |
-| F09 | 一括操作               | 同じsourceで適用先と値が明確な選択に対する状態・担当者・ラベル・対応属性値の変更。本文・コメント・関係・定義管理・移管のbulkは含めない。                                             |
-| F10 | キーボード操作         | 検索、一覧の移動、詳細の開閉、主要な編集操作。具体的な割り当ては画面設計時に決める。                                                                                                 |
-| F11 | 進捗管理               | GitHub ProjectsのStatusとLinearのworkflow stateを表示・変更する。元サービスの定義を保持し、所属先の選択・追加方法は別に具体化する。                                                  |
-| F12 | 会話との連携・初版必須 | 相談対象Issueや本文／コメントの選択範囲のコンテキスト共有、`@Arco`からのIssue選択、現在／新しい会話への依頼、Codexのtool更新のUI反映。添付・未送信の依頼文・明示的な送信を区別する。 |
+| ID  | 領域                   | 操作・表示                                                                                                                                   |
+| --- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| F01 | Codex内の表示          | 会話と併用できる画面を開く。Codex内の実際の表示と操作を確認する。                                                                            |
+| F02 | 対象の選択             | sourceと権限のあるrepo・team等を選択・切り替え、対象範囲を明示する。                                                                         |
+| F03 | 一覧                   | テキスト検索、元サービスの状態・担当者・ラベルでの絞り込み、並べ替え。GitHubのPRはIssue一覧に混在させない。                                  |
+| F04 | 詳細                   | タイトル、Markdown本文、担当者、ラベル、状態、コメントを表示する。                                                                           |
+| F05 | Issue操作              | 作成、タイトル・本文の編集、元サービスの状態変更。GitHubではClose／Reopenを扱う。                                                            |
+| F06 | 担当者・ラベル         | Issueへの追加・取り外し。                                                                                                                    |
+| F07 | コメント               | 閲覧・投稿と、権限に応じた編集・削除。                                                                                                       |
+| F08 | ラベル定義             | 元のrepo・workspace・teamの範囲で一覧・作成・名前/色/説明の変更・削除。group再編やscope移動は公式へ渡す。                                    |
+| F09 | 一括操作               | 同じsourceで適用先と値が明確な選択に対する状態・担当者・ラベル・対応属性値の変更。本文・コメント・関係・定義管理・移管のbulkは含めない。     |
+| F10 | キーボード操作         | 検索、一覧の移動、詳細の開閉、主要な編集操作。具体的な割り当ては画面設計時に決める。                                                         |
+| F11 | 進捗管理               | GitHub ProjectsのStatusとLinearのworkflow stateを表示・変更する。元サービスの定義を保持し、所属先の選択・追加方法は別に具体化する。          |
+| F12 | 会話との連携・初版必須 | Issue全体とArco内の選択テキストをAdd to chatで共有、`@Arco`からのIssue選択、Codexのtool更新のUI反映。添付表示・相談入力・送信はCodexが担う。 |
 
-F12の4項目は初版の必須要件として採用済み。Issue全体と本文／コメント選択を共有でき、閲覧対象とは別に保持する。依頼先は現在／新しい会話から選び、Prepare draftとSend requestを分ける。具体的な表示は[画面構成](screen-structure.md)、実機での確認状況は[実装・受入確認](implementation-status.md)に従う。
+F12の4項目は初版の必須要件として採用済み。Issue全体と選択テキストを共有でき、閲覧対象とは別に保持する。2026-10-23のユーザー希望により、Arco内のAsk Codex・Send request・依頼欄を削除し、相談はCodexの通常入力欄へ集約する。Arcoからmessage送信・composerへの下書き準備・新規会話作成は行わない。Issue作成・編集・コメントの端末内下書き保存は保持する。具体的な表示は[画面構成](screen-structure.md)、実機での確認状況は[実装・受入確認](implementation-status.md)に従う。
 表示形式はinlineとfullscreenを採用する。2026-10-23の変更でPiPは対象外とした。
 
 複数対象の一覧は採用済み。GitHub／Linearを切り替え、GitHubはD02の個人一覧またはrepo、Linearは本人認可済みworkspace/teamを選ぶ。sourceを混在させた共通workflowは作らない。一括操作の採用範囲は操作対応表に従う。
@@ -167,9 +173,9 @@ GitHub ProjectsのStatusと既存属性値の編集は含め、Projects自体の
 7. 検索・詳細閲覧・編集を繰り返しても、一覧の位置や検索条件が不必要に失われない。
 8. ProjectsのStatusを変更し、GitHubとArcoの双方で一致することを確認する。
 9. 選択Issueを会話へ渡し、意図したリポジトリとIssueの情報がCodexに届く。
-10. 本文やコメントの一部を選択して渡すと、その選択範囲がCodexへ届く。
+10. 本文または単一コメントの一部を選択し、小さなAdd to chatで共有すると、選択範囲とnativeのoriginがCodexへ届く。コメントにはnative comment IDを添える。複数箇所の青いハイライトと連番を保持し、各注釈を元の選択文や他の項目と別に更新できる。
 11. 会話入力欄の`@Arco`からIssueを検索・選択し、意図したIssueが添付される。
-12. UIから現在／新しい会話への依頼を準備・開始でき、未送信の下書きと即時送信が操作前に区別できる。一覧の選択変更だけでは送信しない。
+12. タイトル・属性・一覧などArco内のテキストにも選択時のAdd to chatが現れ、originがuiのコンテキストを共有できる。異なるIssue領域にまたがる選択を特定Issueへ誤対応させない。添付のタイトル・グループ表示と相談入力はCodexが担い、Arcoから依頼送信・下書き準備・会話作成をしない。
 13. CodexがMCP toolでIssueを更新し、同じIssueの詳細やカードがGitHubの保存結果を再取得して反映する。失敗を保存成功として表示しない。
 14. 完成形ではLinearでも採用した編集・workflow state変更・会話連携を行い、元のLinearとArcoの再取得結果が一致する。Arcoは指定した対象へ書き込み、source側の既存automationによる変化も再取得する。GitHubへのサービス間同期は行わない。
 15. Arco独自アカウント登録・支払い・利用権確認なしで導入し、source認可後に採用操作を利用できる。横断表示や一括操作にも料金由来の制限が出ない。
@@ -186,7 +192,7 @@ GitHub ProjectsのStatusと既存属性値の編集は含め、Projects自体の
 | --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D02 | 初期ビューと横断範囲       | 2026-10-23、repo入力を初回条件にしないよう変更。接続済みGitHubアカウントのAssigned to meを初期表示し、Created by me・Mentioned me・All account repositoriesを明示選択する。repo候補もAPIから取得し、任意の絞込みにする。個人一覧が空でも全repoへ自動拡大しない。sourceはGitHub／Linearを切り替え、最後に選んだscopeと条件を保存する。 |
 | D04 | 最終版の操作対応表         | 確定。[Issue操作対応表](issue-operations.md)の操作・対応型・公式への受け渡し・非目標を採用。提供順は別途決める。                                                                                                                                                                                                                      |
-| D03 | 採用済み会話連携の詳細     | Issue全体・本文／コメントの範囲共有、閲覧対象と共有対象の分離、現在／新しい会話とPrepare draft／Send requestの選択、tool通知と定期再取得を実装した。実composerと全表示の受入確認は[実装・受入確認](implementation-status.md)に従う。任意の既存chatやworktreeへの振り分けは対象にしない。                                              |
+| D03 | 採用済み会話連携の詳細     | Issue全体とArco内の選択テキストをAdd to chatで共有し、閲覧対象とは分離する。添付のtitle/groupをCodexへ渡し、相談入力はCodexに任せる。tool通知と定期再取得を用い、実composerと全表示の受入確認は[実装・受入確認](implementation-status.md)に従う。Arcoから依頼送信・下書き準備・会話作成や既存chat/worktreeへの振り分けは行わない。    |
 | D01 | 表示ごとの画面構成         | 一覧と詳細を併置し、狭いパネルでは切り替える。inlineは共有対象の要約と詳細への入口を持つ。対応modeはinline／fullscreenとし、PiPは2026-10-23のユーザー希望で対象外。実Codexでの全遷移の確認を残す。                                                                                                                                    |
 | D05 | Linear対応の具体化         | 本人のOAuth接続とnative workspace/team選択、GitHubとのsource切替を実装した。共通workflowとsource間同期は行わない。実接続と採用操作は[Linear検証](linear-validation.md)、会話連携の残りは受入記録に従う。                                                                                                                              |
 | D06 | 管理対象オブジェクトの境界 | 確定。Issueと既存の所属先・属性値を操作し、Project・cycle・milestone等そのものの管理は含めない。ラベル定義管理は明示的な例外。                                                                                                                                                                                                        |

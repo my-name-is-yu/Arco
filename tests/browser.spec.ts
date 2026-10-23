@@ -1,5 +1,10 @@
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
+import {
+  sharedContextFromText,
+  latestSharedSelection,
+  type SharedAnnotation,
+} from "./shared-context-helpers";
 
 const firstTitle = "Preserve issue selection and scroll position";
 const secondTitle = "Separate shared context from sending a request";
@@ -29,23 +34,62 @@ async function events(page: Page, type: string) {
   );
   return log.filter((event) => event.type === type).map((event) => event.value);
 }
-function sharedContextFromText(value: unknown) {
-  const update = value as {
-    content: { type: string; text: string }[];
-    structuredContent: Record<string, unknown>;
-  };
-  expect(update.content).toHaveLength(1);
-  expect(update.content[0]!.type).toBe("text");
-  const marker = "\n\nIssue context (source data):\n";
-  const text = update.content[0]!.text;
-  expect(text).toContain(marker);
-  const context = JSON.parse(
-    text.slice(text.indexOf(marker) + marker.length),
-  ) as Record<string, unknown>;
-  const { arcoSharedIssue, ...structured } = update.structuredContent;
-  expect(arcoSharedIssue).toBe(1);
-  expect(context).toEqual(structured);
-  return context;
+function selectionToolbar(app: FrameLocator) {
+  return app.getByRole("toolbar", { name: "Text selection", exact: true });
+}
+function selectionComment(app: FrameLocator) {
+  return app.getByRole("dialog", { name: "Selection comment", exact: true });
+}
+async function retainedSelection(app: FrameLocator) {
+  return app.locator("body").evaluate(() => {
+    const registry = (
+      CSS as typeof CSS & {
+        highlights: { get(name: string): Iterable<Range> | undefined };
+      }
+    ).highlights;
+    return Array.from(registry.get("arco-selection") ?? []).map((range) =>
+      range.toString(),
+    );
+  });
+}
+async function updateHostContext(page: Page, params: Record<string, unknown>) {
+  await page.evaluate((params) => {
+    document
+      .querySelector<HTMLIFrameElement>("#arco")!
+      .contentWindow!.postMessage(
+        {
+          jsonrpc: "2.0",
+          method: "ui/notifications/host-context-changed",
+          params,
+        },
+        "*",
+      );
+  }, params);
+}
+async function selectText(app: FrameLocator, selector: string) {
+  if (await selectionComment(app).isVisible())
+    await selectionComment(app).press("Escape");
+  const element = app.locator(selector).first();
+  await element.scrollIntoViewIfNeeded();
+  return element.evaluate(async (target) => {
+    // Native scrolling clears the action. Create the test range after those
+    // scroll notifications have run, as a pointer selection would do.
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return selection.toString();
+  });
+}
+async function addSelectionToChat(app: FrameLocator) {
+  await selectionToolbar(app)
+    .getByRole("button", { name: "Add to chat", exact: true })
+    .click();
 }
 test.beforeEach(async ({ page }) => {
   pageErrors.set(page, []);
@@ -244,6 +288,7 @@ test("body/comment range sharing carries exactly the selected source text", asyn
   page,
 }) => {
   const app = issueFrame(page);
+  let shares = 0;
   for (const [selector, origin, text] of [
     [
       ".issue-body p",
@@ -256,26 +301,15 @@ test("body/comment range sharing carries exactly the selected source text", asyn
       "Keep the same behavior when switching issues with the keyboard.",
     ],
   ] as const) {
-    const paragraph = app.locator(selector).first();
-    await paragraph.evaluate((element) => {
-      const range = document.createRange();
-      range.selectNodeContents(element);
-      const selection = window.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
-      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    });
-    await app.getByRole("button", { name: "Share selection" }).click();
-    await expect
-      .poll(async () => (await events(page, "context")).at(-1))
-      .toEqual(
-        expect.objectContaining({
-          structuredContent: expect.objectContaining({
-            selection: expect.objectContaining({ text, origin }),
-          }),
-        }),
-      );
-    const context = sharedContextFromText(
+    await selectText(app, selector);
+    await expect(app.locator(".selection-preview")).toHaveCount(0);
+    await expect(app.locator(".conversation-panel")).toHaveCount(0);
+    await expect(
+      app.getByRole("button", { name: "Share selection", exact: true }),
+    ).toHaveCount(0);
+    await addSelectionToChat(app);
+    await expect.poll(() => events(page, "context")).toHaveLength(++shares);
+    const context = latestSharedSelection(
       (await events(page, "context")).at(-1),
     );
     expect(context).toMatchObject({
@@ -285,38 +319,25 @@ test("body/comment range sharing carries exactly the selected source text", asyn
       selection: { text, origin },
     });
     expect(context).not.toHaveProperty("body");
-    await app
-      .getByRole("button", { name: "Clear selection", exact: true })
-      .click();
+    await expect(selectionToolbar(app)).toHaveCount(0);
   }
   expect(await events(page, "message")).toHaveLength(0);
 });
 
-test("GitHub replaces a shared body range with a comment range after mouseup on comment padding", async ({
+test("GitHub keeps a shared body range when adding a comment range after mouseup on comment padding", async ({
   page,
 }) => {
   const app = issueFrame(page);
-  await app
-    .locator(".issue-body p")
-    .first()
-    .evaluate((element) => {
-      const range = document.createRange();
-      range.selectNodeContents(element);
-      const selection = window.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
-      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    });
-  await app
-    .getByRole("button", { name: "Share selection", exact: true })
-    .click();
+  await selectText(app, ".issue-body p");
+  await addSelectionToChat(app);
   await expect.poll(() => events(page, "context")).toHaveLength(1);
   expect(
-    sharedContextFromText((await events(page, "context"))[0]),
+    latestSharedSelection((await events(page, "context"))[0]),
   ).toMatchObject({
     selection: { origin: "body" },
   });
 
+  await app.locator(".comment").first().scrollIntoViewIfNeeded();
   const selectedComment = await app
     .locator(".comment")
     .first()
@@ -337,19 +358,18 @@ test("GitHub replaces a shared body range with a comment range after mouseup on 
         commentId: content.dataset.commentId,
       };
     });
-  await expect(app.locator(".selection-preview")).toContainText(
-    "Comment selection",
-  );
-  await expect(app.locator(".selection-preview blockquote")).toHaveText(
-    selectedComment.text,
-  );
-  await app
-    .getByRole("button", { name: "Share selection", exact: true })
-    .click();
+  await expect(selectionToolbar(app)).toBeVisible();
+  await addSelectionToChat(app);
   await expect.poll(() => events(page, "context")).toHaveLength(2);
-  const context = sharedContextFromText((await events(page, "context"))[1]);
+  const context = latestSharedSelection((await events(page, "context"))[1]);
   expect(context.selection).toEqual(selectedComment);
   expect(context).not.toHaveProperty("body");
+  expect(
+    (
+      sharedContextFromText((await events(page, "context"))[1])
+        .annotations as SharedAnnotation[]
+    ).map((annotation) => annotation.selection.origin),
+  ).toEqual(["body", "comment"]);
   expect(await events(page, "message")).toEqual([]);
   const tools = (await events(page, "tool")) as {
     arguments: Record<string, unknown>;
@@ -357,63 +377,759 @@ test("GitHub replaces a shared body range with a comment range after mouseup on 
   expect(tools.filter((tool) => "requestId" in tool.arguments)).toEqual([]);
 });
 
-for (const invalidSelection of ["empty", "cross-origin"] as const) {
-  test(`GitHub clears a previously shared body range when the new selection is ${invalidSelection}`, async ({
-    page,
-  }) => {
-    const app = issueFrame(page);
-    await app
-      .locator(".issue-body p")
-      .first()
-      .evaluate((element) => {
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        const selection = window.getSelection()!;
-        selection.removeAllRanges();
-        selection.addRange(range);
-        element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-      });
-    await app
-      .getByRole("button", { name: "Share selection", exact: true })
-      .click();
-    await expect.poll(() => events(page, "context")).toHaveLength(1);
+test("GitHub removes the selection action after an empty selection and keeps whole-Issue sharing separate", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  await selectText(app, ".issue-body p");
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  await selectText(app, ".issue-body p");
+  await expect(selectionToolbar(app)).toBeVisible();
+  await app.locator(".detail-scroll").evaluate((element) => {
+    window.getSelection()!.removeAllRanges();
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+  await expect(selectionToolbar(app)).toHaveCount(0);
+  await app.getByRole("button", { name: "Add to chat", exact: true }).click();
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  const context = latestSharedSelection((await events(page, "context"))[1]);
+  expect(context).not.toHaveProperty("selection");
+  expect(context.body).toContain(
+    "Return to the same position when switching between issues.",
+  );
+  expect(await events(page, "message")).toEqual([]);
+  const tools = (await events(page, "tool")) as {
+    arguments: Record<string, unknown>;
+  }[];
+  expect(tools.filter((tool) => "requestId" in tool.arguments)).toEqual([]);
+});
 
-    await app.locator(".detail-scroll").evaluate((element, kind) => {
+test("GitHub shares a range crossing body and comment as UI text without guessing a comment identity", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const text = await app.locator(".detail-scroll").evaluate((element) => {
+    const body = element.querySelector(".issue-body p")!.firstChild!;
+    const comment = element.querySelector(
+      '.comment [data-context-origin="comment"] p',
+    )!.firstChild!;
+    const range = document.createRange();
+    range.setStart(body, 0);
+    range.setEnd(comment, comment.textContent!.length);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return selection.toString().trim();
+  });
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const context = latestSharedSelection((await events(page, "context"))[0]);
+  expect(context).toMatchObject({
+    source: "github",
+    repo: "yu/Arco",
+    number: 42,
+    selection: { text, origin: "ui" },
+  });
+  expect(context.selection).not.toHaveProperty("commentId");
+  expect(context).not.toHaveProperty("body");
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("GitHub shares title, property and list text while whole-Issue Add to chat stays explicit", async ({
+  page,
+}, testInfo) => {
+  const app = issueFrame(page);
+  let shares = 0;
+  for (const [selector, number] of [
+    [".issue-heading h1", 42],
+    [".issue-properties .state-property h2", 42],
+    ['.issue-row:has-text("Separate shared context") .row-title', 43],
+  ] as const) {
+    const text = await selectText(app, selector);
+    if (selector === ".issue-heading h1") {
+      await expect(selectionToolbar(app)).toBeVisible();
+      const screenshot = testInfo.outputPath("selection-popup.png");
+      await page.locator("#arco").screenshot({ path: screenshot });
+      await testInfo.attach("GitHub text selection popup (fixture host)", {
+        path: screenshot,
+        contentType: "image/png",
+      });
+    }
+    await addSelectionToChat(app);
+    await expect.poll(() => events(page, "context")).toHaveLength(++shares);
+    const context = latestSharedSelection(
+      (await events(page, "context")).at(-1),
+    );
+    expect(context).toMatchObject({
+      source: "github",
+      repo: "yu/Arco",
+      number,
+      selection: { text, origin: "ui" },
+    });
+    expect(context).not.toHaveProperty("body");
+  }
+  await selectText(app, ".issue-heading h1");
+  await app
+    .locator(".detail-primary-actions")
+    .getByRole("button", { name: "Add to chat", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(4);
+  const context = latestSharedSelection((await events(page, "context"))[3]);
+  expect(context).toMatchObject({ source: "github", number: 42 });
+  expect(context).not.toHaveProperty("selection");
+  expect(context.body).toContain(
+    "Return to the same position when switching between issues.",
+  );
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("Arco title and text spanning different Issues share UI context without an arbitrary Issue identity", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const title = await selectText(app, ".sidebar-identity .wordmark");
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const titleContext = latestSharedSelection(
+    (await events(page, "context"))[0],
+  );
+  expect(titleContext).toEqual({
+    source: "arco",
+    selection: { text: title, origin: "ui" },
+  });
+
+  const text = await app.locator(".issue-list").evaluate((list) => {
+    const titles = list.querySelectorAll(".issue-row .row-title");
+    const first = titles[0]!.firstChild!;
+    const second = titles[1]!.firstChild!;
+    const range = document.createRange();
+    range.setStart(first, 0);
+    range.setEnd(second, second.textContent!.length);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    list.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return selection.toString().trim();
+  });
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  const mixedContext = latestSharedSelection(
+    (await events(page, "context"))[1],
+  );
+  expect(mixedContext).toEqual({
+    source: "arco",
+    selection: { text, origin: "ui" },
+  });
+  expect(mixedContext).not.toHaveProperty("repo");
+  expect(mixedContext).not.toHaveProperty("number");
+  expect(mixedContext).not.toHaveProperty("body");
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("keyboard selection in a GitHub comment draft supports Escape and adds only the selected text", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const comment = app.getByRole("textbox", { name: "Comment on GitHub" });
+  const draft = "Keep this comment draft on this device";
+  await comment.fill(draft);
+  await comment.press("Home");
+  await page.keyboard.down("Shift");
+  for (let index = 0; index < 4; index += 1)
+    await page.keyboard.press("ArrowRight");
+  await page.keyboard.up("Shift");
+  await expect(selectionToolbar(app)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(selectionToolbar(app)).toHaveCount(0);
+  await expect(comment).toHaveValue(draft);
+  expect(await events(page, "context")).toEqual([]);
+
+  await comment.press("Home");
+  await page.keyboard.down("Shift");
+  for (let index = 0; index < 4; index += 1)
+    await page.keyboard.press("ArrowRight");
+  await page.keyboard.up("Shift");
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const context = latestSharedSelection((await events(page, "context"))[0]);
+  expect(context).toMatchObject({
+    source: "github",
+    repo: "yu/Arco",
+    number: 42,
+    selection: { text: "Keep", origin: "ui" },
+  });
+  expect(context).not.toHaveProperty("body");
+  await expect(comment).toHaveValue(draft);
+  await expect(selectionToolbar(app)).toHaveCount(0);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("the selection action attaches the latest nonempty range rather than the range that opened it", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const first = await selectText(app, ".issue-body p");
+  await expect(selectionToolbar(app)).toBeVisible();
+  const latest = await app
+    .locator(".issue-body p")
+    .first()
+    .evaluate((paragraph) => {
+      const text = paragraph.firstChild!;
+      const range = document.createRange();
+      range.setStart(text, 7);
+      range.setEnd(text, 19);
       const selection = window.getSelection()!;
       selection.removeAllRanges();
-      if (kind === "cross-origin") {
-        const body = element.querySelector(".issue-body p")!.firstChild!;
-        const comment = element.querySelector(
-          '.comment [data-context-origin="comment"] p',
-        )!.firstChild!;
-        const range = document.createRange();
-        range.setStart(body, 0);
-        range.setEnd(comment, comment.textContent!.length);
-        selection.addRange(range);
-      }
-      element
-        .querySelector(".comment")!
-        .dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    }, invalidSelection);
-
-    await expect(app.locator(".selection-preview")).toHaveCount(0);
-    await expect(
-      app.getByRole("button", { name: "Share selection", exact: true }),
-    ).toHaveCount(0);
-    await app.getByRole("button", { name: "Add to chat", exact: true }).click();
-    await expect.poll(() => events(page, "context")).toHaveLength(2);
-    const context = sharedContextFromText((await events(page, "context"))[1]);
-    expect(context).not.toHaveProperty("selection");
-    expect(context.body).toContain(
-      "Return to the same position when switching between issues.",
-    );
-    expect(await events(page, "message")).toEqual([]);
-    const tools = (await events(page, "tool")) as {
-      arguments: Record<string, unknown>;
-    }[];
-    expect(tools.filter((tool) => "requestId" in tool.arguments)).toEqual([]);
+      selection.addRange(range);
+      return selection.toString();
+    });
+  expect(latest.trim()).not.toBe("");
+  expect(latest).not.toBe(first);
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const context = latestSharedSelection((await events(page, "context"))[0]);
+  expect(context).toMatchObject({
+    source: "github",
+    number: 42,
+    selection: { text: latest, origin: "body" },
   });
-}
+  expect(context).not.toHaveProperty("body");
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("a retained GitHub selection edits an optional comment without changing the source text or sending a message", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const sourceText = await selectText(app, ".issue-body p");
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const dialog = selectionComment(app);
+  const comment = dialog.getByRole("textbox", {
+    name: "Optional comment",
+    exact: true,
+  });
+  const marker = app.getByRole("button", {
+    name: "Edit selection comment 1",
+    exact: true,
+  });
+  await expect(dialog).toBeVisible();
+  await expect(comment).toHaveAttribute(
+    "placeholder",
+    "Add an optional comment…",
+  );
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveText("1");
+  await expect.poll(() => retainedSelection(app)).toEqual([sourceText]);
+  expect(
+    latestSharedSelection((await events(page, "context"))[0]),
+  ).toMatchObject({ selection: { text: sourceText, origin: "body" } });
+
+  const note = "この箇所を説明してください";
+  await comment.fill(note);
+  await comment.dispatchEvent("compositionstart", { data: "い" });
+  await comment.dispatchEvent("keydown", {
+    key: "Enter",
+    code: "Enter",
+    keyCode: 229,
+    isComposing: true,
+  });
+  await comment.dispatchEvent("compositionend", { data: "い" });
+  await expect(comment).toHaveValue(note);
+  await expect(dialog).toBeVisible();
+  expect(await events(page, "context")).toHaveLength(1);
+  expect(await events(page, "message")).toEqual([]);
+
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  await expect(dialog).toHaveCount(0);
+  const update = (await events(page, "context"))[1];
+  expect(latestSharedSelection(update)).toMatchObject({
+    source: "github",
+    number: 42,
+    selection: { text: sourceText, origin: "body", comment: note },
+  });
+  expect(
+    (update as { content: { text: string }[] }).content[0]!.text,
+  ).toContain(note);
+  await expect.poll(() => retainedSelection(app)).toEqual([sourceText]);
+  await expect(marker).toHaveCount(1);
+
+  await marker.click();
+  await expect(comment).toHaveValue(note);
+  await comment.fill("  \n  ");
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(3);
+  const withoutComment = latestSharedSelection(
+    (await events(page, "context"))[2],
+  );
+  expect(withoutComment.selection).toEqual({
+    text: sourceText,
+    origin: "body",
+  });
+  await expect(dialog).toHaveCount(0);
+
+  await marker.click();
+  await expect(comment).toHaveValue("");
+  await comment.fill("Discard this unsaved note with Escape");
+  await comment.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(marker).toHaveText("1");
+  await expect.poll(() => retainedSelection(app)).toEqual([sourceText]);
+  await marker.click();
+  await expect(comment).toHaveValue("");
+  await comment.fill("Discard this unsaved note by clicking outside");
+  await app.getByRole("heading", { name: firstTitle, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await marker.click();
+  await expect(comment).toHaveValue("");
+  expect(await events(page, "context")).toHaveLength(3);
+  expect(await events(page, "message")).toEqual([]);
+  await expect(app.locator(".issue-body p").first()).toHaveText(sourceText);
+});
+
+test("two GitHub selections keep numbered markers and independent comments when the first annotation is edited", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const dialog = selectionComment(app);
+  const comment = dialog.getByRole("textbox", { name: "Optional comment" });
+  const save = dialog.getByRole("button", {
+    name: "Save comment",
+    exact: true,
+  });
+  const first = app.getByRole("button", {
+    name: "Edit selection comment 1",
+    exact: true,
+  });
+  const second = app.getByRole("button", {
+    name: "Edit selection comment 2",
+    exact: true,
+  });
+  const firstText = await selectText(app, ".issue-heading h1");
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  await comment.fill("1つ目");
+  await save.click();
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  const secondText = await selectText(app, ".issue-body p");
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(3);
+  await expect(comment).toHaveValue("");
+  await comment.fill("2つ目");
+  await save.click();
+  await expect.poll(() => events(page, "context")).toHaveLength(4);
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+  await expect(first).toHaveText("1");
+  await expect(second).toHaveText("2");
+  await expect
+    .poll(() => retainedSelection(app))
+    .toEqual([firstText, secondText]);
+  const collection = sharedContextFromText((await events(page, "context"))[3]);
+  expect(collection).toEqual({
+    source: "arco",
+    annotations: [
+      expect.objectContaining({
+        number: 1,
+        issue: expect.objectContaining({
+          source: "github",
+          repo: "yu/Arco",
+          number: 42,
+        }),
+        selection: { text: firstText, origin: "ui", comment: "1つ目" },
+      }),
+      expect.objectContaining({
+        number: 2,
+        issue: expect.objectContaining({
+          source: "github",
+          repo: "yu/Arco",
+          number: 42,
+        }),
+        selection: { text: secondText, origin: "body", comment: "2つ目" },
+      }),
+    ],
+  });
+  const secondAnnotation = (collection.annotations as SharedAnnotation[])[1];
+  await first.click();
+  await expect(comment).toHaveValue("1つ目");
+  await comment.fill("1つ目を更新");
+  await save.click();
+  await expect.poll(() => events(page, "context")).toHaveLength(5);
+  const edited = sharedContextFromText((await events(page, "context"))[4]);
+  const annotations = edited.annotations as SharedAnnotation[];
+  expect(annotations[0]).toMatchObject({
+    number: 1,
+    selection: { text: firstText, origin: "ui", comment: "1つ目を更新" },
+  });
+  expect(annotations[1]).toEqual(secondAnnotation);
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+  await expect
+    .poll(() => retainedSelection(app))
+    .toEqual([firstText, secondText]);
+  const sharedBeforeBrowsing = await events(page, "context");
+  await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
+  await expect(
+    app.getByRole("heading", { name: secondTitle, exact: true }),
+  ).toBeVisible();
+  await expect(first).toBeHidden();
+  await expect(second).toBeHidden();
+  expect(await events(page, "context")).toEqual(sharedBeforeBrowsing);
+  await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+  await expect
+    .poll(() => retainedSelection(app))
+    .toEqual([firstText, secondText]);
+  expect(await events(page, "context")).toEqual(sharedBeforeBrowsing);
+  await second.click();
+  await expect(comment).toHaveValue("2つ目");
+  await comment.press("Escape");
+  expect(await events(page, "context")).toHaveLength(5);
+  await first.click();
+  await dialog
+    .getByRole("button", { name: "Remove annotation 1", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(6);
+  const remaining = sharedContextFromText((await events(page, "context"))[5]);
+  expect(remaining.annotations).toEqual([secondAnnotation]);
+  await expect(first).toHaveCount(0);
+  await expect(second).toHaveText("2");
+  await expect.poll(() => retainedSelection(app)).toEqual([secondText]);
+  await second.click();
+  await expect(comment).toHaveValue("2つ目");
+  await dialog
+    .getByRole("button", { name: "Remove annotation 2", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(7);
+  expect((await events(page, "context"))[6]).toEqual({
+    content: [],
+    structuredContent: { source: "arco", annotations: [] },
+  });
+  await expect(first).toHaveCount(0);
+  await expect(second).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("narrow input selections keep their source draft and survive presentation updates until native context removal or replacement", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
+  const source = app.getByRole("textbox", { name: "Comment on GitHub" });
+  const draft = "Keep this GitHub comment draft on this device";
+  await source.fill(draft);
+  await source.scrollIntoViewIfNeeded();
+  await source.evaluate((element: HTMLTextAreaElement) => {
+    element.focus();
+    element.setSelectionRange(0, 4);
+    element.dispatchEvent(new Event("select", { bubbles: true }));
+  });
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const dialog = selectionComment(app);
+  const comment = dialog.getByRole("textbox", { name: "Optional comment" });
+  const marker = app.getByRole("button", {
+    name: "Edit selection comment 1",
+    exact: true,
+  });
+  await expect(dialog).toBeVisible();
+  const retainedInput = app.locator(".selection-retained-input");
+  await expect(retainedInput.locator("mark")).toHaveText("Keep");
+  const bounds = await dialog.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  });
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(bounds.width);
+  expect(bounds.top).toBeGreaterThanOrEqual(0);
+  expect(bounds.bottom).toBeLessThanOrEqual(bounds.height);
+  await comment.fill("Explain the selected draft text without posting it");
+  await expect(source).toHaveValue(draft);
+  await updateHostContext(page, {
+    theme: "light",
+    containerDimensions: { width: 390, maxHeight: 729 },
+  });
+  await expect(dialog).toBeVisible();
+  await expect(comment).toHaveValue(
+    "Explain the selected draft text without posting it",
+  );
+  await expect(retainedInput.locator("mark")).toHaveText("Keep");
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  expect(
+    latestSharedSelection((await events(page, "context"))[1]),
+  ).toMatchObject({
+    source: "github",
+    repo: "yu/Arco",
+    number: 42,
+    selection: {
+      text: "Keep",
+      origin: "ui",
+      comment: "Explain the selected draft text without posting it",
+    },
+  });
+  await expect(source).toHaveValue(draft);
+  await expect(retainedInput.locator("mark")).toHaveText("Keep");
+  await source.scrollIntoViewIfNeeded();
+  await source.evaluate((element: HTMLTextAreaElement) => {
+    element.focus();
+    element.setSelectionRange(10, 16);
+    element.dispatchEvent(new Event("select", { bubbles: true }));
+  });
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(3);
+  await expect(comment).toHaveValue("");
+  await comment.fill("Explain the second selected range independently");
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(4);
+  const secondMarker = app.getByRole("button", {
+    name: "Edit selection comment 2",
+    exact: true,
+  });
+  await expect(marker).toBeVisible();
+  await expect(secondMarker).toBeVisible();
+  const rectangles = await Promise.all(
+    [marker, secondMarker].map((badge) =>
+      badge.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        };
+      }),
+    ),
+  );
+  const [firstRect, secondRect] = rectangles;
+  expect(
+    firstRect!.left < secondRect!.right &&
+      firstRect!.right > secondRect!.left &&
+      firstRect!.top < secondRect!.bottom &&
+      firstRect!.bottom > secondRect!.top,
+  ).toBe(false);
+  await expect(retainedInput.locator("mark")).toHaveText(["Keep", "GitHub"]);
+  const twoInputSelections = sharedContextFromText(
+    (await events(page, "context"))[3],
+  ).annotations as SharedAnnotation[];
+  expect(twoInputSelections).toHaveLength(2);
+  expect(twoInputSelections[0]).toMatchObject({
+    number: 1,
+    selection: {
+      text: "Keep",
+      origin: "ui",
+      comment: "Explain the selected draft text without posting it",
+    },
+  });
+  expect(twoInputSelections[1]).toMatchObject({
+    number: 2,
+    selection: {
+      text: "GitHub",
+      origin: "ui",
+      comment: "Explain the second selected range independently",
+    },
+  });
+  await marker.click();
+  await expect(comment).toHaveValue(
+    "Explain the selected draft text without posting it",
+  );
+  await comment.fill("Revised note for the first selected input range");
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(5);
+  const editedInputSelections = sharedContextFromText(
+    (await events(page, "context"))[4],
+  ).annotations as SharedAnnotation[];
+  expect(editedInputSelections[0]).toMatchObject({
+    number: 1,
+    selection: {
+      text: "Keep",
+      origin: "ui",
+      comment: "Revised note for the first selected input range",
+    },
+  });
+  expect(editedInputSelections[1]).toEqual(twoInputSelections[1]);
+  await secondMarker.click();
+  await expect(comment).toHaveValue(
+    "Explain the second selected range independently",
+  );
+  await expect(source).toHaveValue(draft);
+  await expect(dialog).toBeVisible();
+  await updateHostContext(page, { "openai/modelContext": null });
+  await expect(dialog).toHaveCount(0);
+  await expect(marker).toHaveCount(0);
+  await expect(secondMarker).toHaveCount(0);
+  await expect(retainedInput).toHaveCount(0);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
+
+  const bodyText = await selectText(app, ".issue-body p");
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(6);
+  await expect.poll(() => retainedSelection(app)).toEqual([bodyText]);
+  await expect(dialog).toBeVisible();
+  await updateHostContext(page, {
+    "openai/modelContext": {
+      updateId: "fixture-native-replacement",
+      content: [{ type: "text", text: "A different native attachment" }],
+      structuredContent: { source: "arco" },
+    },
+  });
+  await expect(dialog).toHaveCount(0);
+  await expect(marker).toHaveCount(0);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
+  await expect(source).toHaveValue(draft);
+  expect(await events(page, "context")).toHaveLength(6);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("a range from an Issue row to its matching detail stays generic when it crosses another Issue", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const text = await app.locator(".workspace").evaluate((workspace) => {
+    const start = workspace.querySelector(".issue-row .row-title")!.firstChild!;
+    const end = workspace.querySelector(".issue-heading h1")!.firstChild!;
+    const range = document.createRange();
+    range.setStart(start, 0);
+    range.setEnd(end, end.textContent!.length);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    workspace.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return selection.toString();
+  });
+  expect(text).toContain(firstTitle);
+  expect(text).toContain(secondTitle);
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const context = latestSharedSelection((await events(page, "context"))[0]);
+  expect(context).toEqual({
+    source: "arco",
+    selection: { text, origin: "ui" },
+  });
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("dragging list text in a narrow panel keeps the current Issue and the popup inside the iframe", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const row = app.locator(".issue-row").filter({ hasText: secondTitle });
+  const title = row.locator(".row-title");
+  await title.scrollIntoViewIfNeeded();
+  const characters = await title.evaluate((element) => {
+    const text = element.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    const first = range.getBoundingClientRect();
+    range.setStart(text, 14);
+    range.setEnd(text, 15);
+    const last = range.getBoundingClientRect();
+    return {
+      start: first.left + 1,
+      end: last.right - 1,
+      y: first.top + first.height / 2,
+      userSelect: getComputedStyle(element).userSelect,
+    };
+  });
+  const iframe = (await page.locator("#arco").boundingBox())!;
+  const y = iframe.y + characters.y;
+  await page.mouse.move(iframe.x + characters.start, y);
+  await page.mouse.down();
+  await page.mouse.move(iframe.x + characters.end, y, {
+    steps: 12,
+  });
+  await page.mouse.up();
+  const text = await row.evaluate(() => window.getSelection()!.toString());
+  expect(
+    text.trim(),
+    `row title user-select: ${characters.userSelect}`,
+  ).not.toBe("");
+  expect(secondTitle).toContain(text);
+  await expect(app.locator(".issue-row.selected")).toContainText(firstTitle);
+  await expect(row).not.toHaveClass(/selected/);
+  await expect(selectionToolbar(app)).toBeVisible();
+  const popup = await selectionToolbar(app).evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  });
+  expect(popup.left).toBeGreaterThanOrEqual(0);
+  expect(popup.top).toBeGreaterThanOrEqual(0);
+  expect(popup.right).toBeLessThanOrEqual(popup.width);
+  expect(popup.bottom).toBeLessThanOrEqual(popup.height);
+  await addSelectionToChat(app);
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const context = latestSharedSelection((await events(page, "context"))[0]);
+  expect(context).toMatchObject({
+    source: "github",
+    number: 43,
+    selection: { text, origin: "ui" },
+  });
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("a selected comment draft can reach Add to chat by Tab and attach by Enter", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const comment = app.getByRole("textbox", { name: "Comment on GitHub" });
+  const draft = "Keep this keyboard-only comment draft";
+  await comment.fill(draft);
+  await comment.press("Home");
+  await page.keyboard.down("Shift");
+  for (let index = 0; index < 4; index += 1)
+    await page.keyboard.press("ArrowRight");
+  await page.keyboard.up("Shift");
+  const add = selectionToolbar(app).getByRole("button", {
+    name: "Add to chat",
+    exact: true,
+  });
+  await expect(add).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(add).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const context = latestSharedSelection((await events(page, "context"))[0]);
+  expect(context).toMatchObject({
+    source: "github",
+    number: 42,
+    selection: { text: "Keep", origin: "ui" },
+  });
+  await expect(comment).toHaveValue(draft);
+  expect(await events(page, "message")).toEqual([]);
+});
 
 test("issue drafts and search survive selection changes; browse never shares", async ({
   page,
@@ -463,13 +1179,13 @@ test("issue drafts and search survive selection changes; browse never shares", a
   expect(await events(page, "message")).toHaveLength(0);
 });
 
-test("context, current/new drafts, explicit send, and mock mentions remain separate", async ({
+test("whole-Issue sharing and mock mentions remain separate from the removed request UI", async ({
   page,
 }) => {
   const app = issueFrame(page);
   await app.getByRole("button", { name: "Add to chat", exact: true }).click();
   await expect.poll(() => events(page, "context")).toHaveLength(1);
-  const sharedContext = sharedContextFromText(
+  const sharedContext = latestSharedSelection(
     (await events(page, "context"))[0],
   );
   expect(sharedContext).toMatchObject({
@@ -489,37 +1205,17 @@ test("context, current/new drafts, explicit send, and mock mentions remain separ
   await expect(app.locator(".shared-target")).toContainText(
     "Different from the issue you are browsing",
   );
-  await app.getByRole("button", { name: "Ask Codex", exact: true }).click();
-  await app
-    .getByRole("textbox", { name: "Request for Codex" })
-    .fill("Consider an implementation plan for this issue");
-  await app.getByRole("button", { name: "Prepare draft", exact: true }).click();
-  await expect.poll(() => events(page, "message")).toHaveLength(1);
-  await choose(app, "Target chat", "new");
-  await app.getByRole("button", { name: "Prepare draft", exact: true }).click();
-  await expect.poll(() => events(page, "message")).toHaveLength(2);
-  await app.getByRole("button", { name: "Send request", exact: true }).click();
-  await expect.poll(() => events(page, "message")).toHaveLength(3);
-  await choose(app, "Target chat", "self");
-  await app.getByRole("button", { name: "Send request", exact: true }).click();
-  await expect.poll(() => events(page, "message")).toHaveLength(4);
-  const messages = await events(page, "message");
-  expect(messages).toEqual([
-    expect.objectContaining({
-      _meta: { "openai/message": { target: "active", send: false } },
-    }),
-    expect.objectContaining({
-      _meta: { "openai/message": { target: "new", send: false } },
-    }),
-    expect.objectContaining({
-      _meta: { "openai/message": { target: "new", send: true } },
-    }),
-    expect.objectContaining({
-      _meta: { "openai/message": { target: "active", send: true } },
-    }),
-  ]);
-  for (const message of messages as { content: { text: string }[] }[])
-    expect(message.content[0]!.text).toContain(secondTitle);
+  await expect(
+    app.getByRole("button", { name: "Ask Codex", exact: true }),
+  ).toHaveCount(0);
+  await expect(app.locator(".conversation-panel")).toHaveCount(0);
+  await expect(
+    app.getByRole("textbox", { name: "Request for Codex", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    app.getByRole("button", { name: "Send request", exact: true }),
+  ).toHaveCount(0);
+  expect(await events(page, "message")).toEqual([]);
   expect(await events(page, "context")).toEqual(explicitContext);
   await expect(app.locator(".shared-target")).toContainText("yu/Arco #42");
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
@@ -964,6 +1660,9 @@ test("Markdown tasks, comment edits, reactions, and label definitions use explic
     .check();
   const bulk = app.getByRole("region", { name: "Bulk issue actions" });
   await choose(bulk, "Bulk action", "label-add");
+  await expect(
+    selectControl(bulk, "Bulk action").getByRole("button"),
+  ).toBeFocused();
   const value = selectControl(bulk, "Bulk value");
   const trigger = value.getByRole("button");
   await trigger.focus();
@@ -1594,9 +2293,7 @@ test("shared GitHub selection survives host view recreation in an inline card an
       selection.addRange(range);
       element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
     });
-  await app
-    .getByRole("button", { name: "Share selection", exact: true })
-    .click();
+  await addSelectionToChat(app);
   await expect.poll(() => events(page, "context")).toHaveLength(1);
   await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
@@ -1644,7 +2341,7 @@ test("detail toolbar stays visible and utilities support keyboard and clipboard 
   ).toBeInViewport();
   await expect(
     app.getByRole("button", { name: "Ask Codex", exact: true }),
-  ).toBeInViewport();
+  ).toHaveCount(0);
   const summary = app.getByLabel("Issue actions", { exact: true });
   const utilities = app.locator(".detail-utilities");
   await summary.focus();

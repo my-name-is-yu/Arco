@@ -138,12 +138,9 @@ test("invalid GitHub URLs remain visible without source lookup, and normal title
     name: "Search issues",
     exact: true,
   });
-  const before = ((await events(page, "tool")) as Input[]).filter(
-    (call) => call.name === "arco_get_issue",
-  ).length;
   for (const url of [
-    "https://github.com.evil.test/yu/Arco/issues/42",
-    "https://github.com/yu/Arco/pull/42",
+    "https://github.com.evil.test/other/project/issues/7",
+    "https://github.com/other/project/pull/7",
   ]) {
     await search.fill(url);
     await search.press("Enter");
@@ -151,9 +148,21 @@ test("invalid GitHub URLs remain visible without source lookup, and normal title
     await expect(search).toHaveValue(url);
   }
   const calls = (await events(page, "tool")) as Input[];
-  expect(calls.filter((call) => call.name === "arco_get_issue")).toHaveLength(
-    before,
-  );
+  // The initial host result can independently refresh the already-open issue.
+  // Invalid URL targets must never become source lookups.
+  expect(
+    new Set(
+      calls
+        .filter((call) => call.name === "arco_get_issue")
+        .map((call) => `${call.arguments.repo}#${call.arguments.number}`),
+    ),
+  ).toEqual(new Set(["yu/Arco#42"]));
+  await expect(
+    frame(page).getByRole("heading", {
+      name: "Preserve issue selection and scroll position",
+      exact: true,
+    }),
+  ).toBeVisible();
   await choose(frame(page), "GitHub scope", "yu/Arco");
   await search.fill("Separate shared context");
   await expect(frame(page).locator(".issue-sidebar .issue-row")).toHaveCount(1);

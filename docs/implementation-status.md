@@ -6,32 +6,68 @@ UIの文言・日付・エラーは英語。元サービスから取得したタ
 
 2026-10-23のユーザー希望によりPiPは対応範囲から外した。会話内カード（inline）と詳細（fullscreen／会話横）、global/threadの入口は引き続き対象とする。過去のPiP観測は履歴として残し、現在の受入条件には含めない。
 
+同日の初回の簡素化では、Ask Codexを依頼欄とSend requestだけにし、Current chat／New chatの選択とPrepare draftを削除した。これは後述の検証を含めて変更履歴として残す。
+
+初回の簡素化後に型・lint・format、unit/adapter **145件**、全browser **58件**、build・65 tools smoke・artifact検査が成功した。両sourceのbrowser検証では、入力だけでは送られず、Send requestの1回の操作が`target: active`・`send: true`の1件の依頼となり、閲覧中Issueのnative識別子を渡して明示共有対象を変更しないことを確認した。再installした配布HTML/serverとbuildのSHA256も一致した。UIは1,578,932 bytes、SHA256 `c930b085bd3684a86bbd9422e7a71e2b0ad8397d8926419f6cfe7771c057441b`。新しく開いた実ArcoのGitHub #1とLinear YU-48で、依頼欄とSend requestだけの表示を確認した。[GitHub実画面](design/references/2026-10-23-conversation/03-github-simple-request-native.jpg)／[Linear実画面](design/references/2026-10-23-conversation/04-linear-simple-request-native.jpg)。GitHubの入力中の依頼文も保持されていた。この実画面確認では依頼送信や元Issueの変更はしていない。これらは依頼送信機能の削除前の履歴であり、現在の受入確認には含めない。
+
+続く2026-10-23のユーザー希望により、Ask Codex・Send request・依頼欄も削除し、相談はCodexの通常入力欄へ集約した。Issue全体のAdd to chatを残し、Arco全域のテキスト選択に小さなAdd to chatを表示する。Arcoはコンテキストと添付のtitle/groupを渡し、タイトル・グループ付きの添付表示はCodexが担う。Arcoからmessage送信・composerへの下書き準備・新規会話作成・別の会話画面は提供しない。Issue作成・編集・コメントの端末内下書き保存は保持する。
+
+本文または単一コメントの内側の選択はnativeのoriginを保持し、コメントにはcomment IDを添える。タイトル・属性・一覧などはoriginをuiとし、単一Issue領域内の場合だけ最小限のnative識別情報を添える。異なるIssue領域にまたがる範囲は一般のArcoコンテキストとし、任意のIssueを選ばない。選択共有に本文全体を補わず、範囲内の空白も保持する。
+
+全域共有版の最終ソースで型・lint・format、unit/adapter **153件・19ファイル**、全browser **65件**、build・65 tools smoke・artifact検査が成功した。選択メニューの位置計算でChromiumがclosed details内の文字までSelection文字列に含める条件をfixtureで再現し、同じrangeとDOM文字列なら最初の可視テキストを保持するよう修正した。選択範囲または元の文字が変われば再取得する。本文からコメントへまたがる再現確認は修正後に成功した。sourceを切り替えて共有し直した後はhostの最新contextから共有refを復元し、古いLinearの共有表示を戻さない。閲覧Issueと一覧位置は独立して保持する。[選択メニューの検証画面](design/references/2026-10-23-conversation/05-selection-popup-fixture.png)。最終配布UIは1,581,218 bytes、SHA256 `f3ac2049c5d95b458b5a52226c99414a5ecf8723ba6e195ac0c0808016c3eab8`。再install後のHTML/serverとbuildのhash一致を確認した。
+
+このMacで全域共有版を開き、実GitHub #1と実Linear YU-48の両方でAsk Codex・依頼欄がなく、Issue全体のAdd to chatだけのtoolbarを確認した。[GitHub実画面](design/references/2026-10-23-conversation/06-github-share-only-native.jpg)／[Linear実画面](design/references/2026-10-23-conversation/07-linear-share-only-native.jpg)。GitHub #1のタイトルを選択して小さいAdd to chatを押す確認では、ユーザーから「添付が表示され、未送信で残った」と回答を受けた。Codex側の添付表示はユーザーの目視確認であり、agentによるcomposerの直接観測ではない。この時点では、添付の正確なtitle/group表示、新UIからの通常返信に伴うモデル受信、Linearでの選択添付は実機で未確認だった。この実画面確認後にclosed detailsの混入対策とsource切替時の古い共有表示の復元防止を加えたため、最終修正版はArcoを開き直すと読み込まれる。元Issueの書込みは行っていない。
+
+続く同日のユーザー入力に伴い、このチャットへArco由来model_contextが届いた。実GitHub `my-name-is-yu/Arco #1`のコメントの部分選択で、originはcomment、commentIdは`IC_kwDOVTZAxs8AAAABehqhtQ`。選択文は「co MCP検証: コメント投稿と同じrequestIdでの重複呼出しを確認。」から始まり、text内JSONとstructuredContentで一致した。Issue全体のbody fieldは含まれない。新UIのGitHubコメント部分選択についてモデル受信を確認した記録であり、タイトルの受信、Linearの新UI、Codex本体のnative annotation形式を確認したことにはしない。
+
+同日のネイティブ注釈API調査では、実ArcoのMCP bridge接続後も`document.oai`が未提供で、Codex内蔵ブラウザの通常ページでのみ注釈APIの関数を確認した。MCP App内から録画のコメントエディタを開く公開経路は確認できなかったため、選択UIをArcoで実装し、会話への受け渡しに公開bridgeを使う構成を採用した。診断用HTML・比較ページ・JSON・画像はプロジェクトから撤去し、インストール先のHTMLも通常版へ復元済み。既存のinline検証実験と受入履歴は保持する。旧`share(issue, selection)`経路も削除し、Issue全体は`share(issue)`、選択範囲は`shareSelection`へ分けた。この調査・整理時点は、任意コメント・番号付きハイライトの追加前である。
+
+この整理後も型・lint・format、unit/adapter **153件**、共有に関わるbrowser **5件**、build・65 tools smoke・artifact検査が成功した。再installしたHTML/serverとbuildのhash一致も確認した。整理後の配布UIは1,581,139 bytes、SHA256 `632c57e698c5fdca8654f5975ddeb747d04f8b7e7a4694c20555b4cad1b124db`。
+
+続いて、選択注釈UIの初回版をArcoに実装した。Add to chatで直ちに添付を作り、青いハイライト・番号「1」と任意コメント欄を表示した。この版は一件の選択だけを保持していたが、続くユーザー指定により複数の箇所へ別々のコメントを付ける仕様へ改めた。上記の検証数・配布hash・実機観測を、複数注釈版の確認には読み替えない。
+
+現行の採用仕様では、Add to chatするたびに前の注釈を保持して選択を追加し、青いハイライトと番号「1」「2」…を付ける。各番号から再編集し、✓でその項目の`selection.comment`だけを更新する。元の`selection.text`と他の注釈は変えず、空白だけならcommentを付けない。Escapeまたは外側クリックでは編集中の未保存コメントだけを破棄する。閲覧先を変えても注釈を保持し、Codex側の添付削除・別contextへの置換に同期して解除する。注釈集合を公開modelContext一件として渡し、複数時は`source: arco`の`annotations`配列に各選択とnative Issue識別情報を保持する。集合を任意の単一Issueへ対応させず、一件時は従来のsourceとselectionも保持する。通常の会話入力・送信はCodexが担い、複数注釈版の検証・実機結果は初回版と分けて記録する。
+
+2026-10-23 16:06:40のユーザー写真で、実Arcoの4つの番号を確認した。同時にこのチャットへ届いたArco由来model_contextは`source: arco`で、`annotations`に4範囲を保持していた。1はoriginがuiで選択文が`rco valid`、2はbodyで`rcoの動作検証専用です`、3と4はcommentで同じnative comment IDを保持した別の選択だった。この時点では4件すべてのモデル受信を確認したが、いずれも`selection.comment`はなく、任意コメント保存後の実機モデル受信は未確認だった。
+
+続く添付表示の変更では、各選択を番号・短文title付きの個別text content blockへ分け、共通の`N annotations`groupを付けてCodexへ渡す。assistant向けJSONは一件とし、structuredContentにも全注釈を保持する。上の4件受信はこの表示変更前の実績であり、変更後のgroupや項目一覧の実機表示確認とは分ける。
+
+最終の項目分割版で、型・lint・format、unit/adapter **160件・19ファイル**、全browser **69件**、build・65 tools smoke・artifact検査が成功した。Issueを往復した際の範囲復元、同じ入力欄の複数範囲での番号の非重複、各コメントの独立編集・削除、最後の削除、IME中のEnterで自動送信しないことも検証した。配布UIは1,595,944 bytes、SHA256 `bfbb7d5559f50b5293b9ee841074842a7ffdce8627319f2ca33e7af72dc7585d`。再installしたHTML/serverとbuildのhash一致を確認した。
+
+ユーザーの16:14:01の実機写真で、Codex側の`3 annotations · 3`と3項目の一覧・各削除ボタンを確認した。同時にこのチャットへ、選択文`rco valid`／`labels / com`／`dation`にそれぞれコメント`1`／`2`／`3`が付いた3件のmodel_contextが届き、visible textとstructuredContentの対応を確認した。前2件のoriginはui、3件目はbodyで、各項目のnative GitHub Issue識別情報も保持した。これにより、実Arcoの複数選択・個別コメント・件数付き添付とモデル受信を確認した。最終版のLinearについてはbrowser検証と以前の実機実績を区別し、同じ3件の実機受信を確認したとは扱わない。
+
+Codex本体の添付一覧に鉛筆ボタンを追加する公開APIは確認できなかった。Arco内に別の注釈一覧を追加する案は、ユーザーの指定で取りやめた。再編集は既存の青い番号から行え、Codex側では添付の削除・付け直しを使う。[見た目と操作の検証](../design-qa.md)。
+
+コミット前に、重複するbrowser検証の補助処理、不要なstate更新・型指定・assertを整理した。テスト画像はtest outputへ保存し、受入記録の画像を上書きしない。整理後も型・lint・format、unit/adapter **160件**、全browser **69件**、build・65 tools smoke・artifact検査が成功した。配布UIは1,595,927 bytes、SHA256 `2354a1d028f83854cea9f0fa31327b31ce89278afe403d60484bbbd65eafae28`。再install後のHTML/serverとbuildの一致を確認した。実機の見た目・モデル受信の記録は上記の項目分割版に対するもの。
+
 ## 操作と実装先
 
-| ID  | 提供する操作                                                                                        | 主な実装                                                             |
-| --- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| O01 | repo、workspace/team、既存Projectの明示選択                                                         | `App.tsx`、`LinearWorkspace.tsx`、各source adapter                   |
-| O02 | 元APIの検索・filter・sort・ページ取得、sourceごとの条件保存                                         | `github.ts`、`linear/service.ts`、`useGitHubSettings.ts`、`state.ts` |
-| O03 | Markdown、本文・コメント、native属性、source画像と公式リンク                                        | `MarkdownContent.tsx`、`images.ts`、各Detail                         |
-| O04 | sourceへIssue作成、端末内の作成下書き                                                               | 各Workspace、`local-drafts.ts`、source create tool                   |
-| O05 | タイトル・Markdown編集、元の記法を保つtask checkbox、競合表示                                       | 各Detail、`content-drafts.ts`、`markdown-tasks.ts`                   |
-| O06 | GitHub Open/Closed・終了理由とProjects Statusを別操作、Linear native state                          | `App.tsx`、`GitHubProperties.tsx`、`LinearDetail.tsx`                |
-| O07 | sourceが認める担当者の指定・解除                                                                    | 各Detailとsource update tool                                         |
-| O08 | 指定したラベルの差分更新、指定外ラベルの保持                                                        | source label tool、Linear label group検証                            |
-| O09 | ラベル定義の作成・変更・削除。scope/group変更は公式へ                                               | `LabelManager.tsx`、`LinearDetail.tsx`、各adapter                    |
-| O10 | コメントの閲覧・投稿・編集・削除、Linearの返信parent保持                                            | `GitHubDiscussion.tsx`、`LinearDetail.tsx`、各adapter                |
-| O11 | Issue／コメントのsourceリアクション追加・取消                                                       | 同上                                                                 |
-| O12 | GitHub Issue type、org Issue fieldsの5型、Projects fieldsの5型。Linear priority・estimate・due date | `github-operations.ts`、`GitHubProperties.tsx`、`linear/service.ts`  |
-| O13 | 既存Project／milestone／cycleへの所属・変更・解除                                                   | source properties toolと属性UI                                       |
-| O14 | 子Issue作成、既存親子の設定・付替え・解除                                                           | source relation toolと属性UI                                         |
-| O15 | GitHub blocks/blocked-by、Linear blocks/blocked-by/related                                          | source relation tool、逆方向を保持した表示                           |
-| O16 | 既存添付・URL、Linear公式APIによるupload                                                            | `images.ts`、`linear/service.ts`、`LinearDetail.tsx`                 |
-| O17 | 単純な既存templateと対応属性の既定値、未対応templateの公式導線                                      | source template tool、作成dialog                                     |
-| O18 | 互換な選択への状態・担当・ラベル・対応属性値のbulk、Issue別の結果                                   | `BulkActions.tsx`、`LinearBulkActions.tsx`、各adapter                |
-| O19 | 明示的context共有、native Issueのmention resource、現在/新規chatのdraft/send、再取得                | `host.ts`、`mentions.ts`、`index.ts`、各Workspace/Detail             |
-| O20 | source URL・識別子のcopy、公式Issue・コメントへ移動                                                 | 各Detail、`GitHubDiscussion.tsx`、`CopyValue`                        |
+| ID  | 提供する操作                                                                                                                        | 主な実装                                                                                                               |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| O01 | repo、workspace/team、既存Projectの明示選択                                                                                         | `App.tsx`、`LinearWorkspace.tsx`、各source adapter                                                                     |
+| O02 | 元APIの検索・filter・sort・ページ取得、sourceごとの条件保存                                                                         | `github.ts`、`linear/service.ts`、`useGitHubSettings.ts`、`state.ts`                                                   |
+| O03 | Markdown、本文・コメント、native属性、source画像と公式リンク                                                                        | `MarkdownContent.tsx`、`images.ts`、各Detail                                                                           |
+| O04 | sourceへIssue作成、端末内の作成下書き                                                                                               | 各Workspace、`local-drafts.ts`、source create tool                                                                     |
+| O05 | タイトル・Markdown編集、元の記法を保つtask checkbox、競合表示                                                                       | 各Detail、`content-drafts.ts`、`markdown-tasks.ts`                                                                     |
+| O06 | GitHub Open/Closed・終了理由とProjects Statusを別操作、Linear native state                                                          | `App.tsx`、`GitHubProperties.tsx`、`LinearDetail.tsx`                                                                  |
+| O07 | sourceが認める担当者の指定・解除                                                                                                    | 各Detailとsource update tool                                                                                           |
+| O08 | 指定したラベルの差分更新、指定外ラベルの保持                                                                                        | source label tool、Linear label group検証                                                                              |
+| O09 | ラベル定義の作成・変更・削除。scope/group変更は公式へ                                                                               | `LabelManager.tsx`、`LinearDetail.tsx`、各adapter                                                                      |
+| O10 | コメントの閲覧・投稿・編集・削除、Linearの返信parent保持                                                                            | `GitHubDiscussion.tsx`、`LinearDetail.tsx`、各adapter                                                                  |
+| O11 | Issue／コメントのsourceリアクション追加・取消                                                                                       | 同上                                                                                                                   |
+| O12 | GitHub Issue type、org Issue fieldsの5型、Projects fieldsの5型。Linear priority・estimate・due date                                 | `github-operations.ts`、`GitHubProperties.tsx`、`linear/service.ts`                                                    |
+| O13 | 既存Project／milestone／cycleへの所属・変更・解除                                                                                   | source properties toolと属性UI                                                                                         |
+| O14 | 子Issue作成、既存親子の設定・付替え・解除                                                                                           | source relation toolと属性UI                                                                                           |
+| O15 | GitHub blocks/blocked-by、Linear blocks/blocked-by/related                                                                          | source relation tool、逆方向を保持した表示                                                                             |
+| O16 | 既存添付・URL、Linear公式APIによるupload                                                                                            | `images.ts`、`linear/service.ts`、`LinearDetail.tsx`                                                                   |
+| O17 | 単純な既存templateと対応属性の既定値、未対応templateの公式導線                                                                      | source template tool、作成dialog                                                                                       |
+| O18 | 互換な選択への状態・担当・ラベル・対応属性値のbulk、Issue別の結果                                                                   | `BulkActions.tsx`、`LinearBulkActions.tsx`、各adapter                                                                  |
+| O19 | Issue全体・Arco全域の選択テキストをAdd to chatで共有、選択保持と任意注釈、添付のtitle/group、native Issueのmention resource、再取得 | `SelectionShare.tsx`、`SelectionAnnotation.tsx`、`context-attachment.ts`、`host.ts`、`mentions.ts`、各Workspace/Detail |
+| O20 | source URL・識別子のcopy、公式Issue・コメントへ移動                                                                                 | 各Detail、`GitHubDiscussion.tsx`、`CopyValue`                                                                          |
 
 serverは `src/server/`、UIは `src/ui/`、入力schema/DTOは `src/shared/`。各sourceのIDは入出力で保持する。設定と下書きはrevision付きの端末内JSON、Linear token pairはOS credential store、GitHubは既存公開`gh`接続を使う。tokenをUI・モデル結果・ログへ返さない。
+
+過去に保存した依頼文・送信先は、現在のコンテキスト共有や会話への送信に使用しない。Issue作成・編集・コメントの下書きとは区別する。
 
 F02〜F09・F11は上表のsource操作、F10は `/` で検索、`j/k` で一覧移動、Enterで詳細、Escapeで戻る操作とdialogのfocus制御に対応する。F12はO19の4連携に対応する。F01と全表示のCodex実画面確認は下記の別項目として残す。
 
@@ -50,7 +86,7 @@ F02〜F09・F11は上表のsource操作、F10は `/` で検索、`j/k` で一覧
 - Codex CLIの公開plugin導入で `arco@arco-local` をローカルinstall。最終stdio smokeは65 toolsを確認した。公開app-serverの一時sessionからの起動は `node scripts/validate-plugin-host.mjs` で別に確認し、モデルturnは開始しない。
 - GitHubの初期一覧はAssigned to me。Created by me・Mentioned me・All account repositoriesを明示的に切り替え、repo候補はAPIから取得する。repo入力は初期表示の条件にしない。本人接続で各scopeと候補取得を実確認した。取得範囲・native検索の制約・ページ取得・保存の詳細は[アカウント取得仕様](github-account-discovery.md)。
 - U03のIssue URL直接オープンを両sourceで実装した。GitHubはaccount scopeの検索欄や任意のrepo入力、Linearは検索欄から開く。正規のHTTPS origin・Issue経路・native IDを検証し、別repo/teamの対象へ移る。PR・別origin・workspace不一致は開かず、失敗時は入力を保持する。実GitHub #1と実Linear YU-48のnative ID一致を読取だけで確認した。記録は`dist/dev/issue-url-live.json`。この記録はdesktopのURL操作確認を意味しない。
-- 共有では同じsource contextをtextとstructuredContentへ渡す。選択時は本文全体を含めず選択範囲だけにする。これはtext経路で内容が欠ける問題への対処であり、実Codexの受信が確認できたという意味ではない。Prepare/Sendは現在のチャットの明示共有先を変更せず、Add to chat／Share selectionだけが保持対象を変更する。
+- 共有では表示用のtextに添付のtitle/groupを付け、source contextをassistant向けJSONとstructuredContentへ渡す。選択時は本文全体を含めず選択範囲だけにする。これはtext経路で内容が欠ける問題への対処であり、変更後の全域共有が実Codexで受信できたという意味ではない。閲覧・選択だけでは共有対象を変更せず、Add to chatの明示操作で共有する。
 - Code Reviewの実配布ソースを再確認し、主要操作を一つのtoolbar、utilityをメニュー、属性と追加編集を右側へ整理した。実際の詳細container幅で右列／一列を切り替え、source切替とscope/filterを両sourceで揃えた。[画面比較](design/ui-audit-2026-10-23.md)はfixture画面であり、実Codexのスクリーンショットではない。
 - resource metadataはglobal/thread入口、inline/fullscreenを宣言。stdio smokeで採用した2モードとの完全一致を検査する。PiPのボタン・専用描画・スタイル・fixture操作は削除した。
 - browser mockは配布HTMLをiframeへ読み、公開AppBridgeとfixture専用stdio MCPを使う。CSPは`unsafe-eval`とネットワーク接続を許可しない。画像は認証をUIへ渡さず、app-only結果の`_meta`からdata画像として表示する。
@@ -78,6 +114,8 @@ GitHubの追加`project` scopeは、最初の本人確認待ちで期限切れ�
 
 この項目はmock browser／app-serverの成功で代替しない。Computer Useはnativeの`com.openai.codex`への操作を拒否する。一方、2026-10-23には展開されたArcoを`mcpapps`の公開DOM経路で操作できた。会話内カードやcomposerなど、この経路で見えない部分はユーザーの画面操作で確認する。
 
+以下の観測は各変更時点の履歴である。旧UIのIssue全体・本文／コメント共有の受信実績は保持するが、全域の選択共有とCodex側の添付表示の確認に読み替えない。message送信・Prepare draft・新規会話の試行は削除前の履歴であり、現在の受入対象ではない。
+
 2026-10-23朝、このチャットで公開されたArco本体から、英語UIと専用GitHub #1の本文表示をユーザーが確認した。native toolで付けた一時的なタイトル末尾は、開き直さず同じ詳細へ反映された。Project StatusのUI更新とClosed維持も確認し、後片付けを完了した。これは旧inline probeの結果ではない。このチャットのnative Arco toolから実Linear YU-48も読めた。
 
 初回のShare selectionでは、ユーザーの操作報告だけでモデル受信は観測できていなかった。その後2026-10-23 11:59 JST、このチャットのArco由来model_contextで、実GitHub #1の本文選択「Markdown body edit and refetch」を受信した。textとstructuredContentのselectionが一致し、originはbody、本文全体のbody fieldは含まれなかった。ユーザーの返信自体は「共有した」だけで、選択文を転記したものではない。この時点ではGitHubコメントとLinearの選択範囲は未確認だった。
@@ -102,9 +140,19 @@ GitHubの追加`project` scopeは、最初の本人確認待ちで期限切れ�
 
 更新直後のAssigned to meは`MCP error -32602: Tool arco_account_issues not found`となった。配布HTMLだけが新しく、起動中desktop serverは旧版だった。その後ユーザーがCodexを再起動し、新しいnative toolsが公開された。実画面でAssigned to meの0件表示と自動拡大なし、Created by meの23件＋次ページ、repo候補の自動取得を確認した。account scopeから任意のRepository or URL欄へGitHub #1のIssue URLを入れ、Closedの本文を正しいnative repo・番号で開けた。実Linear YU-48のURL解決も同じnative IDと一致した。追加のsource認可やsourceデータの書込みはしていない。
 
-実Linear YU-48からNew chatへPrepare draftするとhostの成功通知を確認した。実composer上の未送信状態は未観測。その後の明示的SendはComputer Useがtimeoutし、公開chat一覧にも新規chatを確認できていないため、結果不明のまま再送していない。この試行でsourceデータは変更していない。実画面の画像と観測内容は[画面比較](design/ui-audit-2026-10-23.md)と`dist/dev/codex-host-validation.json`に分けて記録する。
+実Linear YU-48からNew chatへPrepare draftするとhostの成功通知を確認した。実composer上の未送信状態は未観測。その後の明示的SendはComputer Useがtimeoutし、公開chat一覧にも新規chatを確認できていないため、結果不明のまま再送していない。この試行でsourceデータは変更していない。実画面の画像と観測内容は[画面比較](design/ui-audit-2026-10-23.md)と`dist/dev/codex-host-validation.json`に分けて記録する。この新規会話・下書き準備の試行は、機能削除前の履歴であり現在の受入対象ではない。
 
 PiP削除版を再install後、このチャットでArcoを新しく開いた。実GitHub #1と実Linear YU-49でPiPボタンがない詳細を確認し、画像14／15に記録した。詳細UIの反映は確認済みだが、既存server processのmetadata再読込まで確認したことにはしない。sourceデータの追加書込みは行っていない。
+
+2026-10-23午後、このMacの実ArcoでGitHub #1をAdd to chatしてから#2を閲覧し、Chat #1とShared issue: my-name-is-yu/Arco #1が保持されることを確認した。LinearもYU-48を共有後にYU-49を閲覧し、Chat YU-48とShared issue: YU-48が保持された。[GitHub実画面](design/references/2026-10-23-conversation/01-github-shared-1-browsing-2.jpg)／[Linear実画面](design/references/2026-10-23-conversation/02-linear-shared-48-browsing-49.jpg)。これは詳細画面内の共有対象保持の確認であり、inlineカードへの復帰やcomposerの未送信状態までは観測していない。GitHubのOpen fullscreenはhostの成功通知まで確認した。
+
+同日14:19 JST、このチャットへArcoのmessage経路で「issueは開いた。どうすればいい？」とGitHub `my-name-is-yu/Arco #1`のsource contextが届いた。repo・number・native Issue ID・タイトル・closed状態・Markdown本文・ラベルが含まれ、現在の会話への依頼送信を実際のモデル受信まで確認した。同時に届いたmodel_contextはLinear YU-48の全体共有のままで、依頼のIssueと明示共有の対象は別々に保持されていた。この受信をcomposerの@Arco選択、Prepare draft、新規会話への送信の証拠には含めない。依頼送信機能の削除後は履歴としてのみ扱う。
+
+続くGitHub #1のCurrent chat → Prepare draftでは、依頼欄へ「Arco下書き確認：まだ送信しない」を入力して操作し、ユーザーから「入力欄に入り、未送信で残った」と確認回答を受けた。実composerの未送信状態はユーザーの目視確認であり、agentによるcomposerの直接観測ではない。この確認はGitHubの現在の会話への下書きに限定する。その後Prepare draftを削除したため、この確認は履歴として残し、New chatとLinearの下書き確認も現在の受入対象から外す。
+
+今回のLinear New chat送信用には固有marker `ARCO-01A16726-LINEAR-NEW-SEND-01`を依頼欄に用意したが、クリック前に画面がGitHub #1へ切り替わり、送信ボタンが見つからず操作は実行されなかった。この試行を送信成功やproviderの不具合とは扱わない。新規会話送信の削除前の履歴として残す。Codex本体のcomposer・host chromeはComputer Useの安全制約でアクセスが拒否されるため、そこが必要な受入はユーザーの画面操作とモデル受信を組み合わせて進める。実Issueの変更はしていない。
+
+以下の共有・更新項目は旧UIで得た実績と、新しい全域共有版での確認を区別する。最終の項目分割版の実機確認はGitHubとLinearを分けて記録する。
 
 - [ ] Arco本体がglobal/threadの入口から開き、実GitHubと実Linearの一覧・詳細を表示する。
 - [x] 再起動後の実Codexで、repo未指定のGitHub個人一覧、明示的な作成一覧への切替、任意のIssue URLから正しい詳細への移動を確認する。
@@ -115,9 +163,15 @@ PiP削除版を再install後、このチャットでArcoを新しく開いた。
 - [x] 実Linear YU-48のIssue全体が、本文・状態とnative workspace/team/Issue IDを保持してArco由来model_contextで会話へ届く。
 - [x] 実Linear YU-48の本文選択が、Issue本文全体を含めずArco由来model_contextで会話に届く。
 - [x] 実Linear YU-48のコメント選択が、commentのoriginとnative commentIdを保持し、Issue本文を含めずArco由来model_contextで会話に届く。
-- [ ] 両sourceで別Issueを閲覧するだけでは共有対象や送信を変えないことを実Codexで確認する。
+- [ ] 両sourceで別Issueを閲覧・テキストを選択するだけでは共有対象を変えず、messageも送信しないことを実Codexで確認する。
 - [ ] composerの`@Arco`でGitHubとLinearのnative Issueを検索・選択する。
-- [ ] 現在/新しい会話へのPrepare draftが未送信になり、Send requestだけが依頼を開始する。
+- [ ] 全域の選択UIから本文・コメントをAdd to chatし、選択範囲とnativeのorigin・comment IDが実際のモデル受信まで保たれる。
+- [x] 全域共有版の実GitHub #1コメントの部分選択が、comment origin・native comment IDを保持し、Issue本文を含めずこのチャットのモデルまで届く。
+- [ ] タイトル・属性・一覧などの選択に小さなAdd to chatが現れ、originがuiで、単一Issueに安全に対応する場合だけ最小限のnative識別情報が届く。
+- [x] 全域共有版のGitHub #1タイトル選択から小さいAdd to chatを押すと、Codex側に添付が未送信で残ることをユーザーが目視確認した。この時点では、正確なtitle/group表示・モデル受信・Linearの選択添付は未確認だった。
+- [ ] 異なるIssue領域にまたがる選択が一般のArcoコンテキストとなり、任意のIssueへ対応しない。
+- [x] 最終の項目分割版の実GitHubで、Codex側の`3 annotations · 3`と3項目の一覧をユーザー写真で確認し、各選択文とコメント`1`／`2`／`3`がvisible text・structuredContentで一致してモデルへ届く。
+- [ ] 最終の項目分割版のLinearで、複数選択と各コメント、Codex側の件数付きグループ表示・モデル受信を実機で確認する。
 - [x] Codexのsource toolで専用Issueのタイトルを変更すると、開いている同じ詳細へ再取得結果が反映される。元のタイトルへ復元済み。
 - [ ] 修正版の共有対象保持と、compactカードへの更新反映を実Codexで確認する。
 

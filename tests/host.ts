@@ -117,7 +117,7 @@ document.querySelector<HTMLButtonElement>("#host-context-burst")!.onclick =
     record("presentation-updates", 26);
   };
 // The v1 standard handler strips extension metadata. Validate the extended
-// request using the public OpenAI schema so send:false/target remain inspectable.
+// request using the public OpenAI schema so tests can detect accidental sends.
 bridge.setRequestHandler(
   z.object({
     method: z.literal("ui/message"),

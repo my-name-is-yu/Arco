@@ -28,6 +28,11 @@ import {
   ExternalLink,
 } from "@openai/apps-sdk-ui/components/Icon";
 import { DetailToolbar, closeDetailUtility } from "./DetailToolbar";
+import {
+  SelectionShare,
+  selectionIssueData,
+  isTextSelectionClick,
+} from "./SelectionShare";
 import { MultiSelect } from "./MultiSelect";
 import { SingleSelect, type SingleSelectHandle } from "./SingleSelect";
 import { IssueMarkdown } from "./MarkdownContent";
@@ -58,7 +63,6 @@ import type {
   AccountIssuePage,
   AccountIssuesInput,
   Connection,
-  ContextSelection,
   IssueDetail,
   IssuePage,
   IssueRef,
@@ -74,8 +78,8 @@ type Draft = {
   baseUpdatedAt?: string;
   baseTitle?: string;
   baseBody?: string;
+  // Retain earlier saved request text without exposing an Arco composer.
   promptText?: string;
-  promptTarget?: "self" | "new";
 };
 export function resolveDraft(issue: IssueDetail, stored?: Draft): Draft {
   if (!stored) return { title: issue.title, body: issue.body, comment: "" };
@@ -174,7 +178,12 @@ function IssueRow({
     <button
       className={`issue-row ${selected ? "selected" : ""}`}
       aria-current={selected ? "true" : undefined}
-      onClick={onSelect}
+      data-arco-issue={selectionIssueData(issue)}
+      onClick={(event) => {
+        if (event.detail > 0 && isTextSelectionClick(event.currentTarget))
+          return;
+        onSelect();
+      }}
     >
       <StateIcon state={issue.state} />
       <span className="row-content">
@@ -215,6 +224,7 @@ export function App({ host }: { host: ArcoHost }) {
   return (
     <QueryClientProvider client={client}>
       <Workspace host={host} />
+      <SelectionShare host={host} />
     </QueryClientProvider>
   );
 }
@@ -557,6 +567,15 @@ function Workspace({ host }: { host: ArcoHost }) {
   useEffect(
     () =>
       host.subscribe((event) => {
+        if (event === "context") {
+          const issue = host.sharedIssue?.();
+          setShared(
+            issue?.source === "github"
+              ? { repo: issue.repo, number: issue.number }
+              : null,
+          );
+          return;
+        }
         setMode(host.mode());
         if (event === "data" && source === "github")
           void queryClient.invalidateQueries(
@@ -877,7 +896,12 @@ function Workspace({ host }: { host: ArcoHost }) {
 
   if (mode === "inline")
     return (
-      <main className="arco compact-mode inline-mode">
+      <main
+        className="arco compact-mode inline-mode"
+        data-arco-issue={
+          retainedIssue ? selectionIssueData(retainedIssue) : undefined
+        }
+      >
         <div className="compact-top">
           <strong className="wordmark">Arco</strong>
           <span className="muted">{shared ? "Shared issue" : "Browsing"}</span>
@@ -1452,7 +1476,13 @@ function Workspace({ host }: { host: ArcoHost }) {
           </div>
         </div>
       </aside>
-      <section className="detail-pane" aria-label="Issue details">
+      <section
+        className="detail-pane"
+        aria-label="Issue details"
+        data-arco-issue={
+          selectedDetail ? selectionIssueData(selectedDetail) : undefined
+        }
+      >
         {!selectedDetail && (
           <header className="detail-toolbar">
             <span className="toolbar-tab">Issue</span>
@@ -1508,9 +1538,6 @@ function Workspace({ host }: { host: ArcoHost }) {
             hostBusy={hostBusy}
             hostAction={hostAction}
             shared={shared}
-            onShare={(issue) =>
-              setShared({ repo: issue.repo, number: issue.number })
-            }
           />
         )}
       </section>
@@ -1807,7 +1834,6 @@ type ContentProps = {
   hostBusy: boolean;
   hostAction: (action: () => Promise<void>, success: string) => Promise<void>;
   shared: IssueRef | null;
-  onShare: (issue: IssueDetail) => void;
 };
 
 function IssueContent({
@@ -1825,15 +1851,10 @@ function IssueContent({
   hostBusy,
   hostAction,
   shared,
-  onShare,
 }: ContentProps) {
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState(false);
   const [compareLatest, setCompareLatest] = useState(false);
-  const [conversationOpen, setConversationOpen] = useState(false);
-  const promptText = draft.promptText ?? "";
-  const promptTarget = draft.promptTarget ?? "self";
-  const [selection, setSelection] = useState<ContextSelection | undefined>();
   const assigneeOptions = [
     ...new Set([...issue.assignees, ...(metadata?.assignees ?? [])]),
   ].map((name) => ({ value: name, label: name }));
@@ -1847,52 +1868,13 @@ function IssueContent({
   ];
   const openMarkdownLink = (url: string) =>
     void hostAction(() => host.openLink(url), "Opened the source link.");
-  const contentRef = useRef<HTMLDivElement>(null);
   const ref = { repo: issue.repo, number: issue.number };
   const dirty = draft.title !== issue.title || draft.body !== issue.body;
   const contentConflict = draftConflict(issue, draft);
-  const captureSelection = () => {
-    const range = window.getSelection();
-    const text = range?.toString().trim();
-    const anchor = range?.anchorNode?.parentElement;
-    const focus = range?.focusNode?.parentElement;
-    const origin = anchor?.closest<HTMLElement>("[data-context-origin]");
-    if (
-      !text ||
-      !origin ||
-      !contentRef.current?.contains(origin) ||
-      !focus ||
-      !origin.contains(focus)
-    ) {
-      setSelection(undefined);
-      return;
-    }
-    setSelection({
-      text,
-      origin: origin.dataset.contextOrigin === "comment" ? "comment" : "body",
-      ...(origin.dataset.commentId
-        ? { commentId: origin.dataset.commentId }
-        : {}),
-    });
-  };
   const share = () =>
     hostAction(
-      async () => {
-        await host.share(issue, selection);
-        onShare(issue);
-      },
-      selection
-        ? "Shared the selection with the chat context."
-        : "Shared the issue with the chat context.",
-    );
-  const preparePrompt = (send: boolean) =>
-    hostAction(
-      async () => {
-        await host.prompt(issue, promptText, promptTarget, send);
-      },
-      send
-        ? "Sent the request to the host."
-        : "Prepared an unsent draft in the host.",
+      () => host.share(issue),
+      "Shared the issue with the chat context.",
     );
 
   return (
@@ -1912,25 +1894,14 @@ function IssueContent({
           ) : undefined
         }
         primary={
-          <>
-            <Button
-              color="primary"
-              size="sm"
-              disabled={hostBusy}
-              onClick={() => void share()}
-            >
-              {selection ? "Share selection" : "Add to chat"}
-            </Button>
-            <Button
-              color="secondary"
-              variant="outline"
-              size="sm"
-              aria-expanded={conversationOpen}
-              onClick={() => setConversationOpen((value) => !value)}
-            >
-              Ask Codex
-            </Button>
-          </>
+          <Button
+            color="primary"
+            size="sm"
+            disabled={hostBusy}
+            onClick={() => void share()}
+          >
+            Add to chat
+          </Button>
         }
         utilities={
           <>
@@ -1974,14 +1945,7 @@ function IssueContent({
         }
       />
       {feedback}
-      <div
-        className="detail-scroll"
-        ref={contentRef}
-        onMouseUp={captureSelection}
-        onKeyUp={(event) => {
-          if (event.key === "Shift") captureSelection();
-        }}
-      >
+      <div className="detail-scroll">
         <div className="issue-heading">
           <div className="issue-kicker">
             <span className={`state-pill ${issue.state}`}>
@@ -2012,24 +1976,6 @@ function IssueContent({
             </span>
             {dirty && <span className="draft-mark">Unsaved draft</span>}
           </div>
-          {selection && (
-            <div className="selection-preview">
-              <span>
-                {selection.origin === "body" ? "Body" : "Comment"} selection ·{" "}
-                {selection.text.length} characters
-              </span>
-              <blockquote>{selection.text}</blockquote>
-              <button
-                className="text-button"
-                onClick={() => {
-                  setSelection(undefined);
-                  window.getSelection()?.removeAllRanges();
-                }}
-              >
-                Clear selection
-              </button>
-            </div>
-          )}
           {shared && (
             <div className="shared-target">
               Shared issue:{" "}
@@ -2040,68 +1986,6 @@ function IssueContent({
                 <span> · Different from the issue you are browsing</span>
               )}
             </div>
-          )}
-          {conversationOpen && (
-            <section
-              className="conversation-panel"
-              aria-label="Request for Codex"
-            >
-              <div className="conversation-target">
-                <strong>
-                  {issue.repo} #{issue.number}
-                </strong>
-                <span>{issue.title}</span>
-              </div>
-              <label htmlFor={`prompt-${issue.number}`}>
-                Request for Codex
-              </label>
-              <textarea
-                id={`prompt-${issue.number}`}
-                rows={3}
-                value={promptText}
-                onChange={(event) =>
-                  onDraft({ promptText: event.target.value })
-                }
-                placeholder="Investigate this issue…"
-              />
-              <div className="conversation-actions">
-                <SingleSelect
-                  label="Target chat"
-                  value={promptTarget}
-                  onChange={(value) =>
-                    onDraft({
-                      promptTarget: value === "new" ? "new" : "self",
-                    })
-                  }
-                  options={[
-                    { value: "self", label: "Current chat" },
-                    { value: "new", label: "New chat" },
-                  ]}
-                />
-                <span className="action-spacer" />
-                <Button
-                  color="secondary"
-                  variant="outline"
-                  size="sm"
-                  disabled={hostBusy || !promptText.trim()}
-                  onClick={() => void preparePrompt(false)}
-                >
-                  Prepare draft
-                </Button>
-                <Button
-                  color="primary"
-                  size="sm"
-                  disabled={hostBusy || !promptText.trim()}
-                  onClick={() => void preparePrompt(true)}
-                >
-                  Send request
-                </Button>
-              </div>
-              <p className="muted">
-                Preparing a draft does not send it. Choose Send request to start
-                Codex.
-              </p>
-            </section>
           )}
         </div>
         <div className="issue-columns">

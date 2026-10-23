@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
+import {
+  sharedContextFromText,
+  latestSharedSelection,
+  type SharedAnnotation,
+} from "./shared-context-helpers";
 
 const firstTitle = "Keep Linear workflow states intact";
 const secondTitle = "Share a Linear issue with the Codex chat";
@@ -20,24 +25,6 @@ async function events(page: Page, type: string) {
   return values
     .filter((value) => value.type === type)
     .map((value) => value.value);
-}
-function sharedContextFromText(value: unknown) {
-  const update = value as {
-    content: { type: string; text: string }[];
-    structuredContent: Record<string, unknown>;
-  };
-  expect(update.content).toHaveLength(1);
-  expect(update.content[0]!.type).toBe("text");
-  const marker = "\n\nIssue context (source data):\n";
-  const text = update.content[0]!.text;
-  expect(text).toContain(marker);
-  const context = JSON.parse(
-    text.slice(text.indexOf(marker) + marker.length),
-  ) as Record<string, unknown>;
-  const { arcoSharedIssue, ...structured } = update.structuredContent;
-  expect(arcoSharedIssue).toBe(1);
-  expect(context).toEqual(structured);
-  return context;
 }
 test.beforeEach(async ({ page }) => {
   errors.set(page, []);
@@ -630,53 +617,52 @@ test("Linear comment drafts do not freeze clean body content and same-field edit
   });
 });
 
-test("Linear selection follows the range when released outside its body or comment wrapper", async ({
+test("Linear global selection attaches body, comments, titles, properties, list rows, and mixed content", async ({
   page,
 }) => {
   const ui = app(page);
-  const select = (selector: string, releaseOnComment = false) =>
-    ui
-      .locator(selector)
-      .first()
-      .evaluate((element, releaseOnComment) => {
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        const selection = window.getSelection()!;
-        selection.removeAllRanges();
-        selection.addRange(range);
-        const release = releaseOnComment
-          ? element.closest(".linear-comment")!
-          : element;
-        release.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        return selection.toString();
-      }, releaseOnComment);
+  const toolbar = ui.getByRole("toolbar", { name: "Text selection" });
+  const addSelection = toolbar.getByRole("button", {
+    name: "Add to chat",
+    exact: true,
+  });
+  const select = async (selector: string, releaseOnComment = false) => {
+    const editor = ui.getByRole("dialog", {
+      name: "Selection comment",
+      exact: true,
+    });
+    if (await editor.isVisible()) await editor.press("Escape");
+    const target = ui.locator(selector).first();
+    await target.scrollIntoViewIfNeeded();
+    return target.evaluate((element, releaseOnComment) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const release = releaseOnComment
+        ? element.closest(".linear-comment")!
+        : element;
+      release.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      return selection.toString();
+    }, releaseOnComment);
+  };
 
   const bodyText = await select(".body-content p");
-  await expect(ui.locator(".selection-preview")).toContainText(
-    "Body selection",
-  );
-  await ui
-    .getByRole("button", { name: "Share selection", exact: true })
-    .click();
+  await expect(toolbar).toBeVisible();
+  await addSelection.click();
   await expect.poll(() => events(page, "context")).toHaveLength(1);
   expect(
-    sharedContextFromText((await events(page, "context"))[0]),
+    latestSharedSelection((await events(page, "context"))[0]),
   ).toMatchObject({
     selection: { text: bodyText, origin: "body" },
   });
 
   const commentText = await select('[data-linear-context="comment"] p', true);
-  await expect(ui.locator(".selection-preview")).toContainText(
-    "Comment selection",
-  );
-  await expect(ui.locator(".selection-preview blockquote")).toHaveText(
-    commentText,
-  );
-  await ui
-    .getByRole("button", { name: "Share selection", exact: true })
-    .click();
+  await expect(toolbar).toBeVisible();
+  await addSelection.click();
   await expect.poll(() => events(page, "context")).toHaveLength(2);
-  const contexts = (await events(page, "context")).map(sharedContextFromText);
+  const contexts = (await events(page, "context")).map(latestSharedSelection);
   expect(contexts[1]).toMatchObject({
     source: "linear",
     id: "fixture-linear-42",
@@ -695,16 +681,14 @@ test("Linear selection follows the range when released outside its body or comme
       window.getSelection()!.removeAllRanges();
       element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
     });
-  await expect(ui.locator(".selection-preview")).toHaveCount(0);
+  await expect(toolbar).toHaveCount(0);
   await expect(
     ui.getByRole("button", { name: "Add to chat", exact: true }),
   ).toBeVisible();
 
   await select(".body-content p");
-  await expect(ui.locator(".selection-preview")).toContainText(
-    "Body selection",
-  );
-  await ui.locator(".detail-scroll").evaluate((element) => {
+  await expect(toolbar).toBeVisible();
+  const mixedText = await ui.locator(".detail-scroll").evaluate((element) => {
     const body = element.querySelector(".body-content p")!;
     const comment = element.querySelector('[data-linear-context="comment"] p')!;
     const range = document.createRange();
@@ -716,12 +700,65 @@ test("Linear selection follows the range when released outside its body or comme
     comment
       .closest(".linear-comment")!
       .dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return selection.toString();
   });
-  await expect(ui.locator(".selection-preview")).toHaveCount(0);
+  // Geometry reads may make Chromium include closed-details text in later
+  // Selection.toString() calls. The attachment must keep the visible selection.
+  expect(mixedText).not.toContain("Files are stored in Linear.");
+  await expect(ui.locator(".linear-upload")).not.toHaveAttribute("open");
+  await expect(toolbar).toBeVisible();
+  await addSelection.click();
+  await expect.poll(() => events(page, "context")).toHaveLength(3);
+  expect(
+    latestSharedSelection((await events(page, "context"))[2]),
+  ).toMatchObject({
+    source: "linear",
+    id: "fixture-linear-42",
+    selection: { text: mixedText, origin: "ui" },
+  });
+
+  let shares = 3;
+  for (const [selector, issueId] of [
+    [".title-line h1", "fixture-linear-42"],
+    [".issue-kicker .state-pill", "fixture-linear-42"],
+    [".linear-list-row:nth-child(2) .row-title", "fixture-linear-43"],
+  ] as const) {
+    const text = await select(selector);
+    await expect(toolbar).toBeVisible();
+    await addSelection.click();
+    await expect.poll(() => events(page, "context")).toHaveLength(++shares);
+    const context = latestSharedSelection(
+      (await events(page, "context")).at(-1),
+    );
+    expect(context).toMatchObject({
+      source: "linear",
+      connectionId: "default",
+      workspaceId: "fixture-linear-workspace",
+      teamId: "fixture-linear-team",
+      id: issueId,
+      selection: { text, origin: "ui" },
+    });
+    expect(context).not.toHaveProperty("body");
+  }
   await expect(
-    ui.getByRole("button", { name: "Share selection", exact: true }),
-  ).toHaveCount(0);
-  expect(await events(page, "context")).toHaveLength(2);
+    ui.getByRole("heading", { name: firstTitle, exact: true }),
+  ).toBeVisible();
+  await select(".body-content p");
+  await expect(toolbar).toBeVisible();
+  await ui
+    .locator(".detail-toolbar")
+    .getByRole("button", { name: "Add to chat", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(shares + 1);
+  const wholeIssue = latestSharedSelection(
+    (await events(page, "context")).at(-1),
+  );
+  expect(wholeIssue).toMatchObject({
+    source: "linear",
+    id: "fixture-linear-42",
+  });
+  expect(wholeIssue.body).toContain("This is fictional local fixture data.");
+  expect(wholeIssue).not.toHaveProperty("selection");
   expect(await events(page, "message")).toEqual([]);
   const writes = ((await events(page, "tool")) as { name: string }[]).filter(
     (call) =>
@@ -735,49 +772,181 @@ test("Linear selection follows the range when released outside its body or comme
   expect(writes).toEqual([]);
 });
 
-test("Linear shared context, range selection, draft/send, and retained inline target remain distinct", async ({
+test("Linear annotations keep independent comments and native comment identity across later additions and edits", async ({
   page,
 }) => {
   const ui = app(page);
-  let shares = 0;
-  for (const [selector, origin] of [
-    [".body-content p", "body"],
-    ['[data-linear-context="comment"] p', "comment"],
-  ] as const) {
-    const text = await ui
-      .locator(selector)
-      .first()
-      .evaluate((element) => {
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        const selection = window.getSelection()!;
-        selection.removeAllRanges();
-        selection.addRange(range);
-        element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        return selection.toString();
-      });
-    await ui
-      .getByRole("button", { name: "Share selection", exact: true })
-      .click();
-    await expect.poll(() => events(page, "context")).toHaveLength(++shares);
-    const context = sharedContextFromText(
-      (await events(page, "context")).at(-1),
-    );
-    expect(context).toMatchObject({
-      source: "linear",
-      id: "fixture-linear-42",
-      selection: {
-        text,
-        origin,
-        ...(origin === "comment" ? { commentId: "linear-comment-1" } : {}),
-      },
+  const dialog = ui.getByRole("dialog", {
+    name: "Selection comment",
+    exact: true,
+  });
+  const marker = ui.getByRole("button", {
+    name: "Edit selection comment 1",
+    exact: true,
+  });
+  const secondMarker = ui.getByRole("button", {
+    name: "Edit selection comment 2",
+    exact: true,
+  });
+  const select = async (selector: string) => {
+    if (await dialog.isVisible()) await dialog.press("Escape");
+    const target = ui.locator(selector).first();
+    await target.scrollIntoViewIfNeeded();
+    const text = await target.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      return selection.toString();
     });
-    expect(context).not.toHaveProperty("body");
-    expect(await events(page, "message")).toEqual([]);
     await ui
-      .getByRole("button", { name: "Clear selection", exact: true })
+      .getByRole("toolbar", { name: "Text selection", exact: true })
+      .getByRole("button", { name: "Add to chat", exact: true })
       .click();
-  }
+    return text;
+  };
+  const commentText = await select('[data-linear-context="comment"] p');
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const comment = dialog.getByRole("textbox", {
+    name: "Optional comment",
+    exact: true,
+  });
+  await expect(comment).toHaveValue("");
+  await comment.fill("Summarize this comment only");
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  const update = (await events(page, "context"))[1];
+  expect(latestSharedSelection(update)).toMatchObject({
+    source: "linear",
+    connectionId: "default",
+    workspaceId: "fixture-linear-workspace",
+    teamId: "fixture-linear-team",
+    id: "fixture-linear-42",
+    selection: {
+      text: commentText,
+      origin: "comment",
+      commentId: "linear-comment-1",
+      comment: "Summarize this comment only",
+    },
+  });
+  expect(
+    (update as { content: { text: string }[] }).content[0]!.text,
+  ).toContain("Summarize this comment only");
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveText("1");
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    ui.locator('[data-linear-context="comment"] p').first(),
+  ).toHaveText(commentText);
+
+  const titleText = await select(".title-line h1");
+  await expect.poll(() => events(page, "context")).toHaveLength(3);
+  await expect(comment).toHaveValue("");
+  await comment.fill("Keep this title note separately");
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(4);
+  const collection = sharedContextFromText((await events(page, "context"))[3]);
+  const entries = collection.annotations as SharedAnnotation[];
+  expect(entries).toHaveLength(2);
+  expect(entries[0]).toMatchObject({
+    number: 1,
+    issue: { source: "linear", id: "fixture-linear-42" },
+    selection: {
+      text: commentText,
+      origin: "comment",
+      commentId: "linear-comment-1",
+      comment: "Summarize this comment only",
+    },
+  });
+  expect(entries[1]).toMatchObject({
+    number: 2,
+    issue: { source: "linear", id: "fixture-linear-42" },
+    selection: {
+      text: titleText,
+      origin: "ui",
+      comment: "Keep this title note separately",
+    },
+  });
+  await expect(marker).toHaveCount(1);
+  await expect(secondMarker).toHaveCount(1);
+  await expect(secondMarker).toHaveText("2");
+  await marker.click();
+  await expect(comment).toHaveValue("Summarize this comment only");
+  await comment.fill("Revised note for the original comment");
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(5);
+  const edited = sharedContextFromText((await events(page, "context"))[4]);
+  const annotations = edited.annotations as SharedAnnotation[];
+  expect(annotations[0]).toMatchObject({
+    number: 1,
+    selection: {
+      text: commentText,
+      origin: "comment",
+      commentId: "linear-comment-1",
+      comment: "Revised note for the original comment",
+    },
+  });
+  expect(annotations[1]).toEqual(entries[1]);
+  await secondMarker.click();
+  await expect(comment).toHaveValue("Keep this title note separately");
+  await comment.press("Escape");
+  await ui
+    .locator(".detail-toolbar")
+    .getByRole("button", { name: "Add to chat", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(6);
+  expect(
+    sharedContextFromText((await events(page, "context"))[5]),
+  ).not.toHaveProperty("selection");
+  await expect(marker).toHaveCount(0);
+  await expect(secondMarker).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  expect(await events(page, "message")).toEqual([]);
+  const writes = ((await events(page, "tool")) as { name: string }[]).filter(
+    (call) =>
+      ["linear_update_issue", "linear_create_issue", "linear_comment"].includes(
+        call.name,
+      ),
+  );
+  expect(writes).toEqual([]);
+});
+
+test("a single Linear selection retains its inline target without sending a message", async ({
+  page,
+}) => {
+  const ui = app(page);
+  const toolbar = ui.getByRole("toolbar", { name: "Text selection" });
+  const target = ui.locator(".body-content p").first();
+  await target.scrollIntoViewIfNeeded();
+  const text = await target.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return selection.toString();
+  });
+  await toolbar
+    .getByRole("button", { name: "Add to chat", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  const context = latestSharedSelection((await events(page, "context"))[0]);
+  expect(context).toMatchObject({
+    source: "linear",
+    id: "fixture-linear-42",
+    selection: { text, origin: "body" },
+  });
+  expect(context).not.toHaveProperty("body");
+  expect(await events(page, "message")).toEqual([]);
   const explicitContext = await events(page, "context");
   await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
   await expect(ui.locator(".shared-chip")).toHaveText("Chat YU-42");
@@ -785,41 +954,18 @@ test("Linear shared context, range selection, draft/send, and retained inline ta
     "Shared issue: YU-42 · Different from the issue you are browsing",
   );
   expect(await events(page, "message")).toHaveLength(0);
-  await ui.getByRole("button", { name: "Ask Codex", exact: true }).click();
-  await expect(ui.locator(".request-panel")).toContainText("Issue: YU-43");
-  await ui
-    .getByRole("textbox", { name: "Linear request for Codex" })
-    .fill("Plan this Linear issue");
-  await ui.getByRole("button", { name: "Prepare draft", exact: true }).click();
-  await choose(ui, "Chat", "new");
-  await ui.getByRole("button", { name: "Prepare draft", exact: true }).click();
-  await expect.poll(() => events(page, "message")).toHaveLength(2);
-  await ui
-    .getByRole("button", { name: "Send and start request", exact: true })
-    .click();
-  await expect.poll(() => events(page, "message")).toHaveLength(3);
-  await choose(ui, "Chat", "self");
-  await ui
-    .getByRole("button", { name: "Send and start request", exact: true })
-    .click();
-  await expect.poll(() => events(page, "message")).toHaveLength(4);
-  const messages = await events(page, "message");
-  expect(messages).toEqual([
-    expect.objectContaining({
-      _meta: { "openai/message": { target: "active", send: false } },
-    }),
-    expect.objectContaining({
-      _meta: { "openai/message": { target: "new", send: false } },
-    }),
-    expect.objectContaining({
-      _meta: { "openai/message": { target: "new", send: true } },
-    }),
-    expect.objectContaining({
-      _meta: { "openai/message": { target: "active", send: true } },
-    }),
-  ]);
-  for (const message of messages as { content: { text: string }[] }[])
-    expect(message.content[0]!.text).toContain(secondTitle);
+  await expect(
+    ui.getByRole("button", { name: "Ask Codex", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    ui.getByRole("button", { name: "Prepare draft", exact: true }),
+  ).toHaveCount(0);
+  await expect(selectControl(ui, "Chat")).toHaveCount(0);
+  await expect(
+    ui.getByRole("button", { name: "Send request", exact: true }),
+  ).toHaveCount(0);
+  await expect(ui.locator(".request-panel")).toHaveCount(0);
+  await expect(ui.locator(".shared-chip")).toHaveText("Chat YU-42");
   expect(await events(page, "context")).toEqual(explicitContext);
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   await expect(ui.locator(".inline-mode")).toContainText("YU-42");
@@ -845,6 +991,7 @@ test("Linear shared context, range selection, draft/send, and retained inline ta
     ui.getByRole("button", { name: "Back to Linear list", exact: true }),
   ).toBeVisible();
   expect(await events(page, "context")).toEqual(explicitContext);
+  expect(await events(page, "message")).toEqual([]);
 });
 
 test("Linear bulk labels, priority, estimate, and due dates preserve per-Issue results", async ({
@@ -1421,7 +1568,7 @@ test("Linear visible source queries refresh without host resource notifications"
   expect(await events(page, "linear-external-update")).toEqual([]);
 });
 
-test("Linear browsing and shared context survive a source switch with the list position", async ({
+test("Linear source switches retain browsing and list position while using the latest shared context", async ({
   page,
 }) => {
   const ui = app(page);
@@ -1448,6 +1595,7 @@ test("Linear browsing and shared context survive a source switch with the list p
   await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
   await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
   await expect.poll(() => events(page, "context")).toHaveLength(1);
+  await ui.locator(".issue-row").filter({ hasText: firstTitle }).click();
   await ui
     .getByRole("textbox", { name: "Search Linear Issues", exact: true })
     .fill("Linear");
@@ -1460,18 +1608,44 @@ test("Linear browsing and shared context survive a source switch with the list p
   await choose(ui, "Issue source", "github");
   await choose(ui, "Issue source", "linear");
   await expect(
-    ui.getByRole("heading", { name: secondTitle, exact: true }),
+    ui.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
   await expect(ui.locator(".shared-chip")).toHaveText("Chat YU-43");
-  await expect(ui.locator(".shared-target")).toHaveText("Shared issue: YU-43");
+  await expect(ui.locator(".shared-target")).toHaveText(
+    "Shared issue: YU-43 · Different from the issue you are browsing",
+  );
+  await expect
+    .poll(() =>
+      ui.locator(".issue-list").evaluate((element) => element.scrollTop),
+    )
+    .toBe(position);
+  await choose(ui, "Issue source", "github");
+  await expect(
+    ui.getByRole("heading", {
+      name: "Preserve issue selection and scroll position",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
+  await expect.poll(() => events(page, "context")).toHaveLength(2);
+  expect(
+    latestSharedSelection((await events(page, "context"))[1]),
+  ).toMatchObject({ source: "github", repo: "yu/Arco", number: 42 });
+  await choose(ui, "Issue source", "linear");
+  await expect(
+    ui.getByRole("heading", { name: firstTitle, exact: true }),
+  ).toBeVisible();
+  await expect(ui.locator(".shared-chip")).toHaveCount(0);
+  await expect(ui.locator(".shared-target")).toHaveCount(0);
   await expect
     .poll(() =>
       ui.locator(".issue-list").evaluate((element) => element.scrollTop),
     )
     .toBe(position);
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
-  await expect(ui.locator(".inline-mode")).toContainText("YU-43");
-  expect(await events(page, "context")).toHaveLength(1);
+  await expect(ui.locator(".inline-mode")).toContainText("YU-42");
+  await expect(ui.locator(".inline-mode")).toContainText("Browsing");
+  expect(await events(page, "context")).toHaveLength(2);
   expect(await events(page, "message")).toHaveLength(0);
   const writes = ((await events(page, "tool")) as { name: string }[]).filter(
     (call) =>
@@ -1646,7 +1820,7 @@ test("shared Linear native ref survives host view recreation and fullscreen retu
   await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
   await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
   await expect.poll(() => events(page, "context")).toHaveLength(1);
-  const context = sharedContextFromText((await events(page, "context"))[0]);
+  const context = latestSharedSelection((await events(page, "context"))[0]);
   expect(context).toMatchObject({
     source: "linear",
     id: "fixture-linear-43",
