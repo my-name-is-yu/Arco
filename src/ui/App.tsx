@@ -1,14 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
-import type { LaunchContext } from "../shared/launch";
+import type { LaunchContext, NativeIssueTarget } from "../shared/launch";
 import { GitHubWorkspace } from "./GitHubWorkspace";
 import { LinearWorkspace } from "./LinearWorkspace";
 import { SelectionShare } from "./SelectionShare";
 import { HostProvider, useHostView } from "./HostProvider";
 import { WorkspaceSkeleton } from "./LoadingSkeleton";
 import { AsyncState } from "./AsyncState";
-import { sessionValue, useSessionState } from "./session-state";
+import {
+  sessionValue,
+  setSessionState,
+  useSessionState,
+} from "./session-state";
 import { useSettings } from "./useSettings";
+import { InlineIssueTabs, presentationTarget } from "./InlineIssueTabs";
 function Workspace({
   host,
   launch,
@@ -72,7 +77,48 @@ function Workspace({
 }
 function LaunchWorkspace({ host }: { host: ArcoHost }) {
   const { launch, mode } = useHostView();
+  const [openedIssue, setOpenedIssue] =
+    useSessionState<NativeIssueTarget | null>(host, "issue-set:opened", null);
   const error = host.launchError();
+  if (launch?.issues) {
+    const target = openedIssue ?? presentationTarget(launch.issues[0]);
+    const workspaceLaunch = { ...launch, target };
+    delete workspaceLaunch.issues;
+    const workspace = <Workspace host={host} launch={workspaceLaunch} />;
+    return mode === "inline" ? (
+      <InlineIssueTabs
+        host={host}
+        issues={launch.issues}
+        activeTarget={target}
+        onSelect={(issue) => {
+          const target = presentationTarget(issue);
+          setOpenedIssue(target);
+          setSessionState(host, "active-source", target.source);
+          if (target.source === "github") {
+            setSessionState(host, "github:repoOverride", target.repo);
+            setSessionState(host, "github:selected", {
+              repo: target.repo,
+              number: target.number,
+            });
+            setSessionState(host, "github:showDetail", true);
+          } else {
+            setSessionState(host, "linear:teamOverride", target.teamId);
+            setSessionState(host, "linear:selected", {
+              connectionId: target.connectionId,
+              workspaceId: target.workspaceId,
+              teamId: target.teamId,
+              issueId: target.issueId,
+            });
+            setSessionState(host, "linear:showDetail", true);
+          }
+        }}
+      >
+        {workspace}
+      </InlineIssueTabs>
+    ) : (
+      workspace
+    );
+  }
   return launch ? (
     <Workspace host={host} launch={launch} />
   ) : error ? (

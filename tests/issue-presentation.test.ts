@@ -10,6 +10,7 @@ import { FIXTURE_REPO } from "../src/server/fixture";
 import { LINEAR_FIXTURE_SCOPE } from "../src/server/linear/fixture";
 import { createArcoServer } from "../src/server/mcp";
 import {
+  issuePresentationSummarySchema,
   launchContextSchema,
   nativeIssueTargetSchema,
   personalLaunchContext,
@@ -443,6 +444,215 @@ describe("explicit issue presentation", () => {
     expect(
       nativeIssueTargetSchema.safeParse({ ...github, ...LINEAR_FIXTURE_SCOPE })
         .success,
+    ).toBe(false);
+  });
+});
+
+describe("grouped inline issue presentation", () => {
+  it("declares a read-only inline list without a workspace entrypoint", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find(
+      (candidate) => candidate.name === "arco_show_issues",
+    )!;
+    expect(tool._meta?.ui).toEqual({ resourceUri: "ui://arco/issue-card" });
+    expect(tool._meta?.["openai/ui"]).toEqual({
+      preferredModelDisplayMode: "inline",
+    });
+    expect(tool.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(tool.inputSchema.required).toEqual(["targets"]);
+    expect(tool.inputSchema.additionalProperties).toBe(false);
+  });
+
+  it("preserves mixed-provider order and canonical native scope while omitting bodies and comments", async () => {
+    const githubRead = vi.spyOn(backend.service, "get");
+    const linearRead = vi.spyOn(backend.linearService, "call");
+    const list = vi.spyOn(backend.service, "list");
+    const settings = vi.spyOn(backend.stateStore, "updateSettings");
+    const draft = vi.spyOn(backend.stateStore, "writeDraft");
+    const annotations = vi.spyOn(backend.stateStore, "writeAnnotationSnapshot");
+    const response = await client.callTool({
+      name: "arco_show_issues",
+      arguments: {
+        targets: [
+          linear,
+          github,
+          linear,
+          { ...github, repo: github.repo.toUpperCase() },
+        ],
+      },
+    });
+    expect(response.isError).not.toBe(true);
+    const launch = launchContextSchema.parse(
+      (response.structuredContent as { launch?: unknown } | undefined)?.launch,
+    );
+    expect(launch.target).toBeUndefined();
+    expect(launch.issues).toHaveLength(2);
+    expect(launch.issues?.[0]).toMatchObject({
+      ...linear,
+      identifier: "YU-42",
+      state: { name: "In Progress", type: "started" },
+    });
+    expect(launch.issues?.[1]).toMatchObject({
+      ...github,
+      id: "fixture-issue-42",
+      state: "open",
+      stateReason: null,
+    });
+    for (const issue of launch.issues ?? []) {
+      expect(issuePresentationSummarySchema.safeParse(issue).success).toBe(
+        true,
+      );
+      expect(issue).not.toHaveProperty("body");
+      expect(issue).not.toHaveProperty("comments");
+      expect(issue).not.toHaveProperty("projects");
+    }
+    expect(Object.keys(response.structuredContent ?? {})).toEqual(["launch"]);
+    expect(githubRead).toHaveBeenCalledExactlyOnceWith({
+      repo: github.repo,
+      number: github.number,
+    });
+    expect(linearRead).toHaveBeenCalledExactlyOnceWith(
+      "linear_get_issue",
+      linearRef,
+    );
+    for (const untouched of [list, settings, draft, annotations])
+      expect(untouched).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {},
+    { targets: [] },
+    { targets: [github] },
+    {
+      targets: Array.from({ length: 11 }, (_, index) => ({
+        ...github,
+        number: index + 1,
+      })),
+    },
+    { targets: [github, { ...linear, number: 42 }] },
+    { targets: [github, linear], source: "github" },
+  ])(
+    "rejects invalid or unbounded lists before provider reads: %j",
+    async (args) => {
+      const githubRead = vi.spyOn(backend.service, "get");
+      const linearRead = vi.spyOn(backend.linearService, "call");
+      const response = await client.callTool({
+        name: "arco_show_issues",
+        arguments: args,
+      });
+      expect(response.isError).toBe(true);
+      expect(githubRead).not.toHaveBeenCalled();
+      expect(linearRead).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects repeated aliases of just one issue before reading it", async () => {
+    const read = vi.spyOn(backend.service, "get");
+    const response = await client.callTool({
+      name: "arco_show_issues",
+      arguments: {
+        targets: [github, { ...github, repo: github.repo.toUpperCase() }],
+      },
+    });
+    expect(response).toMatchObject({
+      isError: true,
+      structuredContent: { error: { kind: "invalid-input" } },
+    });
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("keeps Linear connection and team scope distinct during deduplication", async () => {
+    const read = vi.spyOn(backend.linearService, "call");
+    const response = await client.callTool({
+      name: "arco_show_issues",
+      arguments: { targets: [linear, { ...linear, teamId: "different-team" }] },
+    });
+    expect(response.isError).toBe(true);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenLastCalledWith("linear_get_issue", {
+      ...linearRef,
+      teamId: "different-team",
+    });
+    expect(response.structuredContent).not.toHaveProperty("launch");
+  });
+
+  it.each(["github", "linear"] as const)(
+    "rejects a canonical %s mismatch without returning a partial list",
+    async (source) => {
+      if (source === "github") {
+        const issue = await backend.service.get(github);
+        vi.spyOn(backend.service, "get").mockResolvedValue({
+          ...issue,
+          number: 99,
+        });
+      } else {
+        const issue = await backend.linearService.call(
+          "linear_get_issue",
+          linearRef,
+        );
+        vi.spyOn(backend.linearService, "call").mockResolvedValue({
+          ...issue,
+          issueId: "other-native-id",
+        });
+      }
+      const response = await client.callTool({
+        name: "arco_show_issues",
+        arguments: { targets: [github, linear] },
+      });
+      expect(response).toMatchObject({
+        isError: true,
+        structuredContent: { error: { kind: "invalid-response" } },
+      });
+      expect(response.structuredContent).not.toHaveProperty("launch");
+      expect(response.structuredContent).not.toHaveProperty("issues");
+    },
+  );
+
+  it("returns a source failure without broadening the requested list", async () => {
+    vi.spyOn(backend.linearService, "call").mockRejectedValue(
+      new OperationError("Issue access denied.", "forbidden"),
+    );
+    const list = vi.spyOn(backend.service, "list");
+    const account = vi.spyOn(backend.service, "accountIssues");
+    const response = await client.callTool({
+      name: "arco_show_issues",
+      arguments: { targets: [github, linear] },
+    });
+    expect(response).toMatchObject({
+      isError: true,
+      structuredContent: {
+        error: { kind: "forbidden", message: "Issue access denied." },
+      },
+    });
+    expect(response.structuredContent).not.toHaveProperty("launch");
+    expect(list).not.toHaveBeenCalled();
+    expect(account).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed summaries and conflicting single/list launch targets", async () => {
+    const response = await client.callTool({
+      name: "arco_show_issues",
+      arguments: { targets: [github, linear] },
+    });
+    const launch = launchContextSchema.parse(
+      (response.structuredContent as { launch?: unknown } | undefined)?.launch,
+    );
+    expect(
+      launchContextSchema.safeParse({ ...launch, target: github }).success,
+    ).toBe(false);
+    expect(
+      launchContextSchema.safeParse({ ...launch, issues: [launch.issues?.[0]] })
+        .success,
+    ).toBe(false);
+    expect(
+      issuePresentationSummarySchema.safeParse({
+        ...launch.issues?.[0],
+        body: "unexpected content",
+      }).success,
     ).toBe(false);
   });
 });

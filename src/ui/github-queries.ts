@@ -150,6 +150,7 @@ export function useGitHubIssueMutation(host: ArcoHost) {
       client.setQueryData(githubIssueKey(result), result);
       await Promise.all([
         client.invalidateQueries({ queryKey: ["issues"] }),
+        client.invalidateQueries({ queryKey: ["issue-set"] }),
         client.invalidateQueries({ queryKey: githubIssueKey(result) }),
         client.invalidateQueries({ queryKey: commentsKey(result) }),
       ]);

@@ -19,8 +19,10 @@ import iconDark from "../../plugin/assets/icon-dark.svg";
 import iconLight from "../../plugin/assets/icon.svg";
 import { issueRefSchema } from "../shared/contracts";
 import {
+  issuePresentationSummarySchema,
   nativeIssueTargetSchema,
   personalLaunchContext,
+  type IssuePresentationSummary,
   type NativeIssueTarget,
 } from "../shared/launch";
 import { linearRefSchema } from "../shared/linear";
@@ -128,45 +130,49 @@ export function createArcoServer({
   const issuePresentationInput = z
     .object({ target: nativeIssueTargetSchema })
     .strict();
+  const readPresentationIssue = async (target: NativeIssueTarget) => {
+    let issue: object;
+    let canonical: NativeIssueTarget;
+    if (target.source === "github") {
+      issue = await service.get({ repo: target.repo, number: target.number });
+      canonical = z
+        .object({ source: z.literal("github"), ...issueRefSchema.shape })
+        .parse(issue);
+      if (
+        canonical.repo.toLowerCase() !== target.repo.toLowerCase() ||
+        canonical.number !== target.number
+      )
+        throw new OperationError(
+          "GitHub returned a different issue than the requested target.",
+          "invalid-response",
+        );
+    } else {
+      issue = await linearService.call("linear_get_issue", {
+        connectionId: target.connectionId,
+        workspaceId: target.workspaceId,
+        teamId: target.teamId,
+        issueId: target.issueId,
+      });
+      canonical = z
+        .object({ source: z.literal("linear"), ...linearRefSchema.shape })
+        .parse(issue);
+      if (
+        canonical.connectionId !== target.connectionId ||
+        canonical.workspaceId !== target.workspaceId ||
+        canonical.teamId !== target.teamId ||
+        canonical.issueId !== target.issueId
+      )
+        throw new OperationError(
+          "Linear returned a different issue or scope. Use linear_resolve_issue with the official issue URL, then pass its native IDs.",
+          "invalid-response",
+        );
+    }
+    return { canonical, issue };
+  };
   const presentIssue = async (raw: unknown) => {
     try {
       const { target } = issuePresentationInput.parse(raw);
-      let issue: object;
-      let canonical: NativeIssueTarget;
-      if (target.source === "github") {
-        issue = await service.get({ repo: target.repo, number: target.number });
-        canonical = z
-          .object({ source: z.literal("github"), ...issueRefSchema.shape })
-          .parse(issue);
-        if (
-          canonical.repo.toLowerCase() !== target.repo.toLowerCase() ||
-          canonical.number !== target.number
-        )
-          throw new OperationError(
-            "GitHub returned a different issue than the requested target.",
-            "invalid-response",
-          );
-      } else {
-        issue = await linearService.call("linear_get_issue", {
-          connectionId: target.connectionId,
-          workspaceId: target.workspaceId,
-          teamId: target.teamId,
-          issueId: target.issueId,
-        });
-        canonical = z
-          .object({ source: z.literal("linear"), ...linearRefSchema.shape })
-          .parse(issue);
-        if (
-          canonical.connectionId !== target.connectionId ||
-          canonical.workspaceId !== target.workspaceId ||
-          canonical.teamId !== target.teamId ||
-          canonical.issueId !== target.issueId
-        )
-          throw new OperationError(
-            "Linear returned a different issue or scope. Use linear_resolve_issue with the official issue URL, then pass its native IDs.",
-            "invalid-response",
-          );
-      }
+      const { canonical, issue } = await readPresentationIssue(target);
       return result({
         launch: { ...personalLaunchContext, target: canonical },
         issue,
@@ -216,6 +222,78 @@ export function createArcoServer({
       presentIssue,
     );
   }
+  const issuesPresentationInput = z
+    .object({ targets: z.array(nativeIssueTargetSchema).min(2).max(10) })
+    .strict();
+  registerAppTool(
+    server,
+    "arco_show_issues",
+    {
+      title: "Show issues",
+      description:
+        "Show 2–10 explicit GitHub or Linear issues together with compact inline conversation tabs. Selecting a tab shows that issue's existing card. Preserve the supplied order and native references. Resolve unknown or ambiguous targets first. Use arco_show_issue for one issue, and data tools for analysis or updates. Does not change issues, open a panel, or attach chat context.",
+      inputSchema: issuesPresentationInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+      _meta: {
+        ui: { resourceUri: cardUri },
+        "openai/ui": OpenAIUiToolMetadataSchema.parse({
+          preferredModelDisplayMode: "inline",
+        }),
+      },
+    },
+    async (raw) => {
+      try {
+        const { targets } = issuesPresentationInput.parse(raw);
+        const unique = new Map<string, NativeIssueTarget>();
+        for (const target of targets) {
+          const key =
+            target.source === "github"
+              ? JSON.stringify([
+                  "github",
+                  target.repo.toLowerCase(),
+                  target.number,
+                ])
+              : JSON.stringify([
+                  "linear",
+                  target.connectionId,
+                  target.workspaceId,
+                  target.teamId,
+                  target.issueId,
+                ]);
+          if (!unique.has(key)) unique.set(key, target);
+        }
+        if (unique.size < 2)
+          throw new OperationError(
+            "Choose at least two different issues, or use arco_show_issue for one issue.",
+            "invalid-input",
+          );
+        const issues: IssuePresentationSummary[] = [];
+        for (const target of unique.values()) {
+          const { issue } = await readPresentationIssue(target);
+          // Keep only presentation fields; bodies and comments stay in details.
+          const summarySchema =
+            issuePresentationSummarySchema.options[
+              target.source === "github" ? 0 : 1
+            ].strip();
+          const summary = summarySchema.safeParse(issue);
+          if (!summary.success)
+            throw new OperationError(
+              "The source returned an invalid issue summary. Refresh to try again.",
+              "invalid-response",
+            );
+          issues.push(summary.data);
+        }
+        return result({ launch: { ...personalLaunchContext, issues } });
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
   const workspaceOpenInput = z
     .object({ source: z.enum(["github", "linear"]).optional() })
     .strict();

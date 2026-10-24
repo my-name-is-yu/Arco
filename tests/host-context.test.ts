@@ -282,6 +282,64 @@ describe("host launch context", () => {
     },
   );
 
+  it("retains a grouped issue launch through detail display changes and later tool results", async () => {
+    fixture.context = {
+      "openai/modelContext": null,
+      toolInfo: { tool: { name: "arco_show_issues" } },
+      displayMode: "inline",
+    };
+    const launch = {
+      ...personalLaunchContext,
+      issues: [
+        {
+          source: "github",
+          repo: "yu/Arco",
+          number: 42,
+          id: "fixture-issue-42",
+          title: "GitHub issue",
+          url: "https://github.com/yu/Arco/issues/42",
+          state: "open",
+          stateReason: null,
+        },
+        {
+          source: "linear",
+          connectionId: "default",
+          workspaceId: "workspace",
+          teamId: "team",
+          issueId: "linear-issue",
+          identifier: "YU-43",
+          title: "Linear issue",
+          url: "https://linear.app/yu/issue/YU-43",
+          state: {
+            id: "state",
+            name: "In Progress",
+            type: "started",
+            color: "#f2c94c",
+          },
+        },
+      ],
+    };
+    fixture.connecting = () => {
+      fixture.toolResult!({ structuredContent: { launch } });
+    };
+    const host = await connectHost();
+    expect(host.launch()).toEqual(launch);
+    changed({ displayMode: "fullscreen" });
+    fixture.toolResult!({
+      structuredContent: {
+        launch: {
+          ...personalLaunchContext,
+          target: { source: "github", repo: "yu/Other", number: 99 },
+        },
+      },
+    });
+    changed({ displayMode: "inline" });
+    expect(host.launch()).toEqual(launch);
+    expect(host.mode()).toBe("inline");
+    expect(fixture.update).not.toHaveBeenCalled();
+    expect(fixture.display).not.toHaveBeenCalled();
+  });
+
   it.each(["arco_open", "arco_open_project"])(
     "does not retarget an existing %s panel from a later issue-show result",
     async (tool) => {

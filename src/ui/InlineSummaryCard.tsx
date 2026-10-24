@@ -19,6 +19,7 @@ import { IssueMarkdown } from "./MarkdownContent";
 import { inlineMarkdownPreview } from "./inline-markdown-preview";
 import { CopyValue } from "./CopyValue";
 import { closeDetailUtility } from "./DetailToolbar";
+import { useSessionState } from "./session-state";
 export function InlineSummaryCard({
   issue,
   host,
@@ -48,9 +49,11 @@ export function InlineSummaryCard({
       : issue.identifier;
   const descriptionId = useId();
   const utilities = useRef<HTMLDetailsElement>(null);
-  const [expandedIssue, setExpandedIssue] = useState<string | null>(null);
+  const [expandedIssues, setExpandedIssues] = useSessionState<
+    Record<string, boolean>
+  >(host, "inline:expanded-issues", {});
   const [descriptionRevealing, setDescriptionRevealing] = useState(false);
-  const expanded = expandedIssue === issue.url;
+  const expanded = expandedIssues[issue.url] === true;
   const preview = useMemo(
     () => inlineMarkdownPreview(issue.body),
     [issue.body],
@@ -62,7 +65,7 @@ export function InlineSummaryCard({
     setDescriptionRevealing(
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     );
-    setExpandedIssue(next ? issue.url : null);
+    setExpandedIssues((previous) => ({ ...previous, [issue.url]: next }));
   };
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");

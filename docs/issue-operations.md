@@ -42,6 +42,8 @@ Organization issue fields and Project fields are separate storage locations. Mat
 
 Inline cards support reading, checklist changes, native issue state, assignees, existing labels, Linear priority, and copying/opening native references. Free-form title/body editing, comments, project membership and fields, relationships, and bulk operations belong in the expanded workspace. See [Screen structure](screen-structure.md#inline-cards).
 
+For 2–10 explicitly selected issues, `arco_show_issues` provides compact rounded inline tabs with identifiers and titles. Native state is available through the tooltip and accessible description rather than a tab icon. It preserves order, removes duplicate references, and does not fetch a broader list or add cross-provider operations. Selecting a tab requests and displays that issue's existing inline card; **Open details** opens the same issue in the existing workspace. The presentation tool result itself contains lightweight summaries without bodies or comments, although its server-side provider reads may include them.
+
 Checklist writes edit the source Markdown line. A conflicting draft or unavailable draft state must lead to review in details rather than silently overwriting work.
 
 ## Source-service handoffs

@@ -141,6 +141,7 @@ export function useLinearIssueCache() {
       return Promise.all([
         client.invalidateQueries({ queryKey: ["linear-issue"] }),
         client.invalidateQueries({ queryKey: ["linear-issues"] }),
+        client.invalidateQueries({ queryKey: ["issue-set"] }),
         client.invalidateQueries({ queryKey: ["linear-metadata"] }),
         ...(comments
           ? [client.invalidateQueries({ queryKey: ["linear-comments"] })]

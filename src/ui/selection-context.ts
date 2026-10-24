@@ -8,7 +8,25 @@ import type { LinearIssueSummary } from "../shared/linear";
 import { selectionIssueSchema } from "./shared-context";
 import type { AnnotationTarget } from "./SelectionAnnotation";
 
-export function selectionIssueData(issue: IssueSummary | LinearIssueSummary) {
+export function selectionIssueData(
+  issue:
+    | Pick<
+        IssueSummary,
+        "source" | "repo" | "number" | "id" | "title" | "url" | "state"
+      >
+    | Pick<
+        LinearIssueSummary,
+        | "source"
+        | "connectionId"
+        | "workspaceId"
+        | "teamId"
+        | "issueId"
+        | "identifier"
+        | "title"
+        | "url"
+        | "state"
+      >,
+) {
   const context: SelectionIssue =
     issue.source === "github"
       ? {

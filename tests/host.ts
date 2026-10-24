@@ -28,36 +28,54 @@ import {
 
 const parameters = new URL(location.href).searchParams;
 const projectEntry = parameters.get("entry") === "project";
+const issuesEntry = parameters.get("entry") === "issues";
 const issueEntry = ["issue", "detail"].includes(parameters.get("entry") ?? "");
-const launchTool = issueEntry
-  ? parameters.get("entry") === "detail"
-    ? "arco_open_issue"
-    : "arco_show_issue"
-  : projectEntry
-    ? "arco_open_project"
-    : "arco_open";
-const launchArguments = issueEntry
+const launchTool = issuesEntry
+  ? "arco_show_issues"
+  : issueEntry
+    ? parameters.get("entry") === "detail"
+      ? "arco_open_issue"
+      : "arco_show_issue"
+    : projectEntry
+      ? "arco_open_project"
+      : "arco_open";
+const launchArguments = issuesEntry
   ? {
-      target: nativeIssueTargetSchema.parse(
-        parameters.get("source") === "linear"
-          ? {
-              source: "linear",
-              connectionId: parameters.get("connectionId") ?? "default",
-              workspaceId:
-                parameters.get("workspaceId") ?? "fixture-linear-workspace",
-              teamId: parameters.get("teamId") ?? "fixture-linear-team",
-              issueId: `fixture-linear-${parameters.get("number") ?? "42"}`,
-            }
-          : {
-              source: "github",
-              repo: parameters.get("issueRepo") ?? "yu/Arco",
-              number: Number(parameters.get("number") ?? "42"),
-            },
-      ),
+      targets: z
+        .array(nativeIssueTargetSchema)
+        .min(2)
+        .max(10)
+        .parse(
+          parameters.has("targets")
+            ? JSON.parse(parameters.get("targets")!)
+            : [
+                { source: "github", repo: "yu/Arco", number: 42 },
+                { source: "github", repo: "yu/Arco", number: 43 },
+              ],
+        ),
     }
-  : !projectEntry && parameters.has("source")
-    ? { source: z.enum(["github", "linear"]).parse(parameters.get("source")) }
-    : {};
+  : issueEntry
+    ? {
+        target: nativeIssueTargetSchema.parse(
+          parameters.get("source") === "linear"
+            ? {
+                source: "linear",
+                connectionId: parameters.get("connectionId") ?? "default",
+                workspaceId:
+                  parameters.get("workspaceId") ?? "fixture-linear-workspace",
+                teamId: parameters.get("teamId") ?? "fixture-linear-team",
+                issueId: `fixture-linear-${parameters.get("number") ?? "42"}`,
+              }
+            : {
+                source: "github",
+                repo: parameters.get("issueRepo") ?? "yu/Arco",
+                number: Number(parameters.get("number") ?? "42"),
+              },
+        ),
+      }
+    : !projectEntry && parameters.has("source")
+      ? { source: z.enum(["github", "linear"]).parse(parameters.get("source")) }
+      : {};
 const projectKey = "1".repeat(64);
 
 const frame = document.querySelector<HTMLIFrameElement>("#arco")!;

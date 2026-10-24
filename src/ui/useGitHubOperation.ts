@@ -43,6 +43,7 @@ export function useGitHubOperation(
       }
       await Promise.all([
         client.invalidateQueries({ queryKey: ["issues"] }),
+        client.invalidateQueries({ queryKey: ["issue-set"] }),
         client.invalidateQueries({ queryKey: ["metadata"] }),
         client.invalidateQueries({ queryKey: ["github"] }),
         ...(issue

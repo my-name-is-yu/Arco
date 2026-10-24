@@ -1,0 +1,66 @@
+.inline-issue-tabs {
+  max-width: 680px;
+  border: 1px solid var(--arco-border);
+  border-radius: 14px;
+}
+.inline-issue-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 23px 0;
+  min-width: 0;
+}
+.inline-issue-tabs .inline-issue-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  min-width: 0;
+  max-width: min(160px, 100%);
+  padding: 3px 9px;
+  border: 1px solid var(--arco-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--arco-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.inline-issue-tabs .inline-issue-tab[aria-selected="true"] {
+  border-color: var(--arco-hover-border, var(--arco-border));
+  background: var(--arco-hover);
+  color: var(--arco-text);
+}
+.inline-issue-tabs .inline-issue-tab:hover {
+  color: var(--arco-text);
+}
+.inline-issue-tab-identifier {
+  flex-shrink: 0;
+}
+.inline-issue-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.inline-issue-tabs > [role="tabpanel"] {
+  min-width: 0;
+  border-radius: inherit;
+}
+.inline-issue-tabs > [role="tabpanel"] > .compact-mode {
+  max-width: none;
+  border: 0;
+  border-radius: inherit;
+  padding-top: 14px;
+}
+.inline-issue-tabs > .notice {
+  margin: 12px 23px 0;
+}
+@media (max-width: 440px) {
+  .inline-issue-tablist {
+    padding-inline: 16px;
+  }
+  .inline-issue-tabs > .notice {
+    margin-inline: 16px;
+  }
+}

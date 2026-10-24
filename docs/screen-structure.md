@@ -1,16 +1,17 @@
 # Screen structure and conversation behavior
 
-Arco uses an inline card for a particular issue and an expanded workspace for browsing and detailed work. Global and chat entries are launch contexts; inline and fullscreen are display modes. The host ultimately controls the rendered surface.
+Arco uses an inline card for a particular issue, compact inline tabs for several explicit issues, and an expanded workspace for browsing and detailed work. Global and chat entries are launch contexts; inline and fullscreen are display modes. The host ultimately controls the rendered surface.
 
 ## Entrances and display intent
 
-| Intent                                               | Entry and behavior                                               |
-| ---------------------------------------------------- | ---------------------------------------------------------------- |
-| Show an issue or report its current state            | `arco_show_issue` with an explicit native reference; inline card |
-| Explain, summarize, or update an issue through Codex | Data tools; no panel solely for the AI task                      |
-| Open an issue's details, or use **Open details**     | `arco_open_issue`; same issue in the expanded panel              |
-| Open the personal list                               | `arco_open`, optionally with an explicit provider                |
-| Open a GitHub repository list                        | `arco_open_project`                                              |
+| Intent                                               | Entry and behavior                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------- |
+| Show an issue or report its current state            | `arco_show_issue` with an explicit native reference; inline card    |
+| Show several explicit issues together                | `arco_show_issues` with 2–10 native references; compact inline tabs |
+| Explain, summarize, or update an issue through Codex | Data tools; no panel solely for the AI task                         |
+| Open an issue's details, or use **Open details**     | `arco_open_issue`; same issue in the expanded panel                 |
+| Open the personal list                               | `arco_open`, optionally with an explicit provider                   |
+| Open a GitHub repository list                        | `arco_open_project`                                                 |
 
 The initial card and subsequent issue cards use the same policy. Long descriptions expand inside the card rather than automatically opening a panel. A request for a more detailed explanation does not itself request a new screen.
 
@@ -45,6 +46,12 @@ Options and saves belong to the card's own repository/team even if another panel
 Free-form title/body editing, comments, relationships, project/cycle/milestone membership, due dates, estimates, custom fields, lists, and bulk operations are outside the card.
 
 Use text, shape, and color together. Preserve source status/label colors where available and use a neutral fallback rather than inventing semantics. Color must not be the sole way to distinguish a state or action.
+
+### Several issues in one conversation result
+
+`arco_show_issues` presents only the explicitly requested issues, in their supplied order, removing duplicate native references. Small rounded tabs show the native identifier and a shortened visual preview of the source title, without a status icon. The full title remains available through the accessible name and tooltip; the native state remains in the tooltip and accessible description. Tabs wrap on narrow cards and support arrow keys, Home, and End. Selecting a tab stays inline and displays that issue's existing card, including its description, native properties, quick operations, and **Open details**. The UI requests and renders the active issue's details separately from the presentation summaries. The server may read complete provider issues when preparing those summaries; this is not a guarantee of deferred provider body downloads. Description expansion is retained separately for each issue, without adding an inner reading scroll area.
+
+GitHub and Linear can appear together without sharing a workflow or synthesizing status values. The group stays attached to its original set when the active issue is opened in details; returning inline restores its selected tab. Tab selection does not attach context or rewrite saved provider preferences or the existing workspace layout. A selection within one tab retains that issue's native reference; a selection across tabs must not attach an arbitrary issue. A failed source read returns an error rather than a partial or broader set.
 
 ## Add to chat and annotations
 

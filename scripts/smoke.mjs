@@ -40,6 +40,7 @@ try {
     "arco_open",
     "arco_open_project",
     "arco_show_issue",
+    "arco_show_issues",
     "arco_open_issue",
     "arco_get_issue",
     "arco_comments",
@@ -98,6 +99,37 @@ try {
       assert.equal(shown.structuredContent.issue.source, target.source);
       assert(shown.structuredContent.issue.body);
     }
+  }
+  const groupTool = tools.tools.find(
+    (tool) => tool.name === "arco_show_issues",
+  );
+  assert.equal(groupTool._meta.ui.resourceUri, "ui://arco/issue-card");
+  assert.deepEqual(groupTool._meta["openai/ui"], {
+    preferredModelDisplayMode: "inline",
+  });
+  assert.equal(groupTool.annotations.readOnlyHint, true);
+  const grouped = await client.callTool({
+    name: "arco_show_issues",
+    arguments: {
+      targets: [
+        { source: "github", repo: "yu/Arco", number: 42 },
+        {
+          source: "linear",
+          connectionId: "default",
+          workspaceId: "fixture-linear-workspace",
+          teamId: "fixture-linear-team",
+          issueId: "fixture-linear-42",
+        },
+      ],
+    },
+  });
+  assert(!grouped.isError);
+  assert.equal(grouped.structuredContent.launch.issues.length, 2);
+  assert.equal(grouped.structuredContent.launch.issues[0].source, "github");
+  assert.equal(grouped.structuredContent.launch.issues[1].source, "linear");
+  for (const issue of grouped.structuredContent.launch.issues) {
+    assert.equal(issue.body, undefined);
+    assert.equal(issue.comments, undefined);
   }
   const personalLaunch = await client.callTool({
     name: "arco_open",

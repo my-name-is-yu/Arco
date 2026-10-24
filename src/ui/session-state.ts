@@ -66,6 +66,9 @@ export function useSessionState<T>(
 export function useSessionRef<T>(host: ArcoHost, key: string, initial: T) {
   return sessionValue(host, `ref:${key}`, () => ({ current: initial }));
 }
+export function setSessionState<T>(host: ArcoHost, key: string, value: T) {
+  stateCell(host, key, value).set(value);
+}
 export function useCommandSession(host: ArcoHost, source: "github" | "linear") {
   const [busy, setBusy] = useSessionState(
     host,

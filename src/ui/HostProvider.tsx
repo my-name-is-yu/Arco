@@ -54,7 +54,9 @@ export function HostProvider({
             predicate: (entry) => {
               const key = String(entry.queryKey[0]);
               return (
-                ["issue", "issues", "metadata", "github"].includes(key) ||
+                ["issue", "issues", "issue-set", "metadata", "github"].includes(
+                  key,
+                ) ||
                 [
                   "linear-scopes",
                   "linear-templates",
