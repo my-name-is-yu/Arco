@@ -1775,6 +1775,7 @@ test("bulk changes keep per-Issue results and report partial permission failures
   page,
 }) => {
   const app = issueFrame(page);
+  const writes: number[] = [];
   await app
     .getByRole("checkbox", { name: "Select yu/Arco #42 for bulk actions" })
     .check();
@@ -1786,7 +1787,13 @@ test("bulk changes keep per-Issue results and report partial permission failures
       name: string;
       arguments?: { number?: number };
     };
-    if (body.name === "arco_update_issue" && body.arguments?.number === 43) {
+    if (body.name === "arco_update_issue" && body.arguments?.number)
+      writes.push(body.arguments.number);
+    if (
+      body.name === "arco_update_issue" &&
+      body.arguments?.number === 43 &&
+      writes.filter((number) => number === 43).length === 1
+    ) {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -1804,6 +1811,8 @@ test("bulk changes keep per-Issue results and report partial permission failures
   await expect(app.locator(".bulk-results")).toContainText(
     "Fixture permission denied for #43",
   );
+  const bulk = app.getByRole("region", { name: "Bulk issue actions" });
+  await expect(bulk).toBeVisible();
   await app.getByRole("button", { name: "Closed", exact: true }).click();
   await expect(
     app.locator(".issue-row").filter({ hasText: firstTitle }),
@@ -1812,6 +1821,11 @@ test("bulk changes keep per-Issue results and report partial permission failures
   await expect(
     app.locator(".issue-row").filter({ hasText: secondTitle }),
   ).toBeVisible();
+  await bulk
+    .getByRole("button", { name: "Retry failed issues only", exact: true })
+    .click();
+  await expect(bulk).toHaveCount(0);
+  expect(writes).toEqual([42, 43, 43]);
 });
 
 test("Markdown tasks, comment edits, reactions, and label definitions use explicit source writes", async ({
@@ -1924,10 +1938,7 @@ test("Markdown tasks, comment edits, reactions, and label definitions use explic
   await bulk
     .getByRole("button", { name: "Apply to 1 issues", exact: true })
     .click();
-  await expect(
-    bulk.getByRole("button", { name: "Apply to 1 issues", exact: true }),
-  ).toBeEnabled();
-  await expect(bulk.locator(".bulk-results")).toHaveCount(0);
+  await expect(bulk).toHaveCount(0);
   expect(await events(page, "tool")).toContainEqual(
     expect.objectContaining({
       name: "arco_change_labels",
@@ -1937,9 +1948,6 @@ test("Markdown tasks, comment edits, reactions, and label definitions use explic
   await expect(
     app.getByRole("group", { name: "Labels", exact: true }),
   ).toContainText(labelName);
-  await bulk
-    .getByRole("button", { name: "Clear selection", exact: true })
-    .click();
   await definition
     .getByRole("button", { name: "Delete definition", exact: true })
     .click();

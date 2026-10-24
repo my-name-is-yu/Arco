@@ -88,14 +88,97 @@ test("bulk retry waits until a saved target has finished refreshing", async ({
     ).toHaveCount(0);
     await expect(retry).toBeEnabled();
     await retry.click();
-    await expect(retry).toHaveCount(0);
-    await expect(
-      bulk.getByRole("button", { name: "Apply to 2 issues", exact: true }),
-    ).toBeEnabled();
+    await expect(bulk).toHaveCount(0);
     expect(calls).toEqual([
       ["fixture-linear-42", "fixture-linear-43"],
       ["fixture-linear-43"],
     ]);
+  } finally {
+    release();
+  }
+});
+
+test("a saved-target refresh does not clear a newly changed selection", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let holdReads = false;
+  let refreshing = false;
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: { issueId?: string };
+    };
+    if (
+      input.name === "linear_get_issue" &&
+      input.arguments.issueId === "fixture-linear-42" &&
+      holdReads
+    ) {
+      refreshing = true;
+      await pending;
+    }
+    if (input.name !== "linear_bulk") return route.continue();
+    return route.fulfill({
+      json: {
+        content: [],
+        structuredContent: {
+          results: [42, 43].map((number) => ({
+            issueId: `fixture-linear-${number}`,
+            success: true,
+            saved: true,
+            retryable: false,
+            ...(number === 42
+              ? { refreshError: "Refresh this saved target." }
+              : {}),
+          })),
+        },
+      },
+    });
+  });
+  try {
+    await page.goto("/?source=linear&toolLimit=2");
+    const ui = page.frameLocator("#arco");
+    const checkbox = (number: number) =>
+      ui.getByRole("checkbox", {
+        name: `YU-${number} — select for bulk actions`,
+      });
+    for (const number of [42, 43]) await checkbox(number).check();
+    const bulk = ui.getByRole("region", { name: "Bulk Linear actions" });
+    await choose(bulk, "Bulk Linear action", "priority");
+    await choose(bulk, "Bulk Linear priority", "4");
+    await bulk
+      .getByRole("button", { name: "Apply to 2 issues", exact: true })
+      .click();
+    await expect(
+      bulk.getByRole("list", { name: "Saved issues requiring refresh" }),
+    ).toContainText("fixture-linear-42");
+    holdReads = true;
+    await bulk
+      .getByRole("button", { name: "Refresh saved issues", exact: true })
+      .click();
+    await expect.poll(() => refreshing).toBe(true);
+    await checkbox(43).uncheck();
+    const refreshed = page.waitForResponse((response) => {
+      if (!response.url().endsWith("/tool")) return false;
+      const input = response.request().postDataJSON() as {
+        name?: string;
+        arguments?: { issueId?: string };
+      };
+      return (
+        input.name === "linear_get_issue" &&
+        input.arguments?.issueId === "fixture-linear-42"
+      );
+    });
+    release();
+    await refreshed;
+    await choose(ui, "Issue source", "github");
+    await choose(ui, "Issue source", "linear");
+    await expect(bulk).toContainText("1 selected");
+    await expect(checkbox(42)).toBeChecked();
+    await expect(checkbox(43)).not.toBeChecked();
   } finally {
     release();
   }
@@ -195,10 +278,19 @@ for (const outcome of ["saved-refresh-failed", "uncertain"] as const) {
       await bulk
         .getByRole("button", { name: "Refresh saved issues", exact: true })
         .click();
-      await expect(retained).toHaveCount(0);
-      await expect(apply).toBeEnabled();
+      await expect(bulk).toHaveCount(0);
       expect(calls).toHaveLength(2);
+      for (const number of [42, 43])
+        await ui
+          .getByRole("checkbox", {
+            name: `YU-${number} — select for bulk actions`,
+          })
+          .check();
+      await expect(
+        bulk.getByRole("list", { name: "Failed issues" }),
+      ).toHaveCount(0);
     }
+    await choose(bulk, "Bulk Linear action", "priority");
     await choose(bulk, "Bulk Linear priority", "3");
     await expect(apply).toBeEnabled();
   });

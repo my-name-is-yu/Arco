@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import type {
@@ -91,6 +92,19 @@ export function BulkActions({
     lock,
     requests: retryIds,
   } = useCommandSession(host, "github");
+  useEffect(() => {
+    if (
+      !busy &&
+      !error &&
+      issues.length > 0 &&
+      issues.every((issue) =>
+        results.some((result) => id(result) === id(issue) && result.ok),
+      )
+    ) {
+      setResults([]);
+      onClear();
+    }
+  }, [busy, error, issues, results, setResults, onClear]);
   const repos = [...new Set(issues.map((issue) => issue.repo))];
   const repo = repos.length === 1 ? repos[0] : undefined;
   const first = issues[0];
@@ -186,7 +200,7 @@ export function BulkActions({
     lock.current = true;
     setBusy(true);
     onBusy(true);
-    setResults([]);
+    setResults(onlyFailed ? results.filter((result) => result.ok) : []);
     setError("");
     try {
       if (advanced) {
@@ -225,7 +239,7 @@ export function BulkActions({
           ...patch,
         });
         retryIds.delete(operation);
-        setResults(result.results);
+        setResults((previous) => [...previous, ...result.results]);
         await Promise.all(
           targets.map((issue) =>
             client.invalidateQueries({
@@ -514,8 +528,7 @@ export function BulkActions({
         </p>
       )}
       <Button
-        color="secondary"
-        variant="outline"
+        color="primary"
         size="sm"
         block
         disabled={busy || !ready}

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { ArcoHost } from "../shared/contracts";
 import { useSessionState } from "./session-state";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
@@ -68,6 +69,22 @@ export function LinearBulkActions({
     (result) => result.retryable === true,
   );
   const refreshFailures = results.filter((result) => result.refreshError);
+  useEffect(() => {
+    if (
+      !busy &&
+      !refreshing &&
+      ids.length > 0 &&
+      ids.every((id) =>
+        results.some(
+          (result) =>
+            result.issueId === id && result.success && !result.refreshError,
+        ),
+      )
+    ) {
+      setResults([]);
+      onClear();
+    }
+  }, [busy, refreshing, ids, results, setResults, onClear]);
   const changeValue = (next: string) => {
     setValue(next);
     setResults([]);
@@ -334,8 +351,7 @@ export function LinearBulkActions({
         </p>
       )}
       <Button
-        color="secondary"
-        variant="outline"
+        color="primary"
         size="sm"
         block
         disabled={

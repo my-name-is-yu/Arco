@@ -1230,28 +1230,29 @@ test("Linear bulk labels, priority, estimate, and due dates preserve per-Issue r
   page,
 }) => {
   const ui = app(page);
-  await ui
-    .getByRole("checkbox", { name: "YU-42 — select for bulk actions" })
-    .check();
-  await ui
-    .getByRole("checkbox", { name: "YU-43 — select for bulk actions" })
-    .check();
   const bulk = ui.getByRole("region", { name: "Bulk Linear actions" });
   for (const [action, control, value] of [
     ["priority", "Bulk Linear priority", "4"],
     ["estimate", "Bulk Linear estimate", "5"],
     ["label-add", "Bulk Linear label", "linear-label-bug"],
   ] as const) {
+    for (const number of [42, 43])
+      await ui
+        .getByRole("checkbox", {
+          name: `YU-${number} — select for bulk actions`,
+        })
+        .check();
     await choose(bulk, "Bulk Linear action", action);
     await choose(bulk, control, value);
     await bulk
       .getByRole("button", { name: "Apply to 2 issues", exact: true })
       .click();
-    await expect(
-      bulk.getByRole("button", { name: "Apply to 2 issues", exact: true }),
-    ).toBeEnabled();
-    await expect(bulk.locator(".bulk-results")).toHaveCount(0);
+    await expect(bulk).toHaveCount(0);
   }
+  for (const number of [42, 43])
+    await ui
+      .getByRole("checkbox", { name: `YU-${number} — select for bulk actions` })
+      .check();
   await choose(bulk, "Bulk Linear action", "due-date");
   await bulk
     .getByLabel("Bulk Linear due date", { exact: true })
@@ -1259,6 +1260,7 @@ test("Linear bulk labels, priority, estimate, and due dates preserve per-Issue r
   await bulk
     .getByRole("button", { name: "Apply to 2 issues", exact: true })
     .click();
+  await expect(bulk).toHaveCount(0);
   await moreProperties(ui);
   await expect(ui.getByLabel("Linear Due date", { exact: true })).toHaveValue(
     "2026-11-02",
@@ -2534,10 +2536,7 @@ test("Linear mixed bulk outcomes show only failed issues and retry only those fa
   await bulk
     .getByRole("button", { name: "Retry failed issues only", exact: true })
     .click();
-  await expect(
-    bulk.getByRole("button", { name: "Apply to 2 issues", exact: true }),
-  ).toBeEnabled();
-  await expect(failures).toHaveCount(0);
+  await expect(bulk).toHaveCount(0);
   expect(calls).toEqual([
     ["fixture-linear-42", "fixture-linear-43"],
     ["fixture-linear-43"],
