@@ -1,7 +1,31 @@
 import { build } from "esbuild";
+import assert from "node:assert/strict";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+
+await rm("dist/npm", { recursive: true, force: true });
+const project = JSON.parse(await readFile("package.json", "utf8"));
+const marketplace = JSON.parse(
+  await readFile(".agents/plugins/marketplace.json", "utf8"),
+);
+const source = marketplace.plugins.find(
+  (plugin) => plugin.name === "arco",
+).source;
+assert.equal(source.source, "npm");
+assert.equal(
+  source.version,
+  project.version,
+  "marketplace version must match package.json",
+);
+for (const path of ["plugin/plugin.json", "plugin/.codex-plugin/plugin.json"]) {
+  const manifest = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(
+    manifest.version,
+    project.version,
+    `${path} version must match package.json`,
+  );
+}
 
 await rm("dist/plugin", { recursive: true, force: true });
 await mkdir("dist/plugin", { recursive: true });
@@ -52,6 +76,72 @@ for (const name of runtimePackages)
   await cp(join("node_modules", name), join("dist/plugin/node_modules", name), {
     recursive: true,
   });
+const dependencies = {};
+for (const name of runtimePackages) {
+  const metadata = JSON.parse(
+    await readFile(
+      join("dist/plugin/node_modules", name, "package.json"),
+      "utf8",
+    ),
+  );
+  dependencies[name] = metadata.version;
+}
+await writeFile(
+  "dist/plugin/package.json",
+  JSON.stringify(
+    {
+      name: source.package,
+      version: project.version,
+      description: "GitHub and Linear issue client for Codex.",
+      type: "module",
+      license: project.license,
+      repository: project.repository,
+      homepage: "https://github.com/my-name-is-yu/Arco#readme",
+      engines: project.engines,
+      os: [process.platform],
+      cpu: [process.arch],
+      files: [
+        "plugin.json",
+        ".codex-plugin/",
+        "mcp.json",
+        ".mcp.json",
+        "server.mjs",
+        "arco.html",
+        "skills/",
+        "assets/",
+        "runtime-platform.json",
+        "THIRD_PARTY_NOTICES.txt",
+      ],
+      dependencies,
+      bundleDependencies: runtimePackages,
+      publishConfig: {
+        access: "public",
+        registry: "https://registry.npmjs.org/",
+      },
+    },
+    null,
+    2,
+  ) + "\n",
+);
+await mkdir("dist/.agents/plugins", { recursive: true });
+await writeFile(
+  "dist/.agents/plugins/marketplace.json",
+  JSON.stringify(
+    {
+      name: "arco-local",
+      plugins: [
+        {
+          name: "arco",
+          source: { source: "local", path: "./plugin" },
+          policy: { installation: "AVAILABLE", authentication: "ON_USE" },
+          category: "Productivity",
+        },
+      ],
+    },
+    null,
+    2,
+  ) + "\n",
+);
 await writeFile(
   "dist/plugin/runtime-platform.json",
   JSON.stringify(

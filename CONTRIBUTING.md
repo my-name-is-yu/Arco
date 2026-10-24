@@ -49,13 +49,39 @@ npm run check
 npm run test:browser:smoke
 ```
 
-`check` runs static and documentation checks, unit/service tests, builds, MCP smoke checks, and production artifact validation. The browser smoke suite covers critical interactions. Both must pass. Run affected browser specs locally for behavior changes; use `npm run test:browser` when a full regression check is needed. Documentation-only pushes and pull requests do not start CI: run `npm run check:docs` locally and verify any commands you changed. State exactly what you checked and disclose anything you could not verify.
+`check` runs static and documentation checks, unit/service tests, builds, MCP smoke checks, and production artifact and npm tarball validation. The browser smoke suite covers critical interactions. Both must pass. Run affected browser specs locally for behavior changes; use `npm run test:browser` when a full regression check is needed. Documentation-only pushes and pull requests do not start CI: run `npm run check:docs` locally and verify any commands you changed. State exactly what you checked and disclose anything you could not verify.
 
 Push and pull-request CI always runs `check` and the browser smoke suite, with a target duration of about three minutes and a five-minute job limit. A newer run cancels an older run of the same event type and branch or pull request. Full browser validation runs only through **Actions → Quality → Run workflow**, with a twenty-minute job limit; it has no nightly or release-publication trigger. Manual runs are separate from push and pull-request runs, so routine CI cannot cancel a full validation.
 
 Before publishing a release, manually run the Quality workflow on its intended branch or tag and confirm that the full suite passes for the exact commit being released. Repeat full validation if that commit changes.
 
 Use `npm run dev` to build and start the fictional fixture host for routine development. `npm run dev:fixture` starts an existing build; rebuild after source changes. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering. Native credential tests can skip when an OS credential store is unavailable; report skipped checks.
+
+## Publishing the plugin
+
+Git tracks source and the npm-backed marketplace catalog. Publish the built plugin as `arco-codex-plugin`; keep tarballs, native binaries, and `dist/` out of Git. The development root package remains private.
+
+On macOS with Apple Silicon, run:
+
+```sh
+npm ci
+npm run package:plugin
+```
+
+This builds and validates the production artifact, packs it into `dist/npm/`, and starts the extracted production server outside the checkout. The package check verifies bundled native module loading and offline MCP tools/resources without installing dependencies or calling providers. It does not verify OS credential-store operations, provider authorization, or Codex desktop rendering. The first prebuilt release supports macOS Apple Silicon only.
+
+Keep the root package version, plugin manifest versions, and catalog's exact npm version aligned on a release branch. Complete the manual Quality run for the exact release commit before publishing. Keep the default branch's catalog on the already-published version until the matching new npm package is available.
+
+For the first publication, authenticate to npm with an account that can publish the package name, then publish the verified tarball. For version `0.1.0`:
+
+```sh
+npm login
+npm publish ./dist/npm/arco-codex-plugin-0.1.0.tgz --access public --ignore-scripts
+```
+
+The first publication is pending. Once the package exists, configure its npm trusted publisher for GitHub Actions repository `my-name-is-yu/Arco`, workflow `release.yml`, and environment `npm`. Enable direct `npm publish` under the publisher's **Allowed actions**. Set up that GitHub environment for the maintainers who may release. Store no npm token in the repository.
+
+For later releases, prepare and validate the release branch, push the matching `v<version>` tag, and manually run the Release workflow on that tag. It requires a successful manual Quality run for the same commit, builds and validates the macOS arm64 package, then publishes the verified tarball using npm trusted publishing. Confirm that the exact version is available from npm before merging the catalog version change into the default branch. This order also applies to the first manual publication.
 
 ## Keep PRs easy to review
 

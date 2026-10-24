@@ -4,7 +4,7 @@
     "arco": {
       "type": "stdio",
       "command": "node",
-      "args": ["./server.mjs"]
+      "args": ["${PLUGIN_ROOT}/server.mjs"]
     }
   }
 }

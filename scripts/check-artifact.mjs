@@ -3,11 +3,13 @@ import { readFile, readdir } from "node:fs/promises";
 import { parse } from "acorn";
 import postcss from "postcss";
 import { Buffer } from "node:buffer";
+import { join } from "node:path";
 
-const html = await readFile("dist/plugin/arco.html", "utf8");
-const server = await readFile("dist/plugin/server.mjs", "utf8");
+const directory = process.argv[2] ?? "dist/plugin";
+const html = await readFile(join(directory, "arco.html"), "utf8");
+const server = await readFile(join(directory, "server.mjs"), "utf8");
 assert.equal(
-  await readFile("dist/plugin/LICENSE", "utf8"),
+  await readFile(join(directory, "LICENSE"), "utf8"),
   await readFile("LICENSE", "utf8"),
   "project license missing or changed in plugin artifact",
 );
@@ -74,7 +76,7 @@ for (const [, js] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
   }
   walk(ast);
 }
-const files = await readdir("dist/plugin", { recursive: true });
+const files = await readdir(directory, { recursive: true });
 assert(
   !files.some((file) => /\.map$|\.env|fixture/.test(file)),
   "development/secret artifact",

@@ -1,0 +1,81 @@
+name: Publish npm plugin
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish verified macOS arm64 package
+    runs-on: macos-15
+    environment: npm
+    timeout-minutes: 15
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Verify release tag and publishing environment
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { execFileSync } from "node:child_process";
+          import { readFile } from "node:fs/promises";
+          const { version } = JSON.parse(await readFile("package.json", "utf8"));
+          assert.equal(process.env.GITHUB_REF, `refs/tags/v${version}`, "Run this workflow on the matching version tag.");
+          assert.equal(process.platform, "darwin");
+          assert.equal(process.arch, "arm64");
+          const npmVersion = execFileSync("npm", ["--version"], { encoding: "utf8" }).trim();
+          const [major, minor, patch] = npmVersion.split(".").map(Number);
+          assert(major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1))), "Trusted publishing requires npm >=11.5.1.");
+          console.log(`Releasing ${version} with npm ${npmVersion} on macOS arm64.`);
+          NODE
+
+      - name: Require full Quality validation for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/quality.yml/runs" \
+            -f event=workflow_dispatch -f status=success -f head_sha="$GITHUB_SHA" -f per_page=100 \
+            > "$RUNNER_TEMP/arco-quality-runs.json"
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFile } from "node:fs/promises";
+          const { workflow_runs } = JSON.parse(await readFile(`${process.env.RUNNER_TEMP}/arco-quality-runs.json`, "utf8"));
+          const validated = workflow_runs.some(run => run.head_sha === process.env.GITHUB_SHA && run.event === "workflow_dispatch" && run.conclusion === "success");
+          assert(validated, "Run the Quality workflow manually and confirm the full suite passes for this exact commit before publishing.");
+          NODE
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build and validate the publishable archive
+        run: npm run package:plugin
+
+      - name: Publish the verified archive with npm trusted publishing
+        shell: bash
+        run: |
+          shopt -s nullglob
+          archives=(dist/npm/*.tgz)
+          if [[ ${#archives[@]} -ne 1 ]]; then
+            echo "Expected exactly one verified npm archive." >&2
+            exit 1
+          fi
+          npm publish "${archives[0]}" --access public --provenance --ignore-scripts --registry=https://registry.npmjs.org

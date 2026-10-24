@@ -32,22 +32,37 @@ Arco runs a local Node.js MCP server and an embedded React interface. It connect
 
 GitHub and Linear remain the sources of truth. Arco preserves each provider's native fields and does not synchronize the two services.
 
-## Install from source
+## Install
 
 You need a Codex desktop environment with local plugin and interactive MCP UI support, the `codex` CLI, Git, npm, and Node.js **24.22.1 or later within Node 24**. The desktop app must be able to find `node` and, for GitHub, the [`gh` CLI](https://cli.github.com/) on its executable search path. The GitHub CLI must support `gh auth token --no-refresh`.
 
-Build on the target OS and architecture: the package includes a native keyring binding and cannot be copied across platforms. Windows and Linux require native validation before support can be claimed. Linear requires a working OS credential store; Linux needs an unlocked Secret Service. There is no plaintext credential fallback.
+The prebuilt npm package targets **macOS on Apple Silicon**. Node.js and the GitHub CLI are separate prerequisites. Linear requires a working OS credential store; there is no plaintext credential fallback.
+
+### Prebuilt plugin — first release pending
+
+The first `arco-codex-plugin` npm release is pending. Until it is published, use the source installation below. After publication, install through Arco's marketplace:
+
+```sh
+codex plugin marketplace add my-name-is-yu/Arco
+codex plugin add arco@arco-marketplace
+```
+
+The repository contains the distribution catalog; npm provides the built plugin and its native credential-storage binding. Installation does not build from source or run npm lifecycle scripts.
+
+### Install from source
+
+Build on the target OS and architecture: the source build includes its native keyring binding and cannot be copied across platforms. Windows and Linux require native validation before support can be claimed; Linux also needs an unlocked Secret Service.
 
 ```sh
 git clone https://github.com/my-name-is-yu/Arco.git
 cd Arco
 npm ci
 npm run build
-codex plugin marketplace add .
+codex plugin marketplace add ./dist
 codex plugin add arco@arco-local
 ```
 
-The local catalog points to generated `dist/plugin/`, so build before installing and keep the checkout for updates. Codex installs a cached copy. Restart the desktop app, start a new conversation, and run Arco's setup skill. Connect the service you want to use; either service can be used independently.
+The build generates a local catalog at `dist/.agents/plugins/marketplace.json` pointing to `dist/plugin/`. Build before installing and keep the checkout for updates. Both installation methods install a cached copy. Restart the desktop app, start a new conversation, and run Arco's setup skill. Connect the service you want to use; either service can be used independently.
 
 ## Connect your providers
 
@@ -71,23 +86,44 @@ Linear tokens are stored in the OS credential store. Your application's access s
 
 ## Update or remove
 
-Preserve local changes before updating, then refresh the source build and installed copy:
+For a prebuilt installation, refresh the catalog and installed plugin:
+
+```sh
+codex plugin marketplace upgrade arco-marketplace
+codex plugin add arco@arco-marketplace
+```
+
+For a source installation, preserve local changes before updating, then rebuild:
 
 ```sh
 git pull --ff-only
 npm ci
 npm run build
+```
+
+Existing source installations that registered the repository root with `codex plugin marketplace add .` need this one-time migration after rebuilding:
+
+```sh
+codex plugin marketplace remove arco-local
+codex plugin marketplace add ./dist
+```
+
+After the migration, and on subsequent source updates, refresh the installed copy:
+
+```sh
 codex plugin add arco@arco-local
 ```
 
-Restart the desktop app and start a new conversation to load the update. If native keyring loading fails, reinstall dependencies and rebuild on that OS and architecture. If Linear authorization fails, check the registered callback, available port 53187, and unlocked credential store.
+Restart the desktop app and start a new conversation to load the update. If native keyring loading fails, check that the prebuilt package supports your OS and architecture; for a source installation, reinstall dependencies and rebuild on that machine. If Linear authorization fails, check the registered callback, available port 53187, and unlocked credential store.
 
-To uninstall:
+To uninstall a prebuilt installation:
 
 ```sh
-codex plugin remove arco@arco-local
-codex plugin marketplace remove arco-local
+codex plugin remove arco@arco-marketplace
+codex plugin marketplace remove arco-marketplace
 ```
+
+For a source installation, use `arco@arco-local` and `arco-local` instead.
 
 Disconnect Linear in Arco first if you want to remove its stored credential. Uninstalling leaves local settings and drafts separate from provider grants; revoke Linear authorization through Linear when needed. Shared GitHub CLI credentials remain managed by `gh`.
 
@@ -98,7 +134,7 @@ npm ci
 npm run dev
 ```
 
-The fixture host builds and displays fictional issues without live provider access. It is a browser preview; actual Codex desktop behavior and live writes require separate checks. The build produces `dist/plugin/` for installation and `dist/dev/` for fixture development. Rebuild after source changes; `npm run dev:fixture` starts an existing build without hot reload.
+The fixture host builds and displays fictional issues without live provider access. It is a browser preview; actual Codex desktop behavior and live writes require separate checks. The build produces `dist/plugin/` for installation and `dist/dev/` for fixture development. Rebuild after source changes; `npm run dev:fixture` starts an existing build without hot reload. See [Publishing the plugin](CONTRIBUTING.md#publishing-the-plugin) for npm package validation and release setup.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for validation commands and contribution policy. Repository documentation, comments, and authored examples are written in English; provider content is displayed in its original language.
 

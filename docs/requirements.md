@@ -4,7 +4,7 @@ These requirements define Arco's product boundary and the behavior contributors 
 
 ## Purpose and distribution
 
-Arco lets a user find, read, and update GitHub and Linear issues while discussing the same work in Codex. It is distributed as MIT-licensed source with a manually installed local MCP plugin. Official public-directory submission is outside the current distribution plan.
+Arco lets a user find, read, and update GitHub and Linear issues while discussing the same work in Codex. It is distributed as MIT-licensed source and a local MCP plugin. A Git-backed marketplace catalog references the versioned, prebuilt npm package; generated artifacts and native binaries stay out of Git. The initial prebuilt target is macOS Apple Silicon, and source builds retain a generated local marketplace for development. Official public-directory submission is outside the current distribution plan.
 
 GitHub and Linear own issue records and permissions. Codex owns the conversation, message sending, and AI execution. Arco owns issue interaction, local preferences and drafts, and the handoff of explicitly selected context. Operation categories are defined in [Issue operations](issue-operations.md).
 

@@ -1,11 +1,13 @@
 {
-  "name": "arco-local",
+  "name": "arco-marketplace",
   "plugins": [
     {
       "name": "arco",
       "source": {
-        "source": "local",
-        "path": "./dist/plugin"
+        "source": "npm",
+        "package": "arco-codex-plugin",
+        "version": "0.1.0",
+        "registry": "https://registry.npmjs.org"
       },
       "policy": {
         "installation": "AVAILABLE",
