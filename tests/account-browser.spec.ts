@@ -469,23 +469,15 @@ test("a PR-only first page loads the next assigned page without broadening scope
   });
   await open(page);
   const frame = app(page);
-  await expect(frame.locator(".issue-list")).toContainText(
-    "No issues on this page",
-  );
+  await expect(
+    frame.getByRole("heading", { name: assignedTitle, exact: true }),
+  ).toBeVisible();
   await expect(
     frame.getByRole("button", {
       name: "View issues created by me",
       exact: true,
     }),
   ).toBeHidden();
-  await page.getByRole("button", { name: "Mock inline", exact: true }).click();
-  await expect(
-    frame.getByRole("heading", { name: "No issues on this page", exact: true }),
-  ).toBeVisible();
-  await frame.getByRole("button", { name: "Load more", exact: true }).click();
-  await expect(
-    frame.getByRole("heading", { name: assignedTitle, exact: true }),
-  ).toBeVisible();
   await expect(frame.locator(".issue-kicker")).toContainText("yu/Arco #42");
   const calls = await accountCalls(page);
   expect(calls.some((call) => call.page === 2)).toBe(true);

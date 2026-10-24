@@ -806,6 +806,42 @@ describe("reads and explicit fixtures", () => {
     expect(run.mock.calls[0][0][3]).toContain("sort=updated&order=desc");
   });
 
+  it("uses 100 lightweight search summaries and stops at GitHub's 1,000-result boundary", async () => {
+    const run = stubRun({
+      search: {
+        total_count: 1200,
+        incomplete_results: false,
+        items: Array.from({ length: 100 }, (_, index) =>
+          apiIssue({
+            number: index + 1,
+            body: { unexpected: "detail body is not parsed for a list" },
+            type: { unexpected: "detail type" },
+          }),
+        ),
+      },
+    });
+    const service = createGitHubService({ run });
+    const input = { repo: FIXTURE_REPO, query: "", state: "all" as const };
+    const ninth = await service.list({ ...input, page: 9 });
+    expect(ninth.issues).toHaveLength(100);
+    expect(ninth.hasMore).toBe(true);
+    expect(await service.list({ ...input, page: 10 })).toMatchObject({
+      page: 10,
+      hasMore: false,
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+    for (const [args] of run.mock.calls) {
+      expect(args[3]).toContain("per_page=100");
+      expect(args).toContain("--jq");
+      const projection = args[args.indexOf("--jq") + 1];
+      expect(projection).toContain("total_count, incomplete_results");
+      expect(projection).not.toMatch(
+        /\b(body|body_html|body_text|comments|reactions|type|state_reason)\b/,
+      );
+    }
+    expect(ninth.issues.every((issue) => !("body" in issue))).toBe(true);
+  });
+
   it("preserves the Issue when Projects permission is missing", async () => {
     const issue = await createGitHubService({
       run: stubRun({ projects: new Error("token=secret") }),

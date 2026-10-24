@@ -13,6 +13,7 @@ import {
   type GitHubService,
   type IssueDetail,
   type IssueRef,
+  type IssueSummary,
   type Label,
 } from "../shared/contracts.js";
 import type { LabelDefinition } from "../shared/github-operations";
@@ -47,6 +48,21 @@ export function isFixtureGitHubService(
 }
 
 export const FIXTURE_REPO = "yu/Arco";
+function listSummary(issue: IssueDetail): IssueSummary {
+  return {
+    repo: issue.repo,
+    number: issue.number,
+    source: issue.source,
+    id: issue.id,
+    title: issue.title,
+    state: issue.state,
+    updatedAt: issue.updatedAt,
+    url: issue.url,
+    author: issue.author,
+    labels: issue.labels,
+    assignees: issue.assignees,
+  };
+}
 /** Explicit development data, isolated from gh and never represented as a live connection. */
 export function createFixtureService(): FixtureGitHubService {
   const LABELS: Label[] = [
@@ -240,9 +256,11 @@ export function createFixtureService(): FixtureGitHubService {
         });
       return {
         issues: structuredClone(
-          matches.slice((input.page - 1) * 30, input.page * 30),
+          matches
+            .slice((input.page - 1) * 100, input.page * 100)
+            .map(listSummary),
         ),
-        hasMore: matches.length > input.page * 30,
+        hasMore: matches.length > input.page * 100,
         page: input.page,
       };
     },
@@ -275,9 +293,11 @@ export function createFixtureService(): FixtureGitHubService {
         });
       return {
         issues: structuredClone(
-          matches.slice((input.page - 1) * 30, input.page * 30),
+          matches
+            .slice((input.page - 1) * 100, input.page * 100)
+            .map(listSummary),
         ),
-        hasMore: matches.length > input.page * 30,
+        hasMore: matches.length > input.page * 100,
         page: input.page,
         scope: "account",
         filter: input.filter,

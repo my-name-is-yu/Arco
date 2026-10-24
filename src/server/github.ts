@@ -22,6 +22,7 @@ import {
   accountIssueRepo,
   apiCommentSchema,
   apiIssueSchema,
+  apiIssueSummarySchema,
   apiLabelSchema,
   apiRepositorySchema,
   commentDto,
@@ -38,6 +39,17 @@ import {
 } from "./github/transport";
 export { validateProjectStatus } from "./github/issue-writes";
 export { GitHubError, runGh, type GhRunner } from "./github/transport";
+
+const issuePageSize = 100;
+// gh still receives the native REST response; only summary fields cross stdout
+// into the server. Preserve every item and its PR marker for native pagination.
+const issueSummaryProjection = `{
+  node_id, number, title, state, updated_at, html_url,
+  user: (.user | if . == null then null else {login} end),
+  labels: [.labels[] | {id, name, color}],
+  assignees: [.assignees[] | {login}]
+} + (if has("repository_url") then {repository_url} else {} end)
+  + (if has("pull_request") then {pull_request: {}} else {} end)`;
 
 export function createGitHubService(
   options: {
@@ -228,14 +240,17 @@ export function createGitHubService(
       const state = input.state === "all" ? "" : `is:${input.state}`;
       const query =
         `repo:${input.repo} is:issue ${state} ${input.query}`.trim();
-      const endpoint = `search/issues?q=${encodeURIComponent(query)}&sort=${input.sort ?? "updated"}&order=${input.order ?? "desc"}&per_page=30&page=${input.page}`;
+      const endpoint = `search/issues?q=${encodeURIComponent(query)}&sort=${input.sort ?? "updated"}&order=${input.order ?? "desc"}&per_page=${issuePageSize}&page=${input.page}`;
       const response = parse(
         z.object({
           total_count: z.number(),
           incomplete_results: z.boolean(),
-          items: z.array(apiIssueSchema),
+          items: z.array(apiIssueSummarySchema),
         }),
-        await api("read", endpoint),
+        await transport.read(
+          endpoint,
+          `{total_count, incomplete_results, items: [.items[] | ${issueSummaryProjection}]}`,
+        ),
       );
       if (response.incomplete_results)
         throw new GitHubError(
@@ -250,17 +265,18 @@ export function createGitHubService(
                 `https://api.github.com/repos/${input.repo}`.toLowerCase(),
           )
           .map((issue) => summary(input.repo, issue)),
-        hasMore: input.page * 30 < Math.min(response.total_count, 1000),
+        hasMore:
+          input.page * issuePageSize < Math.min(response.total_count, 1000),
         page: input.page,
       };
     },
     async accountIssues(raw) {
       const input = accountIssuesInputSchema.parse(raw);
       const response = parse(
-        z.array(apiIssueSchema),
-        await api(
-          "read",
-          `issues?filter=${input.filter}&state=${input.state}&sort=${input.sort}&direction=${input.order}&per_page=30&page=${input.page}`,
+        z.array(apiIssueSummarySchema),
+        await transport.read(
+          `issues?filter=${input.filter}&state=${input.state}&sort=${input.sort}&direction=${input.order}&per_page=${issuePageSize}&page=${input.page}`,
+          `[.[] | ${issueSummaryProjection}]`,
         ),
       );
       return {
@@ -268,7 +284,7 @@ export function createGitHubService(
           .filter((issue) => issue.pull_request === undefined)
           .map((issue) => summary(accountIssueRepo(issue), issue)),
         // A full native page may have a next page. Filtering PRs must not hide it.
-        hasMore: response.length === 30,
+        hasMore: response.length === issuePageSize,
         page: input.page,
         scope: "account",
         filter: input.filter,

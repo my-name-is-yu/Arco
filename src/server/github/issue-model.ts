@@ -12,7 +12,7 @@ export const apiLabelSchema = z.object({
   color: z.string(),
 });
 
-export const apiIssueSchema = z.object({
+export const apiIssueSummarySchema = z.object({
   node_id: z.string(),
   number: z.number(),
   title: z.string(),
@@ -22,10 +22,13 @@ export const apiIssueSchema = z.object({
   user: z.object({ login: z.string() }).nullable(),
   labels: z.array(apiLabelSchema),
   assignees: z.array(z.object({ login: z.string() })),
-  body: z.string().nullable().optional(),
-  state_reason: z.string().nullable().optional(),
   pull_request: z.unknown().optional(),
   repository_url: z.string().optional(),
+});
+
+export const apiIssueSchema = apiIssueSummarySchema.extend({
+  body: z.string().nullable().optional(),
+  state_reason: z.string().nullable().optional(),
   type: z
     .object({ id: z.number().int().positive(), name: z.string() })
     .nullable()
@@ -68,7 +71,7 @@ export function commentDto(comment: z.infer<typeof apiCommentSchema>): Comment {
 
 export function summary(
   repo: string,
-  issue: z.infer<typeof apiIssueSchema>,
+  issue: z.infer<typeof apiIssueSummarySchema>,
 ): IssueSummary {
   if (issue.pull_request !== undefined)
     throw new GitHubError("This target is not an issue.", "invalid");
@@ -88,7 +91,7 @@ export function summary(
 }
 
 export function accountIssueRepo(
-  issue: z.infer<typeof apiIssueSchema>,
+  issue: z.infer<typeof apiIssueSummarySchema>,
 ): string {
   const match = /^https:\/\/api\.github\.com\/repos\/([^/?#]+\/[^/?#]+)$/i.exec(
     issue.repository_url ?? "",

@@ -6,6 +6,30 @@ import {
 } from "../src/server/github/transport";
 
 describe("GitHub transport contracts", () => {
+  it("applies an output projection only to explicit projected GET reads", async () => {
+    const run = vi.fn<GhRunner>(async () => null);
+    const transport = createGitHubTransport({ run, policy: "core" });
+    const projection = "[.[] | {node_id, title}]";
+    await transport.read("issues?per_page=100&page=1", projection);
+    await transport.request("read", "repos/owner/repo/issues/1");
+    await transport.request(
+      "read",
+      "repos/owner/repo/issues/1/comments?per_page=30&page=2",
+    );
+    await transport.query("query Detail { viewer { login } }", {});
+    await transport.request("write", "repos/owner/repo/issues/1", "PATCH", {
+      body: "Full body remains available",
+    });
+    expect(run.mock.calls[0][0]).toEqual(
+      expect.arrayContaining(["--method", "GET", "--jq", projection]),
+    );
+    expect(run.mock.calls[0][0]).not.toContain("--paginate");
+    expect(run.mock.calls[0][1]).toBeUndefined();
+    expect(
+      run.mock.calls.slice(1).every(([args]) => !args.includes("--jq")),
+    ).toBe(true);
+  });
+
   it("keeps the existing core and extended header policies, pagination, and JSON stdin", async () => {
     const run = vi.fn<GhRunner>(async () => null);
     const core = createGitHubTransport({ run, policy: "core" });

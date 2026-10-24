@@ -1,6 +1,6 @@
 # GitHub account Issues and repository discovery
 
-Verified: 2026-10-23. These reads use the existing public GitHub CLI authentication. They do not request new authorization, scan repositories individually, or fall back to a public GitHub search.
+Verified: 2026-10-24. These reads use the existing public GitHub CLI authentication. They do not request new authorization, scan repositories individually, or fall back to a public GitHub search.
 
 ## Initial account views
 
@@ -12,7 +12,13 @@ The input is `{filter?,state?,sort?,order?,page?}`. Filters are `assigned` (defa
 
 **Created by me** may include Issues opened in external open-source repositories. It is not necessarily a subset of **All account repositories**: Arco forwards these distinct native filters unchanged rather than restricting personal views to the discovered repository list.
 
-Each request reads one native page of 30 entries. GitHub may include pull requests; Arco removes them without changing the remaining source order. A PR-only full page therefore has `issues:[]` and `hasMore:true`, allowing the next native page. A full final page may require one extra empty-page read. The account feed does not inherit the Search API's 1,000-result cap, and Arco never scans all repositories or follows every page automatically.
+Each request reads one native page of up to 100 entries. GitHub may include pull requests; Arco removes them without changing the remaining source order. A PR-only full page therefore has `issues:[]` and `hasMore:true`, allowing the next native page. A full final page may require one extra empty-page read. The account feed does not inherit the Search API's 1,000-result cap. Arco keeps the native account endpoint and its explicit scopes instead of replacing them with a search or per-repository scan.
+
+List reads use GitHub CLI's `--jq` projection to keep only the fields required for issue summaries, native repository identity checks, pull-request exclusion, and pagination before the Node process parses the response. Bodies and detail-only data do not enter the list response. This reduces CLI-to-Arco response size; the REST response received by GitHub CLI still includes the body. Issue detail, comments, and image reads retain their separate contracts.
+
+In the expanded viewer, scrolling within 200px of the list's end loads the next page. A short or PR-only page can continue immediately, with at most three automatic additional pages per scroll demand. The `Load more` action is always available when more entries remain and renews that budget. Hidden and compact lists do not automatically continue, and a failed next page waits for an explicit retry. The count shows loaded Issues, not a claimed total.
+
+The 30-second poll and window-focus refresh run only while a single page is loaded. A multi-page list keeps its visible rows and can be updated with `Refresh`; source changes made in Arco still invalidate the relevant data. This avoids rereading every accumulated page every 30 seconds.
 
 The account endpoint has no full-text or Projects query parameter. The search field accepts a native GitHub Issue URL even in account scope and opens its exact repository and Issue. Full-text search is enabled after optional repository selection, using the existing `arco_list_issues` repository search and its native qualifiers. Its [Search API limits](https://docs.github.com/en/rest/search/search#about-search), including 1,000 results per query and incomplete-result handling, remain separate. `involves:@me` is [a participation search](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests#search-by-a-user-thats-involved-in-an-issue-or-pull-request), and is not substituted for either account view.
 
@@ -43,7 +49,7 @@ Saved account preferences contain only `filter`, `state`, `sort`, and `order`. E
 
 The fixture has its own explicitly local feed: #42 is assigned to fixture-user, #42/#41 were created by that user, and #43 contains a source mention. A real authentication failure or empty account feed never returns fixture data.
 
-Read-only production smoke at **07:52 JST** used the current GitHub service and exactly six GET requests, including connection and repository discovery. It recorded counts only:
+Historical read-only production smoke on **2026-10-23 at 07:52 JST** used the then-current GitHub service and exactly six GET requests, including connection and repository discovery. It recorded counts only:
 
 | Open Issue view, first page | Issues after PR removal | More native entries |
 | --------------------------- | ----------------------: | ------------------- |

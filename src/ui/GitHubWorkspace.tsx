@@ -78,6 +78,7 @@ import {
   mergeCommentPages,
 } from "./github-comments";
 import type { Comment } from "../shared/contracts";
+import { useIssueListContinuation } from "./useIssueListContinuation";
 
 const issueKey = (issue: IssueRef) =>
   ["issue", issue.repo, issue.number] as const;
@@ -381,7 +382,7 @@ export function GitHubWorkspace({
     setShowDetail(false);
   };
   const listScope = `${connectionIdentity}|${repo || `@account:${accountView}`}|${query}|${state}|${sort}|${order}`;
-  const issues = useInfiniteQuery({
+  const issues = useInfiniteQuery<IssuePage>({
     queryKey: [
       "issues",
       connection.data?.mode,
@@ -394,7 +395,14 @@ export function GitHubWorkspace({
       sort,
       order,
     ],
-    refetchInterval: 30_000,
+    // Replaying a long, scrolled list every 30s grows with every loaded page.
+    // Keep automatic refresh bounded; Refresh still updates the complete list.
+    refetchInterval: (query) =>
+      query.state.data?.pages.length === 1 && query.state.status !== "error"
+        ? 30_000
+        : false,
+    refetchOnWindowFocus: (query) =>
+      query.state.data?.pages.length === 1 && query.state.status !== "error",
     queryFn: ({ pageParam }) =>
       repo
         ? host.call<IssuePage>("arco_list_issues", {
@@ -427,6 +435,16 @@ export function GitHubWorkspace({
         : [],
     [issues.data, connection.data?.connected],
   );
+  const loadMoreIssues = useIssueListContinuation({
+    listRef,
+    scope: listScope,
+    enabled: mode === "fullscreen" && connection.data?.connected === true,
+    hasNextPage: issues.hasNextPage,
+    isFetching: issues.isFetching,
+    isError: issues.isError,
+    pageCount: issues.data?.pages.length ?? 0,
+    loadNext: () => issues.fetchNextPage({ cancelRefetch: false }),
+  });
   useEffect(() => {
     if (!selected && rows[0])
       setSelected({ repo: rows[0].repo, number: rows[0].number });
@@ -858,8 +876,8 @@ export function GitHubWorkspace({
                 variant="outline"
                 size="sm"
                 loading={issues.isFetchingNextPage}
-                disabled={issues.isFetchingNextPage}
-                onClick={() => void issues.fetchNextPage()}
+                disabled={issues.isFetching}
+                onClick={loadMoreIssues}
               >
                 Load more
               </Button>
@@ -1256,7 +1274,7 @@ export function GitHubWorkspace({
           </span>
           <span>
             {rows.length} {rows.length === 1 ? "issue" : "issues"}
-            {issues.hasNextPage ? "+" : ""}
+            {issues.hasNextPage ? " loaded" : ""}
           </span>
         </div>
         <div
@@ -1306,7 +1324,7 @@ export function GitHubWorkspace({
               </Button>
             </div>
           )}
-          {issues.isError && (
+          {issues.isError && !issues.isFetchNextPageError && (
             <AsyncState kind="error" className="list-message inline-error">
               {errorText(issues.error)}
               <button
@@ -1384,13 +1402,20 @@ export function GitHubWorkspace({
             </div>
           )}
           {issues.hasNextPage && (
-            <button
-              className="load-more"
-              disabled={issues.isFetchingNextPage}
-              onClick={() => void issues.fetchNextPage()}
-            >
-              {issues.isFetchingNextPage ? "Loading…" : "Load more"}
-            </button>
+            <>
+              {issues.isFetchNextPageError && (
+                <p className="list-message inline-error" role="alert">
+                  Could not load more issues: {errorText(issues.error)}
+                </p>
+              )}
+              <button
+                className="load-more"
+                disabled={issues.isFetching}
+                onClick={loadMoreIssues}
+              >
+                {issues.isFetchingNextPage ? "Loading…" : "Load more"}
+              </button>
+            </>
           )}
         </div>
         {bulkIssues.length > 0 && (

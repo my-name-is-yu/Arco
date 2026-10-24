@@ -182,9 +182,9 @@ export function createArcoServer({
     arco_connection:
       "Check existing public gh connection. Never returns credentials.",
     arco_list_issues:
-      "List GitHub issues in an explicit repository. Excludes pull requests.",
+      "List one lightweight page of up to 100 GitHub issues in an explicit repository. Excludes pull requests; use hasMore to continue.",
     arco_account_issues:
-      "List connected-account issues without repository input. Default assigned; explicit created, mentioned, or all accessible filters. Supports state/sort/page, not full-text search; excludes pull requests. A full page may require one final empty page request.",
+      "Read one lightweight native page of up to 100 connected-account entries, then exclude pull requests. Default assigned; explicit created, mentioned, or all accessible filters. Supports state/sort/page, not full-text search. Few or no issues with hasMore means another page is available; a full page may require one final empty page request.",
     arco_repositories:
       "Discover repositories the authenticated account can explicitly access as owner, collaborator or organization member, 30 at a time. Does not scan repository issues or search public GitHub.",
     arco_get_issue:

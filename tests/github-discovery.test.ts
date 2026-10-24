@@ -64,7 +64,7 @@ describe("authenticated account discovery", () => {
     });
     expect(run).toHaveBeenCalledTimes(1);
     expect(run.mock.calls[0][0][3]).toBe(
-      "issues?filter=all&state=open&sort=updated&direction=desc&per_page=30&page=1",
+      "issues?filter=all&state=open&sort=updated&direction=desc&per_page=100&page=1",
     );
     expect(run.mock.calls[0][0]).toContain("GET");
     expect(run.mock.calls[0][0]).not.toContain("--paginate");
@@ -74,10 +74,10 @@ describe("authenticated account discovery", () => {
   it("preserves pagination through a PR-only page without fetching indefinitely or applying search's 1,000-result cap", async () => {
     const run = vi.fn<GhRunner>(async (args) =>
       args[3].endsWith("page=35")
-        ? Array.from({ length: 30 }, (_, index) =>
+        ? Array.from({ length: 100 }, (_, index) =>
             issue("owner/repository", index + 1, { pull_request: {} }),
           )
-        : [issue("second/repository", 1071)],
+        : [issue("second/repository", 3501)],
     );
     const service = createGitHubService({ run });
     expect(
@@ -88,7 +88,7 @@ describe("authenticated account discovery", () => {
       await service.accountIssues({ ...accountInput, page: 36 }),
     ).toMatchObject({
       page: 36,
-      issues: [{ repo: "second/repository", number: 1071 }],
+      issues: [{ repo: "second/repository", number: 3501 }],
       hasMore: false,
     });
     expect(run).toHaveBeenCalledTimes(2);
@@ -104,7 +104,7 @@ describe("authenticated account discovery", () => {
       page: 4,
     });
     expect(run.mock.calls[0][0][3]).toBe(
-      "issues?filter=assigned&state=all&sort=comments&direction=asc&per_page=30&page=4",
+      "issues?filter=assigned&state=all&sort=comments&direction=asc&per_page=100&page=4",
     );
     await expect(
       callDataTool(service, "arco_account_issues", { query: "private bug" }),
@@ -131,6 +131,47 @@ describe("authenticated account discovery", () => {
         GitHubError,
       );
     }
+  });
+
+  it("requests only summaries across stdout and keeps detail fields out of the account page", async () => {
+    const run = vi.fn<GhRunner>(async () => [
+      issue("owner/repo", 1, {
+        body: { unexpected: "detail data is not parsed for a list" },
+        comments: [{ body: "Detailed comment" }],
+        reactions: { total_count: 100 },
+        type: { unexpected: "detail type" },
+        state_reason: { unexpected: "detail state" },
+      }),
+    ]);
+    const result = await createGitHubService({ run }).accountIssues(
+      accountInput,
+    );
+    expect(result.issues).toEqual([
+      {
+        repo: "owner/repo",
+        source: "github",
+        number: 1,
+        id: "I_owner/repo_1",
+        title: "Source title",
+        state: "open",
+        updatedAt: "2026-10-23T00:00:00Z",
+        url: "https://github.com/owner/repo/issues/1",
+        author: "source-user",
+        labels: [],
+        assignees: [],
+      },
+    ]);
+    expect(run).toHaveBeenCalledOnce();
+    const args = run.mock.calls[0][0];
+    const projection = args[args.indexOf("--jq") + 1];
+    expect(args).toContain("--jq");
+    expect(projection).toContain('has("pull_request")');
+    expect(projection).toContain("repository_url");
+    expect(projection).toContain("labels: [.labels[] | {id, name, color}]");
+    expect(projection).toContain("assignees: [.assignees[] | {login}]");
+    expect(projection).not.toMatch(
+      /\b(body|body_html|body_text|comments|reactions|type|state_reason)\b/,
+    );
   });
 
   it("discovers one native repository page at a time, including access and availability flags", async () => {
