@@ -290,8 +290,7 @@ export function GitHubRelations({
           </label>
         )}
         <Button
-          color="secondary"
-          variant="outline"
+          color="primary"
           size="sm"
           type="submit"
           disabled={action.busy || !valid}

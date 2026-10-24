@@ -20,6 +20,13 @@ import { FieldEditor } from "./GitHubProperties";
 import { SingleSelect } from "./SingleSelect";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { useCommandSession, useSessionState } from "./session-state";
+import {
+  bulkIssueId,
+  checkBulkChange,
+  isRejectedBulkCall,
+  type BulkAttempt,
+  type UnconfirmedBulkAttempt,
+} from "./github-bulk-recovery";
 
 export interface BulkIssue extends IssueRef {
   title: string;
@@ -35,8 +42,8 @@ type Action =
   | "issue-type"
   | "issue-field"
   | "project-field";
-type Result = IssueRef & { ok: boolean; error?: string };
-const id = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
+type Result = IssueRef & { ok: boolean; error?: string; retryable?: boolean };
+const id = bulkIssueId;
 
 export function BulkActions({
   host,
@@ -52,6 +59,9 @@ export function BulkActions({
   const client = useQueryClient();
   const connection = client.getQueryData<Connection>(["connection"]);
   const identity = `${connection?.mode ?? "pending"}:${connection?.account ?? "disconnected"}`;
+  const [unconfirmed, setUnconfirmed] = useSessionState<
+    UnconfirmedBulkAttempt[]
+  >(host, `github:bulk:unconfirmed:${identity}`, []);
   const sessionKey = `github:bulk:${JSON.stringify([identity, issues.map(id).sort()])}`;
   const [action, setAction] = useSessionState<Action>(
     host,
@@ -85,17 +95,28 @@ export function BulkActions({
     [],
   );
   const failures = results.filter((result) => !result.ok);
+  const relevantUnconfirmed = unconfirmed.filter((pending) =>
+    pending.targets.some((target) =>
+      issues.some((issue) => id(issue) === id(target)),
+    ),
+  );
+  const hasUnconfirmed = relevantUnconfirmed.length > 0;
+  const retryableFailures = failures.filter(
+    (result) =>
+      result.retryable &&
+      !relevantUnconfirmed.some(
+        (pending) =>
+          !pending.replay &&
+          pending.targets.some((target) => id(target) === id(result)),
+      ),
+  );
   const [error, setError] = useSessionState(host, `${sessionKey}:error`, "");
-  const {
-    busy,
-    setBusy,
-    lock,
-    requests: retryIds,
-  } = useCommandSession(host, "github");
+  const { busy, setBusy, lock } = useCommandSession(host, "github");
   useEffect(() => {
     if (
       !busy &&
       !error &&
+      !hasUnconfirmed &&
       issues.length > 0 &&
       issues.every((issue) =>
         results.some((result) => id(result) === id(issue) && result.ok),
@@ -104,7 +125,7 @@ export function BulkActions({
       setResults([]);
       onClear();
     }
-  }, [busy, error, issues, results, setResults, onClear]);
+  }, [busy, error, hasUnconfirmed, issues, results, setResults, onClear]);
   const repos = [...new Set(issues.map((issue) => issue.repo))];
   const repo = repos.length === 1 ? repos[0] : undefined;
   const first = issues[0];
@@ -189,136 +210,300 @@ export function BulkActions({
         : advanced
           ? value !== ""
           : values.includes(value)));
+  const operation = JSON.stringify([
+    sessionKey,
+    action,
+    value,
+    fieldId,
+    projectId,
+    fieldValue,
+    fieldReady,
+  ]);
+  const changeDraft = () => {
+    setResults([]);
+    setError("");
+  };
+  const mergeResults = (next: Result[]) => {
+    setResults((previous) => [
+      ...previous.filter(
+        (old) => !next.some((result) => id(result) === id(old)),
+      ),
+      ...next,
+    ]);
+  };
+  const removeUnconfirmed = (attempt: BulkAttempt) => {
+    setUnconfirmed((previous) =>
+      previous.filter(
+        (pending) => pending.attempt.args.requestId !== attempt.args.requestId,
+      ),
+    );
+  };
+  const rememberUnconfirmed = (pending: UnconfirmedBulkAttempt) => {
+    setUnconfirmed((previous) => [
+      ...previous.filter(
+        (old) => old.attempt.args.requestId !== pending.attempt.args.requestId,
+      ),
+      pending,
+    ]);
+  };
+  const refresh = async (targets: IssueRef[]) => {
+    await Promise.all([
+      ...targets.map((issue) =>
+        client.invalidateQueries({
+          queryKey: ["issue", issue.repo, issue.number],
+        }),
+      ),
+      client.invalidateQueries({ queryKey: ["issues"] }),
+      client.invalidateQueries({ queryKey: ["github"] }),
+      client.invalidateQueries({ queryKey: ["issue-set"] }),
+    ]);
+  };
+  const applyAttempt = async (attempt: BulkAttempt) => {
+    try {
+      const response = await host.call<BulkUpdateResult | IssueDetail>(
+        attempt.name,
+        attempt.args,
+      );
+      removeUnconfirmed(attempt);
+      const next: Result[] = [];
+      const needsCheck: IssueRef[] = [];
+      if (attempt.name === "arco_bulk_update") {
+        const responseResults = (response as BulkUpdateResult).results;
+        for (const target of attempt.targets) {
+          const result = responseResults.find(
+            (result) => id(result) === id(target),
+          );
+          if (result?.ok) {
+            client.setQueryData(
+              ["issue", result.repo, result.number],
+              result.issue,
+            );
+            next.push({ ...target, ok: true });
+          } else {
+            const retryable = result?.needsConfirmation === false;
+            next.push({
+              ...target,
+              ok: false,
+              retryable,
+              error:
+                result?.error ??
+                "The update result was not returned. Check the issue before trying again.",
+            });
+            if (!retryable) needsCheck.push(target);
+          }
+        }
+      } else {
+        const issue = response as IssueDetail;
+        client.setQueryData(["issue", issue.repo, issue.number], issue);
+        next.push({ ...attempt.targets[0], ok: true });
+      }
+      if (needsCheck.length)
+        rememberUnconfirmed({
+          attempt,
+          targets: needsCheck,
+          replay: false,
+          error:
+            "Some update results need confirmation. Check the current issues before another update.",
+        });
+      if (attempt.operation === operation) mergeResults(next);
+    } catch (failure) {
+      const message =
+        failure instanceof Error ? failure.message : String(failure);
+      if (isRejectedBulkCall(failure)) removeUnconfirmed(attempt);
+      else
+        rememberUnconfirmed({
+          attempt,
+          targets: attempt.targets,
+          replay: true,
+          error: message,
+        });
+      if (attempt.operation === operation)
+        mergeResults(
+          attempt.targets.map((target) => ({
+            ...target,
+            ok: false,
+            retryable: true,
+            error: message,
+          })),
+        );
+    }
+  };
+  const buildAttempt = async (targets: IssueRef[]): Promise<BulkAttempt> => {
+    const requestId = crypto.randomUUID();
+    if (advanced) {
+      const change =
+        action === "milestone"
+          ? {
+              patch: {
+                milestoneNumber: value === "none" ? null : Number(value),
+              },
+            }
+          : action === "issue-type"
+            ? {
+                patch: { issueTypeId: value === "none" ? null : Number(value) },
+              }
+            : action === "issue-field"
+              ? { issueField: { fieldId: Number(fieldId), value: fieldValue } }
+              : { projectField: { projectId, fieldId, value: fieldValue } };
+      return {
+        operation,
+        targets,
+        name: "arco_bulk_update",
+        args: { issues: targets, requestId, ...change },
+      };
+    }
+    const issue = targets[0];
+    if (action.startsWith("label"))
+      return {
+        operation,
+        targets,
+        name: "arco_change_labels",
+        args: {
+          ...issue,
+          requestId,
+          add: action === "label-add" ? [value] : [],
+          remove: action === "label-remove" ? [value] : [],
+        },
+      };
+    const current = await host.call<IssueDetail>("arco_get_issue", {
+      ...issue,
+    });
+    const patch =
+      action === "close"
+        ? { state: "closed" as const, stateReason: "completed" as const }
+        : action === "reopen"
+          ? { state: "open" as const, stateReason: "reopened" as const }
+          : {
+              assignees:
+                action === "assignee-add"
+                  ? [...new Set([...current.assignees, value])]
+                  : current.assignees.filter((name) => name !== value),
+            };
+    return {
+      operation,
+      targets,
+      name: "arco_update_issue",
+      args: {
+        ...issue,
+        requestId,
+        expectedUpdatedAt: current.updatedAt,
+        patch,
+      },
+    };
+  };
   const execute = async (onlyFailed = false) => {
-    if (lock.current || !issues.length || !ready) return;
-    const targets = onlyFailed
-      ? issues.filter((issue) =>
-          results.some((result) => !result.ok && id(result) === id(issue)),
-        )
-      : [...issues];
-    if (!targets.length) return;
+    if (
+      lock.current ||
+      !issues.length ||
+      !ready ||
+      (!onlyFailed && hasUnconfirmed)
+    )
+      return;
+    const pending = relevantUnconfirmed.filter(
+      (pending) => pending.replay && pending.attempt.operation === operation,
+    );
+    const pendingIds = new Set(
+      relevantUnconfirmed.flatMap((pending) => pending.targets.map(id)),
+    );
+    const targets = issues.filter(
+      (issue) =>
+        !pendingIds.has(id(issue)) &&
+        (!onlyFailed ||
+          results.some(
+            (result) =>
+              id(result) === id(issue) && !result.ok && result.retryable,
+          )),
+    );
+    if (!targets.length && !pending.length) return;
     lock.current = true;
     setBusy(true);
     onBusy(true);
-    setResults(onlyFailed ? results.filter((result) => result.ok) : []);
+    if (!onlyFailed) setResults([]);
     setError("");
     try {
-      if (advanced) {
-        const patch =
-          action === "milestone"
-            ? {
-                patch: {
-                  milestoneNumber: value === "none" ? null : Number(value),
-                },
-              }
-            : action === "issue-type"
-              ? {
-                  patch: {
-                    issueTypeId: value === "none" ? null : Number(value),
-                  },
-                }
-              : action === "issue-field"
-                ? {
-                    issueField: { fieldId: Number(fieldId), value: fieldValue },
-                  }
-                : { projectField: { projectId, fieldId, value: fieldValue } };
-        const operation = JSON.stringify([
-          "bulk",
-          identity,
-          targets.map((issue) => ({ repo: issue.repo, number: issue.number })),
-          patch,
-        ]);
-        const requestId = retryIds.get(operation) ?? crypto.randomUUID();
-        retryIds.set(operation, requestId);
-        const result = await host.call<BulkUpdateResult>("arco_bulk_update", {
-          issues: targets.map((issue) => ({
-            repo: issue.repo,
-            number: issue.number,
-          })),
-          requestId,
-          ...patch,
-        });
-        retryIds.delete(operation);
-        setResults((previous) => [...previous, ...result.results]);
-        await Promise.all(
-          targets.map((issue) =>
-            client.invalidateQueries({
-              queryKey: ["issue", issue.repo, issue.number],
-            }),
-          ),
-        );
-      } else
-        for (const issue of targets) {
-          const operation = JSON.stringify([
-            "bulk",
-            identity,
-            id(issue),
-            action,
-            value,
-          ]);
-          const requestId = retryIds.get(operation) ?? crypto.randomUUID();
-          retryIds.set(operation, requestId);
+      for (const recovery of pending) await applyAttempt(recovery.attempt);
+      for (const group of advanced
+        ? targets.length
+          ? [targets]
+          : []
+        : targets.map((target) => [target])) {
+        try {
+          await applyAttempt(
+            await buildAttempt(
+              group.map(({ repo, number }) => ({ repo, number })),
+            ),
+          );
+        } catch (failure) {
+          // Building an attempt only reads; no mutation has been submitted yet.
+          mergeResults(
+            group.map((target) => ({
+              ...target,
+              ok: false,
+              retryable: true,
+              error:
+                failure instanceof Error ? failure.message : String(failure),
+            })),
+          );
+        }
+      }
+      await refresh(issues);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+      onBusy(false);
+    }
+  };
+  const recover = async (check: boolean) => {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    onBusy(true);
+    try {
+      for (const pending of relevantUnconfirmed) {
+        if (!check) {
+          if (pending.replay) await applyAttempt(pending.attempt);
+          continue;
+        }
+        const retained: IssueRef[] = [];
+        for (const target of pending.targets) {
           try {
-            if (action.startsWith("label"))
-              await host.call<IssueDetail>("arco_change_labels", {
-                repo: issue.repo,
-                number: issue.number,
-                requestId,
-                add: action === "label-add" ? [value] : [],
-                remove: action === "label-remove" ? [value] : [],
-              });
-            else {
-              const current = await host.call<IssueDetail>("arco_get_issue", {
-                repo: issue.repo,
-                number: issue.number,
-              });
-              const patch =
-                action === "close"
-                  ? { state: "closed", stateReason: "completed" }
-                  : action === "reopen"
-                    ? { state: "open", stateReason: "reopened" }
-                    : {
-                        assignees:
-                          action === "assignee-add"
-                            ? [...new Set([...current.assignees, value])]
-                            : current.assignees.filter(
-                                (name) => name !== value,
-                              ),
-                      };
-              await host.call<IssueDetail>("arco_update_issue", {
-                repo: issue.repo,
-                number: issue.number,
-                requestId,
-                expectedUpdatedAt: current.updatedAt,
-                patch,
-              });
-            }
-            retryIds.delete(operation);
-            await client.invalidateQueries({
-              queryKey: ["issue", issue.repo, issue.number],
+            const issue = await host.call<IssueDetail>("arco_get_issue", {
+              ...target,
             });
-            setResults((previous) => [
-              ...previous,
-              { repo: issue.repo, number: issue.number, ok: true },
-            ]);
-          } catch (error) {
-            setResults((previous) => [
-              ...previous,
-              {
-                repo: issue.repo,
-                number: issue.number,
-                ok: false,
-                error: error instanceof Error ? error.message : String(error),
-              },
-            ]);
+            client.setQueryData(["issue", issue.repo, issue.number], issue);
+            const applied = await checkBulkChange(host, pending.attempt, issue);
+            if (pending.attempt.operation === operation)
+              mergeResults([
+                {
+                  ...target,
+                  ok: applied,
+                  retryable: !applied,
+                  ...(!applied
+                    ? {
+                        error:
+                          "The current state differs from the requested change. Review it, then explicitly retry if needed.",
+                      }
+                    : {}),
+                },
+              ]);
+          } catch {
+            retained.push(target);
           }
         }
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ["issues"] }),
-        client.invalidateQueries({ queryKey: ["github"] }),
-      ]);
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+        if (retained.length)
+          rememberUnconfirmed({
+            ...pending,
+            targets: retained,
+            // Some targets may already have been checked and released. Do not
+            // replay the original batch across those targets afterwards.
+            replay:
+              pending.replay && retained.length === pending.targets.length,
+            error:
+              "Could not confirm the update results. Check the connection and try again.",
+          });
+        else removeUnconfirmed(pending.attempt);
+      }
+      await refresh(issues);
     } finally {
       lock.current = false;
       setBusy(false);
@@ -350,12 +535,12 @@ export function BulkActions({
           disabled={busy}
           value={action}
           onChange={(value) => {
+            changeDraft();
             setAction(value as Action);
             setValue("");
             setFieldId("");
             setProjectId("");
             setFieldReady(false);
-            setResults([]);
           }}
           options={[
             { value: "close", label: "Close · Completed" },
@@ -385,7 +570,10 @@ export function BulkActions({
             label="Bulk value"
             value={value}
             disabled={busy || metadata.isPending}
-            onChange={setValue}
+            onChange={(value) => {
+              changeDraft();
+              setValue(value);
+            }}
             options={[
               { value: "", label: "Choose a value…" },
               ...values.map((value) => ({ value, label: value })),
@@ -400,7 +588,10 @@ export function BulkActions({
             label="Bulk attribute value"
             value={value}
             disabled={busy || catalog.isPending}
-            onChange={setValue}
+            onChange={(value) => {
+              changeDraft();
+              setValue(value);
+            }}
             options={[
               { value: "", label: "Choose a value…" },
               { value: "none", label: "Clear value" },
@@ -426,6 +617,7 @@ export function BulkActions({
               value={projectId}
               disabled={busy || memberships.isPending}
               onChange={(value) => {
+                changeDraft();
                 setProjectId(value);
                 setFieldId("");
                 setFieldReady(false);
@@ -454,6 +646,7 @@ export function BulkActions({
               value={fieldId}
               disabled={busy}
               onChange={(value) => {
+                changeDraft();
                 setFieldId(value);
                 setFieldReady(false);
                 setFieldValue(null);
@@ -479,6 +672,7 @@ export function BulkActions({
               busy={busy}
               saveLabel="Prepare value"
               onSave={async (value) => {
+                changeDraft();
                 setFieldValue(value);
                 setFieldReady(true);
                 return true;
@@ -490,6 +684,7 @@ export function BulkActions({
               className="text-button"
               disabled={busy}
               onClick={() => {
+                changeDraft();
                 setFieldValue(null);
                 setFieldReady(true);
               }}
@@ -531,11 +726,11 @@ export function BulkActions({
         color="primary"
         size="sm"
         block
-        disabled={busy || !ready}
+        disabled={busy || !ready || hasUnconfirmed || failures.length > 0}
         loading={busy}
         onClick={() => void execute()}
       >
-        {busy ? "Refreshing…" : `Apply to ${issues.length} issues`}
+        {busy ? "Applying…" : `Apply to ${issues.length} issues`}
       </Button>
       {failures.length > 0 && (
         <ul
@@ -553,7 +748,7 @@ export function BulkActions({
           ))}
         </ul>
       )}
-      {failures.length > 0 && (
+      {retryableFailures.length > 0 && (
         <button
           className="text-button"
           disabled={busy}
@@ -561,6 +756,40 @@ export function BulkActions({
         >
           Retry failed issues only
         </button>
+      )}
+      {hasUnconfirmed && (
+        <div className="bulk-unconfirmed" role="status">
+          <p>Previous changes need confirmation before another update.</p>
+          <ul aria-label="Unconfirmed changes">
+            {relevantUnconfirmed.map((pending) => (
+              <li key={pending.attempt.args.requestId}>
+                {pending.targets
+                  .map((target) => `${target.repo} #${target.number}`)
+                  .join(", ")}
+                : {pending.error}
+              </li>
+            ))}
+          </ul>
+          {relevantUnconfirmed.some(
+            (pending) =>
+              pending.replay && pending.attempt.operation !== operation,
+          ) && (
+            <button
+              className="text-button"
+              disabled={busy}
+              onClick={() => void recover(false)}
+            >
+              Retry unconfirmed changes
+            </button>
+          )}
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={() => void recover(true)}
+          >
+            Check current state
+          </button>
+        </div>
       )}
     </section>
   );

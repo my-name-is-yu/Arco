@@ -83,9 +83,7 @@ test(
         ),
       });
     });
-    await app
-      .getByRole("button", { name: "Post comment", exact: true })
-      .click();
+    await app.getByRole("button", { name: "Comment", exact: true }).click();
     const error = app
       .getByRole("alert")
       .filter({ hasText: "The source did not confirm this comment." });
@@ -99,9 +97,7 @@ test(
       app.getByRole("heading", { name: title, exact: true }),
     ).toBeVisible();
     expect(requestIds).toHaveLength(1);
-    await app
-      .getByRole("button", { name: "Post comment", exact: true })
-      .click();
+    await app.getByRole("button", { name: "Comment", exact: true }).click();
     await expect.poll(() => requestIds.length).toBe(2);
     expect(requestIds[1]).toBe(requestIds[0]);
     await expect(draft).toHaveValue(body);

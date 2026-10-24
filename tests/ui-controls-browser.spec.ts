@@ -144,7 +144,9 @@ test("Linear title-only conflict compares the latest title and unchanged Markdow
   changed = true;
   await ui.getByRole("button", { name: "Refresh Linear", exact: true }).click();
   await expect(
-    ui.getByRole("button", { name: "Save to Linear", exact: true }),
+    ui
+      .getByRole("region", { name: "Edit Linear description", exact: true })
+      .getByRole("button", { name: "Save", exact: true }),
   ).toBeDisabled();
   await ui
     .getByRole("button", { name: "Compare latest content", exact: true })

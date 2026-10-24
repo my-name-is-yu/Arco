@@ -89,14 +89,17 @@ for (const source of ["github", "linear"] as const) {
       );
       await expect(
         bulk.getByRole("button", {
-          name: source === "github" ? /Refreshing/ : "Apply to 1 issues",
+          name: source === "github" ? /Applying/ : "Apply to 1 issues",
         }),
       ).toBeDisabled();
       expect(calls).toHaveLength(1);
       release();
-      await expect(
-        bulk.getByRole("button", { name: "Apply to 1 issues", exact: true }),
-      ).toBeEnabled();
+      const apply = bulk.getByRole("button", {
+        name: "Apply to 1 issues",
+        exact: true,
+      });
+      if (source === "github") await expect(apply).toBeDisabled();
+      else await expect(apply).toBeEnabled();
       await switchBack();
       if (source === "github") {
         await expect(bulk.locator(".bulk-results")).toContainText(

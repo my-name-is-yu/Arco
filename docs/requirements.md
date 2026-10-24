@@ -62,5 +62,6 @@ Only explicit user-authorized operations may mutate source data. Reusing a reque
 - Follow the host theme and reduced-motion preference. Use restrained motion only where it communicates action or loading.
 - Distinguish loading, empty, error, saved, and partially completed states. A failed request is not an empty list.
 - Display original issue text faithfully. Repository-maintained documentation, comments, and interface copy use English; user content retains its source language.
+- Prefer each source service's terminology for equivalent actions. Use clear action-specific wording for Arco-only interactions, and describe the behavior Arco actually provides.
 
 See [Screen structure](screen-structure.md) for presentation and interaction requirements. Contribution and verification requirements are in [CONTRIBUTING.md](../CONTRIBUTING.md).

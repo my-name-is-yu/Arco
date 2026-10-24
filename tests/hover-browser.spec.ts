@@ -521,9 +521,11 @@ test("editor tabs and fields respond to hover while disabled custom and SDK butt
     ],
   ] as [string, Locator][])
     await hoverFeedback(page, label, control);
-  const save = ui.getByRole("button", { name: "Save changes", exact: true });
+  const save = ui
+    .getByRole("region", { name: "Edit issue body", exact: true })
+    .getByRole("button", { name: "Save", exact: true });
   await expect(save).toBeDisabled();
-  await hoverFeedback(page, "disabled SDK save button", save, {
+  await hoverFeedback(page, "disabled SDK Save button", save, {
     disabled: true,
     scale: hoverScale,
   });

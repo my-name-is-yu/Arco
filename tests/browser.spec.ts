@@ -165,7 +165,8 @@ test(
       .getByRole("textbox", { name: "Issue body", exact: true })
       .fill("## Saved body\n\nVerify the Markdown update.");
     await app
-      .getByRole("button", { name: "Save changes", exact: true })
+      .getByRole("region", { name: "Edit issue body", exact: true })
+      .getByRole("button", { name: "Save", exact: true })
       .click();
     await expect(
       app.getByRole("heading", { name: "An edited issue", exact: true }),
@@ -176,7 +177,7 @@ test(
     await app
       .getByRole("textbox", { name: "Comment on GitHub" })
       .fill("A local fixture comment");
-    await app.getByRole("button", { name: "Post comment" }).click();
+    await app.getByRole("button", { name: "Comment", exact: true }).click();
     await expect(
       app.locator(".comment").filter({ hasText: "A local fixture comment" }),
     ).toHaveCount(1);
@@ -206,7 +207,8 @@ test(
       .getByRole("textbox", { name: "Issue body", exact: true })
       .fill("Body editing still works after comment and label changes.");
     await app
-      .getByRole("button", { name: "Save changes", exact: true })
+      .getByRole("region", { name: "Edit issue body", exact: true })
+      .getByRole("button", { name: "Save", exact: true })
       .click();
     await expect(app.locator(".issue-body")).toContainText(
       "Body editing still works after comment and label changes.",
@@ -279,7 +281,10 @@ test("pending saves protect inputs until the acknowledged fixture result arrives
   await app
     .getByRole("textbox", { name: "Issue body", exact: true })
     .fill("Body protected while saving");
-  await app.getByRole("button", { name: "Save changes", exact: true }).click();
+  await app
+    .getByRole("region", { name: "Edit issue body", exact: true })
+    .getByRole("button", { name: "Save", exact: true })
+    .click();
   try {
     await expect(
       app.getByRole("textbox", { name: "Issue body", exact: true }),
@@ -1583,7 +1588,7 @@ test("GitHub comments append bounded pages, retain a posted comment through refr
   await app
     .getByRole("textbox", { name: "Comment on GitHub" })
     .fill("Posted beyond the loaded comment window");
-  await app.getByRole("button", { name: "Post comment", exact: true }).click();
+  await app.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(
     app
       .locator("article.comment")
@@ -1593,7 +1598,7 @@ test("GitHub comments append bounded pages, retain a posted comment through refr
   await app
     .getByRole("textbox", { name: "Comment on GitHub" })
     .fill("Second posted comment beyond the window");
-  await app.getByRole("button", { name: "Post comment", exact: true }).click();
+  await app.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(app.locator("article.comment")).toHaveCount(62);
   await app.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(app.locator("article.comment")).toHaveCount(62);
@@ -1608,7 +1613,7 @@ test("GitHub comments append bounded pages, retain a posted comment through refr
     .getByRole("textbox", { name: "Edit comment", exact: true })
     .fill("Edited posted comment beyond the window");
   await posted
-    .getByRole("button", { name: "Save comment", exact: true })
+    .getByRole("button", { name: "Update comment", exact: true })
     .click();
   await expect(
     app.getByText("Edited posted comment beyond the window", { exact: true }),
@@ -1797,7 +1802,9 @@ test("bulk changes keep per-Issue results and report partial permission failures
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(toolFailure("Fixture permission denied for #43")),
+        body: JSON.stringify(
+          toolFailure("Fixture permission denied for #43", "forbidden"),
+        ),
       });
     } else await route.continue();
   });
@@ -1848,7 +1855,7 @@ test("Markdown tasks, comment edits, reactions, and label definitions use explic
   await app
     .getByRole("textbox", { name: "Comment on GitHub" })
     .fill("A fixture comment to edit");
-  await app.getByRole("button", { name: "Post comment", exact: true }).click();
+  await app.getByRole("button", { name: "Comment", exact: true }).click();
   const comment = app
     .locator(".comment")
     .filter({ hasText: "A fixture comment to edit" });
@@ -1856,8 +1863,14 @@ test("Markdown tasks, comment edits, reactions, and label definitions use explic
   await comment
     .getByRole("textbox", { name: "Edit comment", exact: true })
     .fill("An edited fixture comment");
+  await expect(
+    comment.getByRole("button", { name: "Update comment", exact: true }),
+  ).toHaveAttribute("data-color", "primary");
+  await expect(
+    comment.getByRole("button", { name: "Update comment", exact: true }),
+  ).toHaveAttribute("data-variant", "solid");
   await comment
-    .getByRole("button", { name: "Save comment", exact: true })
+    .getByRole("button", { name: "Update comment", exact: true })
     .click();
   await expect(
     app.locator(".comment").filter({ hasText: "An edited fixture comment" }),
@@ -2346,7 +2359,9 @@ test(
       app.getByRole("textbox", { name: "Issue title", exact: true }),
     ).toHaveValue("Issue updated by a Codex tool");
     await expect(
-      app.getByRole("button", { name: "Save changes", exact: true }),
+      app
+        .getByRole("region", { name: "Edit issue body", exact: true })
+        .getByRole("button", { name: "Save", exact: true }),
     ).toBeDisabled();
     await app
       .getByRole("button", { name: "Compare latest content", exact: true })
@@ -2361,7 +2376,8 @@ test(
       })
       .click();
     await app
-      .getByRole("button", { name: "Save changes", exact: true })
+      .getByRole("region", { name: "Edit issue body", exact: true })
+      .getByRole("button", { name: "Save", exact: true })
       .click();
     await expect(app.locator(".issue-body")).toContainText(
       "Keep this local body",

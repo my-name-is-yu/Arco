@@ -115,9 +115,7 @@ test("Linear comment pages load explicitly and retain drafts and an acknowledged
     .getByRole("button", { name: "Reply", exact: true })
     .click();
   await composer.fill("A newly acknowledged reply beyond the loaded pages");
-  await ui
-    .getByRole("button", { name: "Post comment to Linear", exact: true })
-    .click();
+  await ui.getByRole("button", { name: "Comment", exact: true }).click();
   const reply = ui.locator(
     '[data-linear-context="comment"][data-comment-id="acknowledged-reply"]',
   );
@@ -376,7 +374,8 @@ test(
       .getByRole("textbox", { name: "Linear Markdown description" })
       .fill("## Edited in the fixture\n\nA source-specific Linear body.");
     await ui
-      .getByRole("button", { name: "Save to Linear", exact: true })
+      .getByRole("region", { name: "Edit Linear description", exact: true })
+      .getByRole("button", { name: "Save", exact: true })
       .click();
     await expect(ui.locator(".body-content")).toContainText(
       "A source-specific Linear body.",
@@ -749,9 +748,7 @@ test("Linear retry keeps a failed request ID after an unrelated successful write
   await ui
     .getByRole("textbox", { name: "Linear comment", exact: true })
     .fill("One intended comment despite a lost response");
-  await ui
-    .getByRole("button", { name: "Post comment to Linear", exact: true })
-    .click();
+  await ui.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(ui.locator(".notice")).toContainText(
     "Simulated lost acknowledgement",
   );
@@ -774,9 +771,7 @@ test("Linear retry keeps a failed request ID after an unrelated successful write
     "data-value",
     "4",
   );
-  await ui
-    .getByRole("button", { name: "Post comment to Linear", exact: true })
-    .click();
+  await ui.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(
     ui.getByRole("textbox", { name: "Linear comment", exact: true }),
   ).toHaveValue("");
@@ -829,7 +824,9 @@ test("Linear comment drafts do not freeze clean body content and same-field edit
     ui.getByRole("textbox", { name: "Linear Markdown description" }),
   ).toHaveValue("Preserve my Linear body edit");
   await expect(
-    ui.getByRole("button", { name: "Save to Linear", exact: true }),
+    ui
+      .getByRole("region", { name: "Edit Linear description", exact: true })
+      .getByRole("button", { name: "Save", exact: true }),
   ).toBeDisabled();
   await app(page)
     .getByRole("button", { name: "Compare latest content", exact: true })
@@ -840,7 +837,10 @@ test("Linear comment drafts do not freeze clean body content and same-field edit
       exact: true,
     })
     .click();
-  await ui.getByRole("button", { name: "Save to Linear", exact: true }).click();
+  await ui
+    .getByRole("region", { name: "Edit Linear description", exact: true })
+    .getByRole("button", { name: "Save", exact: true })
+    .click();
   await expect(ui.locator(".body-content")).toContainText(
     "Preserve my Linear body edit",
   );
@@ -1431,9 +1431,7 @@ test(
     await expect(
       ui.getByRole("button", { name: "Cancel reply", exact: true }),
     ).toBeVisible();
-    await ui
-      .getByRole("button", { name: "Post comment to Linear", exact: true })
-      .click();
+    await ui.getByRole("button", { name: "Comment", exact: true }).click();
     const reply = ui
       .locator(".linear-comment-reply")
       .filter({ hasText: "A reply preserved across an Issue switch" });
@@ -1451,7 +1449,20 @@ test(
     await expect(
       ui.getByRole("textbox", { name: "Edit Linear comment", exact: true }),
     ).toHaveValue("A persisted existing-comment edit");
-    await ui.getByRole("button", { name: "Save comment", exact: true }).click();
+    await expect(
+      ui
+        .locator(".linear-comment-editor")
+        .getByRole("button", { name: "Save", exact: true }),
+    ).toHaveAttribute("data-color", "primary");
+    await expect(
+      ui
+        .locator(".linear-comment-editor")
+        .getByRole("button", { name: "Save", exact: true }),
+    ).toHaveAttribute("data-variant", "solid");
+    await ui
+      .locator(".linear-comment-editor")
+      .getByRole("button", { name: "Save", exact: true })
+      .click();
     await expect(
       ui.locator('.linear-comment-reply [data-linear-context="comment"]'),
     ).toHaveText("A persisted existing-comment edit");
@@ -1961,6 +1972,8 @@ test("Linear acknowledged writes retain receipts and clear posted drafts when re
     .click();
   await expect(dialog).toHaveCount(0);
   const receipt = ui.locator(".linear-saved-receipt");
+  await expect(receipt).toHaveAttribute("aria-label", "Saved Linear receipt");
+  await expect(receipt).toContainText("Saved in Linear");
   await expect(receipt).toContainText("Linear confirmed this write.");
   await expect(receipt).toContainText(createdId);
   await receipt.getByText("Request receipt", { exact: true }).click();
@@ -1997,9 +2010,7 @@ test("Linear acknowledged writes retain receipts and clear posted drafts when re
   await ui
     .getByRole("textbox", { name: "Linear comment", exact: true })
     .fill("A confirmed comment despite readback failure");
-  await ui
-    .getByRole("button", { name: "Post comment to Linear", exact: true })
-    .click();
+  await ui.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(
     ui.getByRole("textbox", { name: "Linear comment", exact: true }),
   ).toHaveValue("");

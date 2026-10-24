@@ -805,16 +805,19 @@ export function createFixtureGitHubOperations(options: {
           .digest("hex")
           .slice(0, 40);
         for (const [index, ref] of input.issues.entries()) {
+          let applied = false;
           try {
             const { milestoneNumber, issueTypeId, ...patch } =
               input.patch ?? {};
-            if (Object.keys(patch).length)
+            if (Object.keys(patch).length) {
               await service.update({
                 ...ref,
                 requestId: `${prefix}-${index}-base`,
                 patch,
               });
-            if (milestoneNumber !== undefined || issueTypeId !== undefined)
+              applied = true;
+            }
+            if (milestoneNumber !== undefined || issueTypeId !== undefined) {
               await operations.issueAttributes({
                 ...ref,
                 requestId: `${prefix}-${index}-attrs`,
@@ -823,18 +826,24 @@ export function createFixtureGitHubOperations(options: {
                   ...(issueTypeId !== undefined ? { issueTypeId } : {}),
                 },
               });
-            if (input.labels)
+              applied = true;
+            }
+            if (input.labels) {
               await service.labels({
                 ...ref,
                 requestId: `${prefix}-${index}-labels`,
                 ...input.labels,
               });
-            if (input.issueField)
+              applied = true;
+            }
+            if (input.issueField) {
               await operations.setIssueField({
                 ...ref,
                 requestId: `${prefix}-${index}-field`,
                 ...input.issueField,
               });
+              applied = true;
+            }
             if (input.projectField) {
               const selected = (await state(ref)).value.memberships.find(
                 (item) => item.projectId === input.projectField?.projectId,
@@ -847,12 +856,21 @@ export function createFixtureGitHubOperations(options: {
                 ...input.projectField,
                 itemId: selected.itemId,
               });
+              applied = true;
             }
             results.push({ ...ref, ok: true, issue: await service.get(ref) });
           } catch (error) {
             results.push({
               ...ref,
               ok: false,
+              errorCode:
+                error instanceof GitHubError ? error.code : "unavailable",
+              needsConfirmation:
+                applied ||
+                (error instanceof GitHubError &&
+                  ["refresh", "partial", "not-applied", "uncertain"].includes(
+                    error.code,
+                  )),
               error:
                 error instanceof GitHubError
                   ? error.message

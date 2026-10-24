@@ -51,7 +51,7 @@ for (const source of ["github", "linear"] as const) {
       await expect(bulk).toBeVisible();
       await expect(
         bulk.getByRole("button", {
-          name: source === "github" ? /Refreshing/ : "Apply to 2 issues",
+          name: source === "github" ? /Applying/ : "Apply to 2 issues",
         }),
       ).toBeDisabled();
       await choose(

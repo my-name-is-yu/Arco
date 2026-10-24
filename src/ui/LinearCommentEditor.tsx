@@ -187,14 +187,13 @@ export function LinearCommentEditor({
       <div className="linear-controls">
         <Button
           type="submit"
-          color="secondary"
-          variant="outline"
+          color="primary"
           size="sm"
           disabled={
             busy || conflict || !current.trim() || current === comment.body
           }
         >
-          Save comment
+          Save
         </Button>
         <button
           type="button"

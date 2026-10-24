@@ -8,7 +8,7 @@ const titles = {
   linear: "Keep Linear workflow states intact",
 };
 const commentLabel = { github: "Comment on GitHub", linear: "Linear comment" };
-const postLabel = { github: "Post comment", linear: "Post comment to Linear" };
+const postLabel = { github: "Comment", linear: "Comment" };
 const githubReads = new Set([
   "arco_connection",
   "arco_repositories",

@@ -74,7 +74,7 @@ export function createBulkHandlers(
             saved,
             retryable: !saved && failure.code !== "uncertain",
             ...(issue ? { issue } : {}),
-            error: `${saved ? "Properties were saved, but a later change failed. " : "Refresh and check the saved state. "}${
+            error: `${saved ? "Properties were saved, but a later change failed. " : "Refresh and check the current state. "}${
               failure.message
             }`,
           });

@@ -55,7 +55,7 @@ const nextAction: Record<OperationErrorKind, string> = {
     "Check the connection and refresh. Confirm any change in the source before retrying it.",
   "not-found": "Check the source link and selected account or scope.",
   conflict:
-    "Review the latest saved version before submitting your change again.",
+    "Review the latest source version before submitting your change again.",
   uncertain:
     "Check the result in the source and refresh before submitting this change again.",
   unsupported:

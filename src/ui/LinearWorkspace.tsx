@@ -674,7 +674,7 @@ export function LinearWorkspace({
           </div>
           <button
             className="icon-button"
-            aria-label="Dismiss saved Linear receipt"
+            aria-label="Dismiss saved receipt"
             onClick={() => {
               setReceipt(null);
             }}

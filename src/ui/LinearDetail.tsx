@@ -464,7 +464,7 @@ export function LinearDetail({
             <span>
               Updated {new Date(issue.updatedAt).toLocaleString("en-US")}
             </span>
-            {dirty && <span className="draft-mark">Unsaved draft</span>}
+            {dirty && <span className="draft-mark">Unsaved changes</span>}
           </p>
           {shared && (
             <div className="shared-target">
@@ -576,7 +576,7 @@ export function LinearDetail({
                       })
                     }
                   >
-                    Save to Linear
+                    Save
                   </Button>
                   <button
                     className="text-button"
@@ -742,7 +742,7 @@ export function LinearDetail({
                   size="sm"
                   disabled={busy || !draft.comment.trim()}
                 >
-                  Post comment to Linear
+                  Comment
                 </Button>
               </form>
             </section>

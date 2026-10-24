@@ -182,7 +182,7 @@ export function GitHubDetail({
             <span>
               Updated <ShortDate date={issue.updatedAt} />
             </span>
-            {dirty && <span className="draft-mark">Unsaved draft</span>}
+            {dirty && <span className="draft-mark">Unsaved changes</span>}
           </div>
           {shared && (
             <div className="shared-target">
@@ -295,7 +295,7 @@ export function GitHubDetail({
                       )
                     }
                   >
-                    Save changes
+                    Save
                   </Button>
                 </div>
               </MarkdownEditor>
@@ -414,7 +414,7 @@ export function GitHubDetail({
                     disabled={busy || !draft.comment.trim()}
                     loading={busy}
                   >
-                    Post comment
+                    Comment
                   </Button>
                 </div>
               </form>

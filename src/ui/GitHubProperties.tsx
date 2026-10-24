@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import type { ArcoHost, IssueDetail, IssueRef } from "../shared/contracts";
 import type {
@@ -269,8 +273,10 @@ function Catalog({ host, issue }: { host: ArcoHost; issue: IssueDetail }) {
 }
 
 function IssueFields({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
+  const client = useQueryClient();
+  const queryKey = ["github", "issue-fields", issue.repo, issue.number];
   const query = useQuery({
-    queryKey: ["github", "issue-fields", issue.repo, issue.number],
+    queryKey,
     queryFn: () =>
       host.call<IssueFieldList>("arco_issue_fields", {
         repo: issue.repo,
@@ -305,12 +311,28 @@ function IssueFields({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
           kind="issue"
           busy={action.busy}
           onSave={(value) =>
-            action.run<GitHubOperationResult>("arco_set_issue_field", {
-              repo: issue.repo,
-              number: issue.number,
-              fieldId: field.id,
-              value,
-            })
+            action.run<GitHubOperationResult>(
+              "arco_set_issue_field",
+              {
+                repo: issue.repo,
+                number: issue.number,
+                fieldId: field.id,
+                value,
+              },
+              () =>
+                client.setQueryData<IssueFieldList>(queryKey, (previous) =>
+                  previous
+                    ? {
+                        ...previous,
+                        fields: previous.fields.map((current) =>
+                          current.id === field.id
+                            ? { ...current, value }
+                            : current,
+                        ),
+                      }
+                    : previous,
+                ),
+            )
           }
         />
       ))}
@@ -337,15 +359,17 @@ function ProjectFields({
   projectId: string;
   itemId: string;
 }) {
+  const client = useQueryClient();
+  const queryKey = [
+    "github",
+    "project-fields",
+    issue.repo,
+    issue.number,
+    projectId,
+    itemId,
+  ];
   const query = useQuery({
-    queryKey: [
-      "github",
-      "project-fields",
-      issue.repo,
-      issue.number,
-      projectId,
-      itemId,
-    ],
+    queryKey,
     queryFn: () =>
       host.call<ProjectFieldList>("arco_project_fields", {
         repo: issue.repo,
@@ -383,14 +407,30 @@ function ProjectFields({
           kind="project"
           busy={action.busy}
           onSave={(value) =>
-            action.run<GitHubOperationResult>("arco_set_project_field", {
-              repo: issue.repo,
-              number: issue.number,
-              projectId,
-              itemId,
-              fieldId: field.id,
-              value,
-            })
+            action.run<GitHubOperationResult>(
+              "arco_set_project_field",
+              {
+                repo: issue.repo,
+                number: issue.number,
+                projectId,
+                itemId,
+                fieldId: field.id,
+                value,
+              },
+              () =>
+                client.setQueryData<ProjectFieldList>(queryKey, (previous) =>
+                  previous
+                    ? {
+                        ...previous,
+                        fields: previous.fields.map((current) =>
+                          current.id === field.id
+                            ? { ...current, value }
+                            : current,
+                        ),
+                      }
+                    : previous,
+                ),
+            )
           }
         />
       ))}

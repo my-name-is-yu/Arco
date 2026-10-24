@@ -286,6 +286,13 @@ export interface GitHubOperationResult {
 export interface BulkUpdateResult {
   results: (
     | { repo: string; number: number; ok: true; issue: IssueDetail }
-    | { repo: string; number: number; ok: false; error: string }
+    | {
+        repo: string;
+        number: number;
+        ok: false;
+        error: string;
+        errorCode?: string;
+        needsConfirmation?: boolean;
+      }
   )[];
 }

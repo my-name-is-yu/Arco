@@ -4,7 +4,14 @@ import type { LinearIssue, LinearMetadata } from "../shared/linear";
 import { SingleSelect } from "./SingleSelect";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { useSessionState } from "./session-state";
-import type { LinearRun } from "./linear-run";
+import { isSavedReceipt, type LinearRun } from "./linear-run";
+const emptyLabelDraft = {
+  id: "",
+  name: "",
+  color: "#8b8b8b",
+  description: "",
+  scope: "team",
+};
 export function LinearLabelManager({
   host,
   issue,
@@ -21,13 +28,7 @@ export function LinearLabelManager({
   const [labelDraft, setLabelDraft] = useSessionState(
     host,
     `linear:label-definition:${issue.connectionId}:${issue.workspaceId}:${issue.teamId}:${issue.issueId}`,
-    {
-      id: "",
-      name: "",
-      color: "#8b8b8b",
-      description: "",
-      scope: "team",
-    },
+    emptyLabelDraft,
   );
   return (
     <details className="linear-extra">
@@ -41,6 +42,7 @@ export function LinearLabelManager({
         <SingleSelect
           label="Linear label definition"
           value={labelDraft.id}
+          disabled={busy}
           options={[
             { value: "", label: "New label" },
             ...(metadata?.labels ?? [])
@@ -61,13 +63,7 @@ export function LinearLabelManager({
                     description: label.description ?? "",
                     scope: label.teamId ? "team" : "workspace",
                   }
-                : {
-                    id: "",
-                    name: "",
-                    color: "#8b8b8b",
-                    description: "",
-                    scope: "team",
-                  },
+                : emptyLabelDraft,
             );
           }}
         />
@@ -118,6 +114,7 @@ export function LinearLabelManager({
           <SingleSelect
             label="Linear label scope"
             value={labelDraft.scope}
+            disabled={busy}
             options={[
               { value: "team", label: "This team" },
               { value: "workspace", label: "workspace" },
@@ -137,7 +134,7 @@ export function LinearLabelManager({
         size="sm"
         disabled={busy || !labelDraft.name.trim()}
         onClick={() =>
-          void run("linear_label_definition", {
+          void run<LinearMetadata>("linear_label_definition", {
             connectionId: issue.connectionId,
             workspaceId: issue.workspaceId,
             teamId: issue.teamId,
@@ -147,10 +144,13 @@ export function LinearLabelManager({
             color: labelDraft.color,
             description: labelDraft.description,
             scope: labelDraft.scope,
+          }).then((result) => {
+            if (!labelDraft.id && result && !isSavedReceipt(result))
+              setLabelDraft(emptyLabelDraft);
           })
         }
       >
-        {labelDraft.id ? "Save definition" : "Create definition"}
+        {labelDraft.id ? "Save" : "Create label"}
       </Button>
       {labelDraft.id && (
         <details>
@@ -164,13 +164,16 @@ export function LinearLabelManager({
             size="sm"
             disabled={busy}
             onClick={() =>
-              void run("linear_label_definition", {
+              void run<LinearMetadata>("linear_label_definition", {
                 connectionId: issue.connectionId,
                 workspaceId: issue.workspaceId,
                 teamId: issue.teamId,
                 action: "delete",
                 labelId: labelDraft.id,
                 scope: labelDraft.scope,
+              }).then((result) => {
+                if (result && !isSavedReceipt(result))
+                  setLabelDraft(emptyLabelDraft);
               })
             }
           >

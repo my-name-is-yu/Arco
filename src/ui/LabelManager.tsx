@@ -198,8 +198,7 @@ export function LabelManager({ host, repo }: { host: ArcoHost; repo: string }) {
             </button>
           )}
           <Button
-            color="secondary"
-            variant="outline"
+            color="primary"
             size="sm"
             type="submit"
             disabled={
@@ -208,7 +207,7 @@ export function LabelManager({ host, repo }: { host: ArcoHost; repo: string }) {
               !/^[a-fA-F0-9]{6}$/.test(form.color)
             }
           >
-            {editing ? "Save definition" : "Create label"}
+            {editing ? "Save changes" : "Create label"}
           </Button>
         </div>
       </form>

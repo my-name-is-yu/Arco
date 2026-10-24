@@ -281,15 +281,14 @@ export function CommentActions({
               Close
             </Button>
             <Button
-              color="secondary"
-              variant="outline"
+              color="primary"
               size="sm"
               type="submit"
               disabled={
                 action.busy || !body.trim() || revision !== comment.updatedAt
               }
             >
-              Save comment
+              Update comment
             </Button>
           </div>
         </form>
