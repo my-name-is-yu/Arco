@@ -2,17 +2,17 @@
 
 An MIT-licensed Codex plugin for browsing and editing GitHub and Linear issues, and bringing selected issue context into your conversation.
 
-## Keep several issues in view
+## Keep issues beside the conversation
 
-Switch between compact issue tabs and open full details when you need more room.
+Read and compare issue cards inside your conversation, then open full details in the side panel.
 
-![Switch between issue tabs and open the selected issue's full details](assets/readme/issue-tabs.gif)
+![Browse inline issue cards in Codex and open the selected issue in its side panel](assets/readme/issue-tabs.gif)
 
 ## Bring the right context into chat
 
-Select a passage, add an optional comment, and keep several numbered selections together as context for your conversation.
+Select passages across issues and collect them as numbered context beside your next prompt.
 
-![Select an issue passage, add a comment, and retain a numbered context marker](assets/readme/share-context.gif)
+![Add selections from two issues to a grouped context attachment and prepare a message in Codex](assets/readme/share-context.gif)
 
 ## Edit where you read
 
@@ -26,7 +26,7 @@ Read Linear issues and update their native workflow states and priorities.
 
 ![Update a Linear issue's native workflow state and priority](assets/readme/linear-workflow.gif)
 
-_These GIFs show the actual Arco interface with fictional local fixture data in a browser host, edited for brevity. The sharing clip shows Arco's selection controls; the Codex composer is outside the recording._
+_The first two clips show Arco in Codex with fictional demo issues. The editing and Linear clips use sample data in a browser preview. Typing is shown at 4× speed; waiting and some scrolling are also sped up._
 
 Arco runs a local Node.js MCP server and an embedded React interface. It connects directly to your issue providers, uses your existing GitHub CLI login, and stores Linear credentials in the operating system's credential store. There is no Arco account or hosted backend.
 
