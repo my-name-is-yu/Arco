@@ -365,14 +365,6 @@ export function LinearWorkspace({
         ? sharedIssue.data
         : undefined
       : detail.data;
-  const retainedShared = Boolean(
-    shared &&
-    (!target ||
-      (shared.connectionId === target.connectionId &&
-        shared.workspaceId === target.workspaceId &&
-        shared.teamId === target.teamId &&
-        shared.issueId === target.issueId)),
-  );
   const toggleRetainedTask = async (line: number, checked: boolean) => {
     if (!retained) return;
     const body = toggleMarkdownTask(retained.body, line, checked);
@@ -738,7 +730,6 @@ export function LinearWorkspace({
       <InlineSummaryCard
         host={host}
         issue={retained}
-        shared={retainedShared}
         busy={
           busy ||
           (target

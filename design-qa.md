@@ -13,10 +13,10 @@ Use this checklist when changing Arco's workspace, inline cards, or selection an
 
 ## Inline cards
 
-The card places its native identifier and Open details above the title, then editable properties, then the Markdown description. Long descriptions expand in the document without an inner reading scroll area.
+The card places its native identifier and Open details above the title, then editable properties, then the Markdown description. The complete body is immediately available within a compact area of up to about 190px; long descriptions scroll inside it without Expand/Collapse controls. Reading position is retained per issue in the host session.
 
 - Preserve Markdown blocks, reference definitions, controlled links, authenticated images, and checklist line identity.
-- Expanding or collapsing must preserve focus. Focusing a clipped descendant must reveal that descendant and bring it into view.
+- The complete body must be reachable by wheel, touch, and keyboard without expansion. Focused links and checkboxes must scroll into the compact body area without increasing the card height. Returning to an issue must restore its reading position.
 - State, labels, assignment, and native Linear priority must save to the card's retained issue even while the workspace browses another issue.
 - Preserve request deduplication, conflict detection, draft protection, and cache refresh after saves.
 - Keep GitHub issue state independent of Projects status; keep Linear workflow values native to the selected team.
@@ -54,6 +54,7 @@ These are dated development observations, not verification of every later revisi
 - [Hover colors](docs/design/hover-validation-2026-10-23.md) and [hover scale](docs/design/hover-scale-validation-2026-10-23.md).
 - [Inline cards, 2026-10-24](docs/design/inline-card-validation-2026-10-24.md).
 - [Inline-first presentation, 2026-10-24](docs/design/presentation-policy-validation-2026-10-24.md).
+- [Immediate inline body scrolling, 2026-10-24](docs/design/inline-scroll-validation-2026-10-24.md).
 
 Only selected English fixture screenshots remain in this checkout. Earlier generated mockups and native/reference captures were retired during OSS documentation cleanup. Dated text records preserve their observations and evidence limits. Treat the current source, product scope, and fresh test results as the authority for a proposed change.
 
@@ -88,5 +89,19 @@ Icon-removal follow-up: the user requested removal of the circle from tabs. Tab 
 Native-host acceptance follow-up: after restarting Codex, the user approved the compact tabs with actual GitHub mock issues #3/#4, actual Linear issues YU-47/YU-46/YU-45, and a mixed group ordered GitHub #3, Linear YU-47, GitHub #4, Linear YU-46. The Arco presentation tools returned those exact native targets. This records user-reported acceptance in Codex rather than independent agent UI inspection; live native quick writes were not exercised. The user selected this tab presentation for multiple inline issues and requested a push. The side workspace remains unchanged.
 
 Push validation: the final candidate without tab icons passed `npm run check`, including 571 unit/service cases and the 74-tool smoke, plus all 13 compact-tab browser cases in 22.9 seconds without retries. The complete browser suite was not rerun for this push.
+
+final result: passed
+
+## Immediate body scrolling — 2026-10-24
+
+The user-selected revised A is implemented in the shared GitHub/Linear card: the full body is immediately available inside the existing width and a maximum height of about 190px, with no Expand/Collapse control. Short text keeps its natural height. Each issue retains its own scroll position in the host session. The obsolete preview extractor and expansion motion were removed.
+
+Footer follow-up: the conversation card's browsing/shared-state label and updated date were removed at the user's request. Both providers were visually inspected with the bottom row absent and the 190px body retained; `dist/dev/inline-scroll-no-footer.png` preserves the result. Scoped static checks, build and artifact inspection passed for this follow-up. No actionable P0/P1/P2 issue remained.
+
+Source visual truth is the selected A in `dist/dev/inline-scroll-source.png`. Built implementation captures are `dist/dev/inline-scroll.png` and `dist/dev/inline-scroll-narrow.png`. The source and implementation were opened together; the prototype wrapper and simplified properties differ intentionally from the actual fixture host and native properties. Full-view and narrow comparisons covered typography, layout, existing color tokens, unchanged assets, and complete source content. No actionable P0/P1/P2 finding remained. See the [validation record](docs/design/inline-scroll-validation-2026-10-24.md) for capture dimensions, comparison limits, interaction evidence and checks.
+
+`npm run check` passed 567 unit/service cases, static/documentation checks, production/fixture builds, the 74-tool smoke and artifact inspection. Manual IAB verification covered both providers, inner keyboard scrolling, mixed tabs, return from details, short text, late task updates, selection attribution/marker clipping/removal, and 375px layout. At that initial implementation stage, browser regression specifications had been updated and statically checked but not run. The installed cached HTML matched the candidate build; a desktop restart and fresh native card remained a separate acceptance boundary.
+
+Push preparation follow-up: after restarting, the user approved both the new scrolling and footer removal in freshly requested native cards. The final candidate passed `npm run check` again. All 40 affected inline/tab/hover browser cases and 22 additional critical smoke/navigation cases passed across focused runs after correcting initial-animation event timing and a 1px scroll-rounding assertion. Those corrections changed test measurement only. The complete browser suite was not run; the validation record contains the individual run results.
 
 final result: passed

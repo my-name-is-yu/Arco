@@ -448,12 +448,22 @@ test("GitHub navigation, disclosures, content actions, and native fields have ho
     ui.getByRole("button", { name: "Open details", exact: true }),
     { scale: hoverScale, duration: 150 },
   );
-  await hoverFeedback(
-    page,
-    "inline description expansion action",
-    ui.getByRole("button", { name: "Expand description", exact: true }),
-    { scale: hoverScale, duration: 150 },
-  );
+  const description = ui.getByRole("region", {
+    name: "Issue description text",
+    exact: true,
+  });
+  await expect(
+    ui.getByRole("button", { name: /(?:Expand|Collapse) description/ }),
+  ).toHaveCount(0);
+  await description.scrollIntoViewIfNeeded();
+  await page.mouse.move(1, 1);
+  const before = await appearance(description);
+  await description.hover();
+  const after = await appearance(description);
+  expect(after.width).toBeCloseTo(before.width, 1);
+  expect(after.height).toBeCloseTo(before.height, 1);
+  expect(after.paint).toEqual(before.paint);
+  expect(after.state).toEqual(before.state);
 });
 
 test("editor tabs and fields respond to hover while disabled custom and SDK buttons remain unchanged", async ({

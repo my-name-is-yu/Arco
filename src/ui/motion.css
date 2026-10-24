@@ -205,21 +205,12 @@
 .linear-comment,
 .editor,
 .inline-mode,
-.inline-description-content[data-revealing="true"],
 .notice,
 .shared-chip,
 .selection-share,
 .selection-comment,
 .selection-annotation-number {
   animation: arco-reveal var(--arco-motion-medium) ease-out;
-}
-
-.inline-description-toggle svg {
-  rotate: 0deg;
-  transition: rotate var(--arco-motion-fast) var(--arco-motion-ease);
-}
-.inline-description-toggle[aria-expanded="true"] svg {
-  rotate: 180deg;
 }
 
 .bulk-actions,

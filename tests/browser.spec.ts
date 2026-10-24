@@ -2556,7 +2556,7 @@ test("shared GitHub selection survives host view recreation in an inline card an
   await expect(
     app.getByRole("heading", { name: secondTitle, exact: true }),
   ).toBeVisible();
-  await expect(app.getByText("Shared issue", { exact: true })).toBeVisible();
+  await expect(app.locator(".inline-mode .compact-bottom")).toHaveCount(0);
   await app.getByRole("button", { name: "Open details", exact: true }).click();
   await expect
     .poll(async () => (await events(page, "display")).at(-1))

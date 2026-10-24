@@ -13,7 +13,7 @@ Arco uses an inline card for a particular issue, compact inline tabs for several
 | Open the personal list                               | `arco_open`, optionally with an explicit provider                   |
 | Open a GitHub repository list                        | `arco_open_project`                                                 |
 
-The initial card and subsequent issue cards use the same policy. Long descriptions expand inside the card rather than automatically opening a panel. A request for a more detailed explanation does not itself request a new screen.
+The initial card and subsequent issue cards use the same policy. Long descriptions scroll inside the card's compact body area without an expand/collapse step or automatically opening a panel. A request for a more detailed explanation does not itself request a new screen.
 
 Keep the inline target, the panel's browsing target, and shared context separate. Showing a second issue must not replace the first issue's attachment or a panel's current target. **Open details** resolves the native target of the clicked card. Returning to that card after browsing another panel issue preserves the original card target.
 
@@ -31,7 +31,9 @@ Keep body reading prominent; avoid stacking secondary controls ahead of the cont
 
 The card is one column. Its header shows the repository/native identifier, **Open details**, and an overflow menu; the title follows. State, assignees, labels, and Linear priority appear directly below it and wrap on narrow surfaces.
 
-Descriptions use the shared Markdown renderer. **Expand description** / **Collapse description** grows or shrinks the card without a separate internal scrolling area. When keyboard focus reaches content inside a truncated block, expansion keeps the focused control visible.
+Descriptions use the shared Markdown renderer and contain the complete source body from first render. The body has a maximum height of 13.6em at 14px (about 190px); short bodies retain their natural height. Long bodies scroll vertically within that area, keeping the card's existing width. There is no **Expand description** / **Collapse description** control. The named body region supports keyboard scrolling, and links, checklists, and text selection remain available throughout the full body. Each issue retains its own reading position in the card's host session.
+
+Conversation cards omit the browsing/shared-state footer and the updated date to keep the reading area compact.
 
 Supported quick operations are:
 
@@ -49,7 +51,7 @@ Use text, shape, and color together. Preserve source status/label colors where a
 
 ### Several issues in one conversation result
 
-`arco_show_issues` presents only the explicitly requested issues, in their supplied order, removing duplicate native references. Small rounded tabs show the native identifier and a shortened visual preview of the source title, without a status icon. The full title remains available through the accessible name and tooltip; the native state remains in the tooltip and accessible description. Tabs wrap on narrow cards and support arrow keys, Home, and End. Selecting a tab stays inline and displays that issue's existing card, including its description, native properties, quick operations, and **Open details**. The UI requests and renders the active issue's details separately from the presentation summaries. The server may read complete provider issues when preparing those summaries; this is not a guarantee of deferred provider body downloads. Description expansion is retained separately for each issue, without adding an inner reading scroll area.
+`arco_show_issues` presents only the explicitly requested issues, in their supplied order, removing duplicate native references. Small rounded tabs show the native identifier and a shortened visual preview of the source title, without a status icon. The full title remains available through the accessible name and tooltip; the native state remains in the tooltip and accessible description. Tabs wrap on narrow cards and support arrow keys, Home, and End. Selecting a tab stays inline and displays that issue's existing card, including its description, native properties, quick operations, and **Open details**. The UI requests and renders the active issue's details separately from the presentation summaries. The server may read complete provider issues when preparing those summaries; this is not a guarantee of deferred provider body downloads. The compact body scrolls immediately and restores each issue's own reading position when returning to its tab.
 
 GitHub and Linear can appear together without sharing a workflow or synthesizing status values. The group stays attached to its original set when the active issue is opened in details; returning inline restores its selected tab. Tab selection does not attach context or rewrite saved provider preferences or the existing workspace layout. A selection within one tab retains that issue's native reference; a selection across tabs must not attach an arbitrary issue. A failed source read returns an error rather than a partial or broader set.
 

@@ -1868,7 +1868,7 @@ test("Linear source switches retain browsing and list position while using the l
     .toBe(position);
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   await expect(ui.locator(".inline-mode")).toContainText("YU-42");
-  await expect(ui.locator(".inline-mode")).toContainText("Browsing");
+  await expect(ui.locator(".inline-mode .compact-bottom")).toHaveCount(0);
   expect(await events(page, "context")).toHaveLength(2);
   expect(await events(page, "message")).toHaveLength(0);
   const writes = ((await events(page, "tool")) as { name: string }[]).filter(

@@ -500,57 +500,104 @@ test("text selected across tabs has no arbitrary issue reference", async ({
   expect(await events(page, "message")).toEqual([]);
 });
 
-test("description expansion stays separate for each issue across same and mixed provider tabs", async ({
+test("description reading positions stay separate across same and mixed provider tabs without expansion", async ({
   page,
 }) => {
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as ToolCall;
+    if (!["arco_get_issue", "linear_get_issue"].includes(input.name))
+      return route.fallback();
+    const response = await route.fetch();
+    const result = (await response.json()) as {
+      structuredContent: { body: string };
+    };
+    const paragraphs =
+      input.name === "linear_get_issue"
+        ? 50
+        : input.arguments.number === 43
+          ? 40
+          : 30;
+    result.structuredContent.body = [
+      "## Reading position fixture",
+      ...Array.from(
+        { length: paragraphs },
+        (_, index) =>
+          `Paragraph ${index + 1}. Keep this issue's reading position when switching tabs.`,
+      ),
+      "End of the complete description.",
+    ].join("\n\n");
+    return route.fulfill({ response, json: result });
+  });
   await open(page, [github(42), github(43), linear(42)]);
   const targets = [
     ["yu/Arco #42", titles.github42],
     ["yu/Arco #43", titles.github43],
     ["YU-42", titles.linear42],
   ] as const;
+  const positions = new Map<string, number>();
   for (const [identifier, title] of targets) {
     await selectIssue(page, identifier, title);
-    const expand = panel(page).getByRole("button", {
-      name: "Expand description",
+    const description = panel(page).getByRole("region", {
+      name: "Issue description text",
       exact: true,
     });
-    await expect(expand).toHaveAttribute("aria-expanded", "false");
-    await expand.click();
+    await expect(description).toContainText("End of the complete description.");
+    await expect(description).toHaveCSS("overflow-y", "auto");
     await expect(
       panel(page).getByRole("button", {
-        name: "Collapse description",
-        exact: true,
+        name: /(?:Expand|Collapse) description/,
       }),
-    ).toHaveAttribute("aria-expanded", "true");
+    ).toHaveCount(0);
+    expect(await description.evaluate((element) => element.scrollTop)).toBe(0);
+    await description.press("End");
+    await expect
+      .poll(() =>
+        description.evaluate(
+          (element) =>
+            element.scrollHeight - element.clientHeight - element.scrollTop,
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+    const position = await description.evaluate((element) => element.scrollTop);
+    expect(position).toBeGreaterThan(0);
+    positions.set(identifier, position);
   }
+  expect(new Set(positions.values()).size).toBe(targets.length);
   for (const [identifier, title] of targets) {
     await selectIssue(page, identifier, title);
-    await expect(
-      panel(page).getByRole("button", {
-        name: "Collapse description",
-        exact: true,
-      }),
-    ).toHaveAttribute("aria-expanded", "true");
+    await expect
+      .poll(() =>
+        panel(page)
+          .getByRole("region", { name: "Issue description text", exact: true })
+          .evaluate((element) => element.scrollTop),
+      )
+      .toBeCloseTo(positions.get(identifier)!, 0);
   }
   await selectIssue(page, "yu/Arco #42", titles.github42);
   await panel(page)
-    .getByRole("button", { name: "Collapse description", exact: true })
-    .click();
+    .getByRole("region", { name: "Issue description text", exact: true })
+    .press("Home");
+  await expect
+    .poll(() =>
+      panel(page)
+        .getByRole("region", { name: "Issue description text", exact: true })
+        .evaluate((element) => element.scrollTop),
+    )
+    .toBe(0);
   await selectIssue(page, "YU-42", titles.linear42);
-  await expect(
-    panel(page).getByRole("button", {
-      name: "Collapse description",
-      exact: true,
-    }),
-  ).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .poll(() =>
+      panel(page)
+        .getByRole("region", { name: "Issue description text", exact: true })
+        .evaluate((element) => element.scrollTop),
+    )
+    .toBeCloseTo(positions.get("YU-42")!, 0);
   await selectIssue(page, "yu/Arco #42", titles.github42);
-  await expect(
-    panel(page).getByRole("button", {
-      name: "Expand description",
-      exact: true,
-    }),
-  ).toHaveAttribute("aria-expanded", "false");
+  expect(
+    await panel(page)
+      .getByRole("region", { name: "Issue description text", exact: true })
+      .evaluate((element) => element.scrollTop),
+  ).toBe(0);
   expect(
     (await events<ToolCall>(page, "tool")).filter((call) =>
       /(?:update|create|delete|comment$)/.test(call.name),

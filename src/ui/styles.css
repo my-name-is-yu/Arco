@@ -1347,13 +1347,6 @@
   font-size: 10px;
   gap: 6px;
 }
-.compact-bottom {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  font-size: 10px;
-}
 .compact-mode .fixture-tag {
   display: block;
   margin-top: 12px;
@@ -1384,8 +1377,7 @@
 .inline-card-utilities .detail-utility-menu {
   max-width: min(220px, calc(100vw - 32px));
 }
-.inline-card-top svg,
-.inline-description-toggle svg {
+.inline-card-top svg {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
@@ -1424,9 +1416,10 @@
   padding-top: 16px;
   min-width: 0;
 }
-.inline-description-preview {
+.inline-description-content {
   max-height: 13.6em;
-  overflow: clip;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   font-size: 14px;
 }
 .inline-description .issue-markdown h1,
@@ -1446,14 +1439,6 @@
 .inline-description .issue-markdown th,
 .inline-description .issue-markdown td {
   overflow-wrap: anywhere;
-}
-.inline-description-toggle {
-  margin-top: 8px;
-}
-.inline-issue-card .compact-bottom {
-  margin-top: 17px;
-  flex-wrap: wrap;
-  font-size: 12px;
 }
 @media (max-width: 440px) {
   .inline-issue-card {

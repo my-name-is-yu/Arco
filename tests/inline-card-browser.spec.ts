@@ -33,9 +33,9 @@ const markdown = [
   ...Array.from(
     { length: 8 },
     (_, index) =>
-      `Paragraph ${index + 1} describes the issue in enough detail to require expansion. Keep the complete Markdown blocks readable when the conversation card grows.`,
+      `Paragraph ${index + 1} describes the issue in enough detail to require scrolling. Keep the complete Markdown blocks readable inside the compact conversation card.`,
   ),
-  "Final paragraph remains available after expanding the description.",
+  "Final paragraph remains available while scrolling the description.",
 ].join("\n\n");
 
 const app = (page: Page) => page.frameLocator("#arco");
@@ -240,22 +240,11 @@ async function addOtherBrowsingScope(page: Page, source: Source) {
 }
 
 for (const source of ["github", "linear"] as const) {
-  test(`${source} inline Markdown expands without nested scrolling and keeps properties above the body at narrow widths`, async ({
+  test(`${source} inline Markdown scrolls immediately in a compact body and keeps properties above it at narrow widths`, async ({
     page,
   }) => {
     const session = await createSession(page);
-    const issue = await sourceIssue(page, session, source, 42);
-    await fixtureTool(
-      page,
-      session,
-      source === "github" ? "arco_update_issue" : "linear_update_issue",
-      {
-        ...issueRef(source, 42),
-        requestId: crypto.randomUUID(),
-        expectedUpdatedAt: issue.updatedAt,
-        patch: { body: markdown },
-      },
-    );
+    await setIssueBody(page, session, source, markdown);
     await openSource(page, session, source);
     await page
       .getByRole("button", { name: "Mock inline", exact: true })
@@ -264,10 +253,29 @@ for (const source of ["github", "linear"] as const) {
     const ui = app(page);
     const card = ui.locator(".inline-mode");
     const description = card.locator(".inline-description");
+    const content = description.getByRole("region", {
+      name: "Issue description text",
+      exact: true,
+    });
     await expect(
       description.getByRole("heading", { name: "Background" }),
     ).toBeVisible();
     await expect(description.locator("strong")).toHaveText("preview");
+    await expect(description).toContainText(
+      "Final paragraph remains available while scrolling the description.",
+    );
+    await expect(content).toHaveAttribute("tabindex", "0");
+    await expect(content).toHaveCSS("overflow-y", "auto");
+    await expect(
+      card.getByRole("button", { name: /^(Expand|Collapse) description$/ }),
+    ).toHaveCount(0);
+    const initial = await content.evaluate((element) => ({
+      height: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+    expect(initial.height).toBeGreaterThan(0);
+    expect(initial.height).toBeLessThanOrEqual(191);
+    expect(initial.scrollHeight).toBeGreaterThan(initial.height);
     await description
       .getByRole("button", { name: "the source", exact: true })
       .click();
@@ -275,9 +283,6 @@ for (const source of ["github", "linear"] as const) {
       .poll(() => events(page, "link"))
       .toEqual([{ url: "https://example.com/issue" }]);
     await expect(description.getByRole("listitem")).toHaveCount(2);
-    await expect(description).not.toContainText(
-      "Final paragraph remains available",
-    );
     const properties = card.locator(".inline-properties");
     const propertiesBounds = await properties.boundingBox();
     const bodyBounds = await description.boundingBox();
@@ -294,45 +299,75 @@ for (const source of ["github", "linear"] as const) {
       ),
     ).toBeVisible();
     await expect(selectControl(card, "Labels")).toBeVisible();
-
-    await card
-      .getByRole("button", { name: "Expand description", exact: true })
-      .click();
-    await expect(description).toContainText(
-      "Final paragraph remains available after expanding the description.",
-    );
+    const cardHeight = (await card.boundingBox())!.height;
+    await content.focus();
+    const documentTop = await ui
+      .locator("html")
+      .evaluate(() => document.scrollingElement?.scrollTop ?? 0);
+    await content.press("End");
+    await expect
+      .poll(() => content.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(
+      content.getByText(
+        "Final paragraph remains available while scrolling the description.",
+        { exact: true },
+      ),
+    ).toBeInViewport();
+    expect((await card.boundingBox())!.height).toBe(cardHeight);
+    expect(
+      await ui
+        .locator("html")
+        .evaluate(() => document.scrollingElement?.scrollTop ?? 0),
+    ).toBe(documentTop);
     const layout = await card.evaluate((element) => ({
       documentWidth: document.documentElement.clientWidth,
       contentWidth: document.documentElement.scrollWidth,
       bounds: [
         element,
-        ...element.querySelectorAll(".inline-properties, .inline-description"),
+        ...element.querySelectorAll(
+          ".inline-properties, .inline-description, .inline-description-content",
+        ),
       ].map((node) => {
         const bounds = node.getBoundingClientRect();
         return { left: bounds.left, right: bounds.right };
       }),
-      overflows: [
-        element,
-        ...element.querySelectorAll(".inline-description, .issue-markdown"),
-      ].map((node) => getComputedStyle(node).overflowY),
     }));
     expect(layout.contentWidth).toBeLessThanOrEqual(layout.documentWidth + 1);
     for (const bounds of layout.bounds) {
       expect(bounds.left).toBeGreaterThanOrEqual(0);
       expect(bounds.right).toBeLessThanOrEqual(layout.documentWidth + 1);
     }
-    expect(layout.overflows).not.toContain("auto");
-    expect(layout.overflows).not.toContain("scroll");
-    await card
-      .getByRole("button", { name: "Collapse description", exact: true })
-      .click();
-    await expect(description).not.toContainText(
-      "Final paragraph remains available",
-    );
-    await expect(
-      card.getByRole("button", { name: "Expand description", exact: true }),
-    ).toBeVisible();
     expect(await events(page, "message")).toEqual([]);
+  });
+
+  test(`${source} short inline descriptions keep their natural height`, async ({
+    page,
+  }) => {
+    const session = await createSession(page);
+    await setIssueBody(
+      page,
+      session,
+      source,
+      "A short description stays compact.",
+    );
+    await openSource(page, session, source);
+    await page
+      .getByRole("button", { name: "Mock inline", exact: true })
+      .click();
+    const card = app(page).locator(".inline-mode");
+    const content = card.getByRole("region", {
+      name: "Issue description text",
+      exact: true,
+    });
+    await expect(content).toHaveText("A short description stays compact.");
+    const bounds = await content.evaluate((element) => ({
+      height: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+    expect(bounds.height).toBeLessThan(100);
+    expect(bounds.scrollHeight).toBe(bounds.height);
+    await expect(card.locator(".inline-description-toggle")).toHaveCount(0);
   });
 
   test(`${source} inline assignee and labels update the retained issue using its own repository or team choices`, async ({
@@ -364,7 +399,7 @@ for (const source of ["github", "linear"] as const) {
     await expect(
       card.getByRole("heading", { name: titles[source][0], exact: true }),
     ).toBeVisible();
-    await expect(card).toContainText("Shared issue");
+    await expect(card.locator(".compact-bottom")).toHaveCount(0);
     const assignee = selectControl(
       card,
       source === "github" ? "Assignees" : "Linear assignee",
@@ -430,57 +465,48 @@ for (const source of ["github", "linear"] as const) {
   });
 }
 
-test("focusing a link below a single-block preview expands its description without scrolling inside it", async ({
+test("focusing a late link scrolls the complete description without enlarging the card", async ({
   page,
 }) => {
   const session = await createSession(page);
-  const issue = await sourceIssue(page, session, "github", 42);
-  await fixtureTool(page, session, "arco_update_issue", {
-    ...issueRef("github", 42),
-    requestId: crypto.randomUUID(),
-    expectedUpdatedAt: issue.updatedAt,
-    patch: {
-      body: `${"A long paragraph keeps the same Markdown block while adding enough text to extend below the preview. ".repeat(60)}[late source](https://example.com/late)`,
-    },
-  });
+  await setIssueBody(
+    page,
+    session,
+    "github",
+    `${"A long paragraph keeps the same Markdown block while adding enough text to extend below the compact reading area. ".repeat(60)}[late source](https://example.com/late)`,
+  );
   await openSource(page, session, "github");
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   const card = app(page).locator(".inline-mode");
-  const description = card.locator(".inline-description");
-  const preview = description.locator(":scope > div").first();
-  const lateSource = description.getByRole("button", {
+  const content = card.getByRole("region", {
+    name: "Issue description text",
+    exact: true,
+  });
+  const lateSource = content.getByRole("button", {
     name: "late source",
     exact: true,
   });
-  await expect(preview).toHaveClass(/inline-description-preview/);
-  await expect(
-    description.getByRole("button", {
-      name: "Expand description",
-      exact: true,
-    }),
-  ).toHaveAttribute("aria-expanded", "false");
+  const cardHeight = (await card.boundingBox())!.height;
   const clipped = await lateSource.evaluate((element) => {
-    const preview = element.closest(".inline-description-preview")!;
+    const content = element.closest(".inline-description-content")!;
     return {
       linkTop: element.getBoundingClientRect().top,
-      previewBottom: preview.getBoundingClientRect().bottom,
-      scrollTop: preview.scrollTop,
+      contentBottom: content.getBoundingClientRect().bottom,
+      scrollTop: content.scrollTop,
     };
   });
-  expect(clipped.linkTop).toBeGreaterThan(clipped.previewBottom);
+  expect(clipped.linkTop).toBeGreaterThan(clipped.contentBottom);
   expect(clipped.scrollTop).toBe(0);
 
   await lateSource.focus();
 
-  await expect(
-    description.getByRole("button", {
-      name: "Collapse description",
-      exact: true,
-    }),
-  ).toHaveAttribute("aria-expanded", "true");
   await expect(lateSource).toBeFocused();
   await expect(lateSource).toBeInViewport();
-  expect(await preview.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect
+    .poll(() => content.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  expect((await card.boundingBox())!.height).toBe(cardHeight);
+  await expect(card.locator(".inline-description-toggle")).toHaveCount(0);
   expect(await events(page, "link")).toEqual([]);
 });
 
@@ -588,7 +614,7 @@ test("Linear inline workflow and priority save native values without changing th
   expect(await events(page, "message")).toEqual([]);
 });
 
-test("inline tasks change only their source checkbox in collapsed and expanded Markdown for both providers", async ({
+test("inline tasks change only their source checkbox throughout the scrollable body for both providers", async ({
   page,
 }) => {
   const body = [
@@ -628,9 +654,6 @@ test("inline tasks change only their source checkbox in collapsed and expanded M
       "[x] First inline task",
     );
     expect(firstSaved.body).toBe(firstBody);
-    await card
-      .getByRole("button", { name: "Expand description", exact: true })
-      .click();
     const later = card.getByRole("checkbox", {
       name: "Completion of Later inline task",
       exact: true,
@@ -776,9 +799,6 @@ test("an unsaved GitHub description draft blocks inline tasks and remains availa
     .fill(draft);
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   const card = ui.locator(".inline-mode");
-  await card
-    .getByRole("button", { name: "Expand description", exact: true })
-    .click();
 
   await card
     .getByRole("checkbox", {
@@ -846,11 +866,14 @@ test.describe("inline utility dismissal", () => {
       await manualCopy.click();
       await expect(menu).toHaveJSProperty("open", true);
 
-      const descriptionToggle = card.locator(".inline-description-toggle");
-      await descriptionToggle.click();
+      const description = card.getByRole("region", {
+        name: "Issue description text",
+        exact: true,
+      });
+      await description.click({ position: { x: 3, y: 3 } });
 
       await expect(menu).toHaveJSProperty("open", false);
-      await expect(descriptionToggle).toBeFocused();
+      await expect(description).toBeFocused();
       await actions.click();
       await expect(menu).toHaveJSProperty("open", true);
       await card
@@ -899,9 +922,9 @@ test.describe("inline utility dismissal", () => {
       await identifierCopy
         .getByRole("button", { name: "Copy issue ID", exact: true })
         .click();
-      await descriptionToggle.click();
+      await description.focus();
       await expect(menu).toHaveJSProperty("open", false);
-      await expect(descriptionToggle).toBeFocused();
+      await expect(description).toBeFocused();
 
       await ui.locator("body").evaluate(() => {
         document.dispatchEvent(new Event("fixture-copy-complete"));
@@ -909,7 +932,7 @@ test.describe("inline utility dismissal", () => {
 
       await expect(identifierCopy.locator("button")).toHaveText("Copied");
       await expect(menu).toHaveJSProperty("open", false);
-      await expect(descriptionToggle).toBeFocused();
+      await expect(description).toBeFocused();
       expect(await events(page, "context")).toEqual([]);
       expect(await events(page, "message")).toEqual([]);
     }
@@ -1245,6 +1268,10 @@ async function observeInlineMotion(card: Locator) {
     await Promise.allSettled(
       element.getAnimations().map((item) => item.finished),
     );
+    // Finished promises resolve before the queued animationend event is delivered.
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
     const samples: InlineMotionSample[] = [];
     const record = (event: AnimationEvent, phase: "start" | "end") => {
       const target = event.target;
@@ -1285,7 +1312,7 @@ async function inlineMotionSamples(card: Locator) {
 }
 
 for (const source of ["github", "linear"] as const) {
-  test(`${source} inline description motion uses workspace timing without moving reading surfaces or replaying the card`, async ({
+  test(`${source} inline body scrolling keeps reading surfaces still and respects reduced motion`, async ({
     page,
   }) => {
     const session = await createSession(page);
@@ -1321,108 +1348,40 @@ for (const source of ["github", "linear"] as const) {
       }),
     ).toBe(1);
 
-    for (const [label, expanded] of [
-      ["Expand description", true],
-      ["Collapse description", false],
-    ] as const) {
-      const previous = (await inlineMotionSamples(card)).filter(
-        (sample) => sample.target === "description" && sample.phase === "end",
-      ).length;
-      await card.getByRole("button", { name: label, exact: true }).click();
-      await expect
-        .poll(
-          async () =>
-            (await inlineMotionSamples(card)).filter(
-              (sample) =>
-                sample.target === "description" && sample.phase === "end",
-            ).length,
-        )
-        .toBe(previous + 1);
-      const toggle = card.locator(".inline-description-toggle");
-      await expect(toggle).toHaveAttribute("aria-expanded", String(expanded));
-      await expect(toggle.locator("svg")).toHaveCSS(
-        "rotate",
-        expanded ? "180deg" : "0deg",
-      );
-      await expect(card.locator(".inline-description-content")).toHaveCSS(
-        "opacity",
-        "1",
-      );
-    }
-    const descriptionSamples = (await inlineMotionSamples(card)).filter(
-      (sample) => sample.target === "description",
-    );
-    expect(descriptionSamples).toHaveLength(4);
-    for (const sample of descriptionSamples) {
-      expect(sample.name).toBe("arco-reveal");
-      expect(sample.duration).toBe(180);
-      expect(sample.transform).toBe("none");
-      expect(sample.translate).toBe("none");
-      if (sample.phase === "start") expect(sample.opacity).toBeLessThan(1);
-      else expect(sample.opacity).toBe(1);
-    }
-
-    expect(
-      (await inlineMotionSamples(card)).filter(
-        (sample) => sample.target === "card" && sample.phase === "start",
-      ),
-    ).toEqual([]);
-    await expect(card.locator(".inline-description-toggle svg")).toHaveCSS(
-      "transition-duration",
-      "0.15s",
-    );
-
-    // Hold a real CSS animation open while the media preference changes.
-    const content = card.locator(".inline-description-content");
-    await content.evaluate((element) => {
-      element.addEventListener(
-        "animationstart",
-        () => {
-          for (const animation of element.getAnimations()) animation.pause();
-        },
-        { once: true },
-      );
+    const content = card.getByRole("region", {
+      name: "Issue description text",
+      exact: true,
     });
-    await card
-      .getByRole("button", { name: "Expand description", exact: true })
-      .click();
-    await expect(content).toHaveAttribute("data-revealing", "true");
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(content).not.toHaveAttribute("data-revealing", "true");
+    await content.focus();
+    await content.press("End");
+    await expect
+      .poll(() => content.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
     await expect(content).toHaveCSS("animation-name", "none");
-    await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect(content).toHaveCSS("animation-name", "none");
+    await expect(content).toHaveCSS("opacity", "1");
+    await expect(content).toHaveCSS("transform", "none");
+    await expect(content).toHaveCSS("translate", "none");
+    expect(await inlineMotionSamples(card)).toEqual([]);
+    await expect(card.locator(".inline-description-toggle")).toHaveCount(0);
 
     await page.emulateMedia({ reducedMotion: "reduce" });
-    const descriptionCount = (await inlineMotionSamples(card)).filter(
-      (sample) => sample.target === "description",
-    ).length;
     await open.hover();
     await expect(open).toHaveCSS("scale", "none");
     await expect(open).toHaveCSS("transition-duration", "0s");
-    for (const [label, expanded] of [
-      ["Collapse description", false],
-      ["Expand description", true],
-    ] as const) {
-      await card.getByRole("button", { name: label, exact: true }).click();
-      const toggle = card.locator(".inline-description-toggle");
-      await expect(toggle).toHaveAttribute("aria-expanded", String(expanded));
-      await expect(toggle.locator("svg")).toHaveCSS(
-        "rotate",
-        expanded ? "180deg" : "0deg",
-      );
-      await expect(toggle.locator("svg")).toHaveCSS(
-        "transition-duration",
-        "0s",
-      );
-      await expect(content).toHaveCSS("animation-name", "none");
-      await expect(content).toHaveCSS("opacity", "1");
-    }
-    expect(
-      (await inlineMotionSamples(card)).filter(
-        (sample) => sample.target === "description",
-      ),
-    ).toHaveLength(descriptionCount);
+    await content.focus();
+    await content.press("Home");
+    await expect
+      .poll(() => content.evaluate((element) => element.scrollTop))
+      .toBe(0);
+    await content.press("End");
+    await expect
+      .poll(() => content.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(content).toHaveCSS("animation-name", "none");
+    await expect(content).toHaveCSS("opacity", "1");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(content).toHaveCSS("animation-name", "none");
+    expect(await inlineMotionSamples(card)).toEqual([]);
     expect(await events(page, "message")).toEqual([]);
     await expect(page.locator("#harness-error")).toBeEmpty();
   });

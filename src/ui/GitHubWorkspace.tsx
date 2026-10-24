@@ -739,7 +739,6 @@ export function GitHubWorkspace({
       <InlineSummaryCard
         host={host}
         issue={retainedIssue}
-        shared={retainedShared}
         busy={mutationBusy || hostBusy}
         onOpen={openRetainedDetails}
         onOpenLink={(url) => void hostAction(() => host.openLink(url))}

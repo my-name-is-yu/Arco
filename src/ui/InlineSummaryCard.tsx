@@ -1,29 +1,19 @@
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
   ArrowUpRight,
-  ChevronDown,
   DotsHorizontalMoreMenu,
 } from "@openai/apps-sdk-ui/components/Icon";
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { selectionIssueData } from "./selection-context";
 import { Notice, type NoticeValue } from "./Notice";
 import { IssueMarkdown } from "./MarkdownContent";
-import { inlineMarkdownPreview } from "./inline-markdown-preview";
 import { CopyValue } from "./CopyValue";
 import { closeDetailUtility } from "./DetailToolbar";
-import { useSessionState } from "./session-state";
+import { useSessionRef } from "./session-state";
 export function InlineSummaryCard({
   issue,
   host,
-  shared,
   busy = false,
   onOpen,
   onOpenLink,
@@ -34,7 +24,6 @@ export function InlineSummaryCard({
 }: {
   issue: ConversationIssue;
   host: ArcoHost;
-  shared: boolean;
   busy?: boolean;
   onOpen: () => void;
   onOpenLink: (url: string) => void;
@@ -47,34 +36,20 @@ export function InlineSummaryCard({
     issue.source === "github"
       ? `${issue.repo} #${issue.number}`
       : issue.identifier;
-  const descriptionId = useId();
   const utilities = useRef<HTMLDetailsElement>(null);
-  const [expandedIssues, setExpandedIssues] = useSessionState<
-    Record<string, boolean>
-  >(host, "inline:expanded-issues", {});
-  const [descriptionRevealing, setDescriptionRevealing] = useState(false);
-  const expanded = expandedIssues[issue.url] === true;
-  const preview = useMemo(
-    () => inlineMarkdownPreview(issue.body),
-    [issue.body],
+  const description = useRef<HTMLDivElement>(null);
+  const scrollPositions = useSessionRef<Record<string, number>>(
+    host,
+    "inline:description-scroll",
+    {},
   );
+  useLayoutEffect(() => {
+    if (description.current)
+      description.current.scrollTop = scrollPositions.current[issue.url] ?? 0;
+  }, [issue.url, scrollPositions]);
   const closeAfterCopy = (button: HTMLElement) => {
     if (utilities.current?.open) closeDetailUtility(button);
   };
-  const changeExpanded = (next: boolean) => {
-    setDescriptionRevealing(
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    );
-    setExpandedIssues((previous) => ({ ...previous, [issue.url]: next }));
-  };
-  useEffect(() => {
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const stopReveal = () => {
-      if (preference.matches) setDescriptionRevealing(false);
-    };
-    preference.addEventListener("change", stopReveal);
-    return () => preference.removeEventListener("change", stopReveal);
-  }, []);
   useEffect(() => {
     const menu = utilities.current;
     if (!menu) return;
@@ -163,70 +138,24 @@ export function InlineSummaryCard({
         data-context-origin="body"
       >
         <div
-          id={descriptionId}
-          className={`inline-description-content${preview.expandable && !expanded ? " inline-description-preview" : ""}`}
-          data-revealing={descriptionRevealing || undefined}
-          onAnimationEnd={(event) => {
-            if (
-              event.target === event.currentTarget &&
-              event.animationName === "arco-reveal"
-            )
-              setDescriptionRevealing(false);
-          }}
-          onFocusCapture={(event) => {
-            if (expanded || !preview.expandable) return;
-            const previewBounds = event.currentTarget.getBoundingClientRect();
-            const focusedBounds = event.target.getBoundingClientRect();
-            if (
-              focusedBounds.bottom > previewBounds.bottom ||
-              focusedBounds.top < previewBounds.top
-            ) {
-              changeExpanded(true);
-              const focused = event.target;
-              requestAnimationFrame(() =>
-                focused.scrollIntoView({ block: "nearest" }),
-              );
-            }
+          ref={description}
+          className="inline-description-content"
+          role="region"
+          aria-label="Issue description text"
+          tabIndex={0}
+          onScroll={(event) => {
+            scrollPositions.current[issue.url] = event.currentTarget.scrollTop;
           }}
         >
           <IssueMarkdown
-            body={expanded ? issue.body : preview.body}
+            body={issue.body}
             onOpen={onOpenLink}
             image={{ host, issue }}
             busy={busy}
             onToggleTask={onToggleTask}
           />
         </div>
-        {preview.expandable && (
-          <Button
-            className="inline-description-toggle"
-            color="secondary"
-            variant="ghost"
-            size="sm"
-            aria-expanded={expanded}
-            aria-controls={descriptionId}
-            onClick={() => changeExpanded(!expanded)}
-          >
-            {expanded ? "Collapse description" : "Expand description"}
-            <ChevronDown aria-hidden="true" />
-          </Button>
-        )}
       </section>
-      <div className="compact-bottom">
-        <span className="muted">{shared ? "Shared issue" : "Browsing"}</span>
-        <span className="muted">
-          Updated{" "}
-          <time
-            dateTime={issue.updatedAt}
-            title={new Date(issue.updatedAt).toLocaleString("en")}
-          >
-            {new Date(issue.updatedAt).toLocaleDateString("en", {
-              month: "short",
-              day: "numeric",
-            })}
-          </time>
-        </span>
-      </div>
       {footer && <span className="fixture-tag">{footer}</span>}
       <Notice notice={notice ?? null} />
     </main>
