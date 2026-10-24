@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { draftController } from "../src/ui/useDraftPersistence";
+import { createStateStore } from "../src/server/state";
 import type { ArcoHost } from "../src/shared/contracts";
 import type { Draft, DraftKey } from "../src/shared/state";
 
@@ -28,6 +33,60 @@ function fixture() {
   return { host: { call } as unknown as ArcoHost, call };
 }
 describe("host-lifetime draft controller", () => {
+  it("loads a legacy disk draft and saves new input without an error or manual retry", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arco-draft-recovery-"));
+    try {
+      const store = createStateStore(directory);
+      await store.writeDraft({
+        key: github,
+        expectedRevision: 0,
+        draft: draft("Unsent legacy comment"),
+      });
+      const file = join(
+        directory,
+        "drafts",
+        `${createHash("sha256").update(JSON.stringify(github)).digest("hex")}.json`,
+      );
+      await writeFile(
+        file,
+        JSON.stringify({
+          revision: 1,
+          draft: {
+            ...draft("Unsent legacy comment"),
+            promptText: "Old request",
+          },
+        }),
+      );
+      const host = {
+        call: async (name: string, args: Record<string, unknown>) => {
+          if (name === "arco_read_draft")
+            return store.readDraft(args.key as DraftKey);
+          if (name === "arco_write_draft")
+            return store.writeDraft({
+              key: args.key as DraftKey,
+              expectedRevision: args.expectedRevision as number,
+              draft: args.draft as Draft,
+            });
+          throw new Error(`Unexpected draft tool: ${name}`);
+        },
+      } as unknown as ArcoHost;
+      const controller = draftController(host);
+      await expect(controller.load(github)).resolves.toEqual(
+        draft("Unsent legacy comment"),
+      );
+      expect(controller.get()[JSON.stringify(github)]?.state).toBe("saved");
+      controller.schedule(github, draft("New input after recovery"));
+      controller.flush();
+      await vi.waitFor(() =>
+        expect(controller.get()[JSON.stringify(github)]?.state).toBe("saved"),
+      );
+      expect(
+        (await createStateStore(directory).readDraft(github)).draft,
+      ).toEqual(draft("New input after recovery"));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it("keeps one live value and write queue across provider view subscriptions", async () => {
     const { host, call } = fixture();
     const first = draftController(host);

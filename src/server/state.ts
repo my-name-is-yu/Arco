@@ -20,6 +20,7 @@ import {
   defaultSettings,
   type DraftKey,
 } from "../shared/state";
+import { recoverDraft, recoverSettings } from "./state-recovery";
 
 export function stateDirectory(
   platform = process.platform,
@@ -47,10 +48,11 @@ export function createStateStore(directory = stateDirectory()) {
     file: string,
     schema: z.ZodType<T>,
     initial: T,
+    recover?: (value: unknown) => T,
   ): Promise<T> {
     let content;
     try {
-      content = await readFile(file, "utf8");
+      content = await readFile(file);
     } catch (error) {
       if (
         error &&
@@ -63,13 +65,36 @@ export function createStateStore(directory = stateDirectory()) {
         cause: error,
       });
     }
+    let value: unknown;
     try {
-      return schema.parse(JSON.parse(content));
+      value = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(content),
+      );
     } catch {
+      // Keep the original bytes even when JSON cannot be decoded.
+    }
+    const parsed = schema.safeParse(value);
+    if (parsed.success) return parsed.data;
+    if (!recover)
       throw new Error(
         "Local settings or drafts do not match the current format. The stored data was preserved without overwriting it.",
       );
+    const recovered = recover(value);
+    // Callers hold the file lock through backup and replacement. A failed backup
+    // must leave the original file intact, including invalid UTF-8 bytes.
+    const backup = await open(
+      `${file}.recovery-${randomUUID()}.bak`,
+      "wx",
+      0o600,
+    );
+    try {
+      await backup.writeFile(content);
+      await backup.sync();
+    } finally {
+      await backup.close();
     }
+    await writeAtomic(file, recovered);
+    return recovered;
   }
   async function writeAtomic(file: string, data: unknown) {
     const temporary = `${file}.${randomUUID()}.tmp`;
@@ -107,10 +132,12 @@ export function createStateStore(directory = stateDirectory()) {
   );
   const readAnnotations = () => read(annotationsFile, annotationsSchema, {});
   const readSettings = () =>
-    read(settingsFile, settingsRecordSchema, {
-      revision: 0,
-      settings: { ...defaultSettings },
-    });
+    read(
+      settingsFile,
+      settingsRecordSchema,
+      { revision: 0, settings: { ...defaultSettings } },
+      recoverSettings,
+    );
   function draftFile(input: DraftKey) {
     const key = draftKeySchema.parse(input);
     return join(
@@ -120,7 +147,12 @@ export function createStateStore(directory = stateDirectory()) {
     );
   }
   const readDraft = (key: DraftKey) =>
-    read(draftFile(key), draftRecordSchema, { revision: 0, draft: null });
+    read(
+      draftFile(key),
+      draftRecordSchema,
+      { revision: 0, draft: null },
+      recoverDraft,
+    );
   return {
     async readAnnotationSnapshot(id: string) {
       const key = annotationSnapshotIdSchema.parse(id);
@@ -149,7 +181,7 @@ export function createStateStore(directory = stateDirectory()) {
         return { deleted: true };
       });
     },
-    readSettings,
+    readSettings: () => locked(settingsFile, readSettings),
     async updateSettings(input: z.input<typeof settingsUpdateSchema>) {
       const { expectedRevision, patch } = settingsUpdateSchema.parse(input);
       return locked(settingsFile, async () => {
@@ -163,7 +195,7 @@ export function createStateStore(directory = stateDirectory()) {
         return updated;
       });
     },
-    readDraft,
+    readDraft: (key: DraftKey) => locked(draftFile(key), () => readDraft(key)),
     async writeDraft(input: z.input<typeof draftWriteSchema>) {
       const data = draftWriteSchema.parse(input);
       return locked(draftFile(data.key), async () => {
