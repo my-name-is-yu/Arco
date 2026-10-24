@@ -6,6 +6,11 @@ import { Buffer } from "node:buffer";
 
 const html = await readFile("dist/plugin/arco.html", "utf8");
 const server = await readFile("dist/plugin/server.mjs", "utf8");
+assert.equal(
+  await readFile("dist/plugin/LICENSE", "utf8"),
+  await readFile("LICENSE", "utf8"),
+  "project license missing or changed in plugin artifact",
+);
 for (const developmentLiteral of [
   "fixture-issue-42",
   "fixture-linear-workspace",
@@ -82,7 +87,10 @@ assert(
   ),
   "unexpected unbundled runtime package",
 );
-assert(!html.includes("ローカルfixture host"), "test harness in production");
+assert(
+  !html.includes("MOCK HOST · fixture only · Not the Codex app"),
+  "test harness in production",
+);
 console.log(
   `PASS self-contained HTML (${Buffer.byteLength(html)} bytes), JS/CSS AST, no development fixture or sourcemap; ${guardedDependencyProbes.length} guarded dependency Function probes retained (CSP browser check required)`,
 );

@@ -1,5 +1,9 @@
-# Arco 開発の入口
+# Contributor orientation
 
-現在の構成と責務は[技術スタック](technical-stack.md)、採用操作は[操作対応表](issue-operations.md)、確認範囲は[実装・受入確認](implementation-status.md)を参照する。
+Start with [README](../README.md), [Installation](installation.md), [Development](development.md), and [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-実装開始時の引き継ぎは[2026-10-22の履歴](archive/implementation-handoff-2026-10-22.md)へ移した。未実装・未決と書かれた当時の指示を現在の仕様へ適用しない。
+For a change to issue behavior, read [Product scope](product-scope.md) and [Issue operations](issue-operations.md). For ownership and runtime flow, use [Technical architecture](technical-stack.md). For data or authentication work, read [Local data](local-data-boundary.md), [Authentication](auth-distribution.md), and [Security design](security-and-privacy.md).
+
+[Implementation status](implementation-status.md) records available validation evidence and remaining native-host/platform checks. Keep fixture, protocol, real-service, desktop, and publication results separate.
+
+The [original implementation handoff](archive/implementation-handoff-2026-10-22.md) and [initial technical plan](archive/technical-stack-2026-10-22.md) are historical records. They are not a backlog, distribution policy, or instruction to restore retired features.

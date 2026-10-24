@@ -16,7 +16,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("persisting selection anchors", () => {
   it("stores input positions and hashes without the selected text or unselected draft", async () => {
-    const selected = "選んだ箇所";
+    const selected = "Selected passage 🧭";
     const prefix = "Private unselected draft before ";
     const value = `${prefix}${selected} and private text after`;
     const runtime: SelectionAnchor = {

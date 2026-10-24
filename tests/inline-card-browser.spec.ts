@@ -1099,7 +1099,7 @@ test("Linear inline visuals preserve source workflow colors, neutral assignees a
   });
   await expect(card).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await card.screenshot({
-    path: "/Users/yuyoshimuta/dev/Arco/docs/design/references/2026-10-24-inline/colors-light-narrow.png",
+    path: "test-results/colors-light-narrow.png",
   });
 });
 

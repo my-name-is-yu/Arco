@@ -1,63 +1,54 @@
-# Arco セキュリティとデータ保護
+# Security and privacy design
 
-更新日: 2026-10-22
-状態: 無料提供の方針を反映した設計。Arco本体の認証・データ保護の実装や、セキュリティ監査が完了したという意味ではない。
+This document describes Arco's trust boundaries and contributor expectations. It is not a certification or a completed security audit. Vulnerability reporting instructions are in [SECURITY.md](../SECURITY.md).
 
-## 構成とデータの境界
+## Trust boundaries
 
-Arcoは、採用済みの製品範囲を無料で提供する。GitHub・Linearの認可とAPI操作は端末内のMCPサーバーが担い、Issueの正本は元サービス、会話とAIの実行はCodex／hostへ委ねる。
-独自のArcoアカウント、ログイン、課金API、利用権サーバー、サーバー側DBは作らない。表示cacheはメモリ、設定・下書きは端末内JSONから始め、credentialはCLI等の既存の安全な保存先を優先する。独立したIssueの正本や常時mirrorは作らない。
+Arco's embedded UI communicates with a local Node.js MCP server through the host bridge. The server accesses GitHub through the public GitHub CLI and Linear through its OAuth/API client. GitHub and Linear remain authoritative for issue data and permissions.
 
-この構成は、Arco独自サーバーへIssueやsource tokenを集めない方針である。ネットワーク通信がない製品、すべての情報が端末内から出ない製品という意味ではない。
+| Boundary               | Required behavior                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Provider credentials   | Keep credentials out of UI HTML, `_meta`, model-facing results, local draft/settings JSON, and logs                            |
+| Source identity        | Validate repository/workspace/team, native issue IDs, canonical URLs, and required Project/field IDs before access or mutation |
+| External issue content | Treat bodies, comments, images, links, and API errors as untrusted data                                                        |
+| Local persistence      | Use schema validation, process locks, revision checks, atomic replacement, and recoverable backups                             |
+| Conversation sharing   | Share only explicitly selected context; do not send messages automatically                                                     |
+| Distribution           | Ship required license notices and target-native dependencies; exclude fixtures, source maps, and secrets                       |
 
-| データ                          | 扱う場所・送信先                                             | 境界                                                                                  |
-| ------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| GitHub・Linearのcredential      | CLI等の既存の安全な保存先と、必要な範囲のlocal MCP内認可処理 | Arcoへの複製を前提にせず、iframe・モデル向け結果・ログへ返さない                      |
-| Issue本文・コメント・属性・添付 | 元サービス、取得したlocal MCP、表示UI                        | 元サービスを正本とし、表示cacheはメモリ。Arco独自サーバーへの保存や全件同期を行わない |
-| 会話へ渡すIssue・選択範囲       | ユーザーが指定した内容をCodex／hostへ共有                    | 会話連携に必要な送信であることと、送る対象を操作前に分かるようにする                  |
-| 表示設定・filter・下書きなど    | 必要な範囲で端末内に保持                                     | tokenを混ぜない。永続化する項目と保存期間は画面仕様で決める                           |
-| 診断情報                        | 必要最小限のローカル診断                                     | token・本文・コメント・個人情報を記録しない。外部への自動送信は前提にしない           |
+Local processing avoids an Arco-operated issue backend. It does not make issue data stay entirely on the device: provider requests and user-directed sharing with Codex are network operations.
 
-現時点ではソース非公開の無料pluginとして提供する。配布コードは利用者の端末で読まれ得るため、非公開であることを秘密保護の根拠にせず、このデータ境界を維持する。
+## Authentication
 
-## 実装で満たすべき境界
+GitHub authentication remains with `gh`. The conditional account cache obtains the selected CLI token transiently to hash its identity, so a changed credential invalidates prior cache entries. Tokens and identity hashes are never returned or persisted. Arco does not silently change scopes or log out a shared connection.
 
-以下は実装・検証時の設計基準であり、現在の安全性を保証するものではない。
+Linear authorization validates state and a registered loopback callback and uses PKCE. Access and refresh tokens are stored as a pair in the OS credential store. Process coordination re-reads the pair before refresh; unavailable secure storage fails instead of using plaintext. See [Authentication](auth-distribution.md) for client registration and disconnect behavior.
 
-- sourceごとの正式な認可を行い、本人に認められた対象・権限で操作する。認証のためにArco独自ログインを追加しない。
-- sourceの公開仕様に従って、認可取引の検証、tokenの期限・更新・失効、再接続を扱う。GitHubは公開`gh` CLI経由を先に検証し、自前認可・token管理は必要性を確認してから決める。Linearの認可は別に検証し、account/session基盤は追加しない。[認証・配布](auth-distribution.md)
-- pluginの配布物へ共有secretを埋め込まない。credentialはlocal MCPが扱い、UIと会話のtoolから同じ操作実装を呼ぶ。
-- Arcoがcredentialを保存する必要がある場合は安全な保存先を選び、平文JSONへfallbackしない。既存の認証経路が使える場合は保存・更新処理を重複実装しない。認可や保存先が利用不能の場合はエラーとして扱う。
-- 設定・下書き更新とtoken rotationは複数MCP processで検証する。必要ならprocess間排他と再読込を追加し、process内のPromise queueやatomic writeだけで更新競合も解決したとは扱わない。特定packageは必要性が確定してから採用する。
-- 設定・下書きはJSONと既存Zodから始め、破損や他processによる変更の消失を防ぐ。Code Reviewのreview用SQLiteを、そのままArcoの必須DBにはしない。
-- toolごとに入力と対象を検証する。読み取りと書き込みを区別し、保存先と変更内容を明確にする。権限不足や接続切れを、空の検索結果や保存成功として扱わない。
-- Issue本文・コメント・添付を外部入力として表示する。任意scriptやシェル命令として実行せず、HTMLの表示と外部リソースの取得を制御する。
-- local MCPへ、Issue操作に不要なシェル実行・汎用ファイル操作・独自agent実行を追加しない。
-- 利用者による接続解除や認可の失効が確認された場合は、不要なArco管理下の端末内credentialの削除と再接続の導線を用意する。通信失敗と失効を区別し、元サービス上のIssueや、本人が作成した下書きを接続状態の変更だけで削除しない。
-- Arcoの接続解除とprovider側のgrant取消は分ける。Arco管理分以外の共有CLI認証の削除・ログアウトを暗黙に行わず、localの解除だけで元サービスの認可も取り消したとは表示しない。
+## Content rendering and resources
 
-Code Reviewと同じ構成・既存の接続経路を優先し、Node.js 24.22.1を開発検証に使う。ホストNodeの起動経路はprobeで確認して契約に従う。対象はCodexアプリが対応する環境で、macOS・Windows・Linuxの実際のOS・archで検証し、headless/CLI対応を自動追加しない。
-ホスト環境変数は公開資料に記載がないだけで利用不可とは断定せず、実際のpluginで利用可能かを確かめる。Nodeの手動導入要求・同梱やlauncher追加は今決めず、全OSで追加セットアップ不要とは検証前に保証しない。
-追加keyring・保存helper・runtime配布等は必要な場合の候補に留め、自動installer・SEA・独自launcher・daemonを先回りして追加しない。観察事実・公開契約・候補の区別は[技術スタック](technical-stack.md)、[依存互換性](dependency-compatibility.md)を参照。
+[`MarkdownContent.tsx`](../src/ui/MarkdownContent.tsx) uses the Apps SDK UI renderer with sanitization. Link and image handling restricts accepted protocols and hands opening to the host. Math is disabled. Raw markup and renderer directives must not bypass the sanitization boundary.
 
-端末内に処理を寄せることでArco独自サーバーへの集約を避けられるが、端末内token、配布コード、依存関係、UI表示の保護は引き続き必要である。
+Images are resolved by a source-bound server tool rather than exposing provider credentials to the iframe. The tool validates that the requested image belongs to the selected issue/comment's parsed Markdown, validates supported HTTPS destinations and redirects, and bounds image data and accepted formats. Unsupported resources are handed back to the source service.
 
-## 会話連携と利用データ
+The production HTML is self-contained. The artifact check rejects external scripts/styles, remote CSS resources, dynamic imports, and unexpected runtime code evaluation. It explicitly reports two allowed dependency capability/global-object probes. Static presence, guards, and browser CSP behavior are separate forms of evidence; see [Dependency runtime notes](dependency-runtime-notes.md).
 
-採用済みの4会話連携とinline／fullscreenへの対応を維持する。PiPは2026-10-23のユーザー希望で対象外とした。無料・有料の違いによる単一repo／team制限、利用回数の計測、契約確認、署名付き利用権や端末台数管理は設けない。
-source混在表示、一覧の横断範囲、filterやbulkの操作範囲は、料金と切り離したUX・source権限の問題として決める。
+## Writes and errors
 
-Issueやテキストを選ぶだけでは共有せず、Add to chatの明示操作で選んだ内容をCodexへ渡す。添付表示と相談入力・送信はCodexが担い、Arcoからmessage送信・下書き準備・会話作成を行わない。選択共有に本文全体を補わない。本文または単一コメントの内側に収まる選択はnativeのoriginを保持し、コメントにはnative comment IDを添える。その他のテキストはoriginをuiとして扱う。単一Issueへ安全に対応する場合だけ最小限のnative識別情報を添え、複数Issueにまたがる選択へ任意の対象を割り当てない。必要以上のIssueや会話履歴を集めない。
-推薦や継続利用の評価のために、Issue本文・repo名・検索語・source tokenを分析サーバーへ送る構成は採用しない。利用状況の測定方法そのものも未採用であり、必要になった場合に目的・同意・最小データを別途検討する。
+Use the same implementations for UI and conversational tools. Keep read and write tools distinct and validate every supplied target and attribute. Preserve fields that the operation did not request to change.
 
-## 検証で確認すること
+Request IDs deduplicate identical operations. An uncertain response must not trigger a blind mutation retry with a new ID. Receipts must distinguish a failed mutation, partial success, and a completed mutation whose following read failed. A permission or connection error must never become an empty list or a success state.
 
-- credentialがUIのHTML・tool結果・ログ・エラーへ漏れないこと。
-- 認可した範囲でだけ読み書きし、失効・期限切れ・権限不足から復旧できること。
-- 利用する認証経路が失敗しても平文fallbackせず、Arcoでtoken更新を管理する場合は同時refreshでpairを失わないこと。
-- 設定・下書きの同時更新と書込み途中の終了で、別processの変更や下書きを失わないこと。
-- 外部入力の表示がscript実行や不要なlocal操作につながらないこと。
-- 会話へ渡る対象と送信の契機が操作前に分かり、選択変更だけでは送信しないこと。
-- 保存に失敗した場合や再取得前の表示を、元サービスへ保存済みと誤認させないこと。
+Provider exceptions can include request text, private content, and credentials. Return sanitized, actionable errors instead of raw subprocess or SDK output.
 
-最小probeで確認済みのinline表示と、Arco本体の認証・Issue操作・データ保護の検証は分けて扱う。[probeの検証記録](inline-probe-validation.md)
+## Persistence and sharing
+
+Drafts can contain confidential issue text. They use the same protected local directory as settings, with separate native scope keys. Recovery preserves original bytes in a sibling backup before replacing an invalid settings/draft file. Backups require the same care as active drafts. See [Local data](local-data-boundary.md).
+
+**Add to chat** is an explicit handoff. Whole-issue sharing and passage sharing have different payloads; a selected passage must not silently include the full issue or comment history. Preserve a native origin only when the selection belongs to one well-defined issue or comment. Multi-issue text must not be assigned an arbitrary native target.
+
+Annotation position snapshots do not contain the selected text or annotation comment. Restore only matching positions for the originating host context, and do not resurrect attachments after deletion.
+
+## Verification expectations
+
+Use fixture tests for hostile Markdown, invalid URLs, identity mismatches, credential failures, concurrent refresh, storage conflicts, and ambiguous write outcomes. Use isolated native credential tests for actual OS storage. Real provider operations and real Codex attachment/rendering checks require separate records.
+
+The repository contains historical dependency and security observations. They do not establish the current advisory state or absence of vulnerabilities. Follow [Development](development.md) and [CONTRIBUTING.md](../CONTRIBUTING.md) when changing these boundaries.

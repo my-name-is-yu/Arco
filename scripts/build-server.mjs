@@ -30,6 +30,7 @@ await build({
   define: { __ARCO_FIXTURE__: "true" },
 });
 await cp("plugin", "dist/plugin", { recursive: true });
+await cp("LICENSE", "dist/plugin/LICENSE");
 await cp("dist/ui/index.html", "dist/plugin/arco.html");
 await cp("dist/ui/index.html", "dist/dev/arco.html");
 // Native credential storage is the only runtime package kept outside the bundle.

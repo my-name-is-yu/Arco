@@ -639,16 +639,16 @@ test("a retained GitHub selection edits an optional comment without changing the
     latestSharedSelection((await events(page, "context"))[0]),
   ).toMatchObject({ selection: { text: sourceText, origin: "body" } });
 
-  const note = "この箇所を説明してください";
+  const note = "Please explain this passage";
   await comment.fill(note);
-  await comment.dispatchEvent("compositionstart", { data: "い" });
+  await comment.dispatchEvent("compositionstart", { data: "é" });
   await comment.dispatchEvent("keydown", {
     key: "Enter",
     code: "Enter",
     keyCode: 229,
     isComposing: true,
   });
-  await comment.dispatchEvent("compositionend", { data: "い" });
+  await comment.dispatchEvent("compositionend", { data: "é" });
   await expect(comment).toHaveValue(note);
   await expect(dialog).toBeVisible();
   expect(await events(page, "context")).toHaveLength(1);
@@ -727,14 +727,14 @@ test("two GitHub selections keep numbered markers and independent comments when 
   const firstText = await selectText(app, ".issue-heading h1");
   await addSelectionToChat(app);
   await expect.poll(() => events(page, "context")).toHaveLength(1);
-  await comment.fill("1つ目");
+  await comment.fill("First comment");
   await save.click();
   await expect.poll(() => events(page, "context")).toHaveLength(2);
   const secondText = await selectText(app, ".issue-body p");
   await addSelectionToChat(app);
   await expect.poll(() => events(page, "context")).toHaveLength(3);
   await expect(comment).toHaveValue("");
-  await comment.fill("2つ目");
+  await comment.fill("Second comment");
   await save.click();
   await expect.poll(() => events(page, "context")).toHaveLength(4);
   await expect(first).toBeVisible();
@@ -756,7 +756,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
           repo: "yu/Arco",
           number: 42,
         }),
-        selection: { text: firstText, origin: "ui", comment: "1つ目" },
+        selection: { text: firstText, origin: "ui", comment: "First comment" },
       }),
       expect.objectContaining({
         number: 2,
@@ -765,21 +765,29 @@ test("two GitHub selections keep numbered markers and independent comments when 
           repo: "yu/Arco",
           number: 42,
         }),
-        selection: { text: secondText, origin: "body", comment: "2つ目" },
+        selection: {
+          text: secondText,
+          origin: "body",
+          comment: "Second comment",
+        },
       }),
     ],
   });
   const secondAnnotation = (collection.annotations as SharedAnnotation[])[1];
   await first.click();
-  await expect(comment).toHaveValue("1つ目");
-  await comment.fill("1つ目を更新");
+  await expect(comment).toHaveValue("First comment");
+  await comment.fill("Updated first comment");
   await save.click();
   await expect.poll(() => events(page, "context")).toHaveLength(5);
   const edited = sharedContextFromText((await events(page, "context"))[4]);
   const annotations = edited.annotations as SharedAnnotation[];
   expect(annotations[0]).toMatchObject({
     number: 1,
-    selection: { text: firstText, origin: "ui", comment: "1つ目を更新" },
+    selection: {
+      text: firstText,
+      origin: "ui",
+      comment: "Updated first comment",
+    },
   });
   expect(annotations[1]).toEqual(secondAnnotation);
   await expect(first).toBeVisible();
@@ -803,7 +811,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
     .toEqual([firstText, secondText]);
   expect(await events(page, "context")).toEqual(sharedBeforeBrowsing);
   await second.click();
-  await expect(comment).toHaveValue("2つ目");
+  await expect(comment).toHaveValue("Second comment");
   await comment.press("Escape");
   expect(await events(page, "context")).toHaveLength(5);
   await first.click();
@@ -817,7 +825,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
   await expect(second).toHaveText("2");
   await expect.poll(() => retainedSelection(app)).toEqual([secondText]);
   await second.click();
-  await expect(comment).toHaveValue("2つ目");
+  await expect(comment).toHaveValue("Second comment");
   await dialog
     .getByRole("button", { name: "Remove annotation 2", exact: true })
     .click();

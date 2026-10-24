@@ -1,74 +1,57 @@
-# GitHub account Issues and repository discovery
+# GitHub issue and repository discovery
 
-Verified: 2026-10-24. These reads use the existing public GitHub CLI authentication. They do not request new authorization, scan repositories individually, or fall back to a public GitHub search.
+Arco uses the existing public GitHub CLI connection. Personal issue discovery does not require selecting a repository, iterate through every repository, or fall back to unrelated public search.
 
-## Initial account views
+## Personal account views
 
-`arco_account_issues` reads GitHub's native [`GET /issues`](https://docs.github.com/en/rest/issues/issues#list-issues-assigned-to-the-authenticated-user). Repository input is unnecessary. The default is **Assigned to me**, with explicit **Created by me**, **Mentioned me**, and **All account repositories** choices. An empty personal view remains empty; it never switches to another view automatically.
+`arco_account_issues` reads the native authenticated-account issue feed. It defaults to **Assigned to me** and offers explicit **Created by me**, **Mentioned me**, and **All account repositories** filters. An empty personal list stays empty.
 
-The input is `{filter?,state?,sort?,order?,page?}`. Filters are `assigned` (default), `created`, `mentioned`, and `all`; state defaults to `open`, sort to `updated`, direction to `desc`, and page to `1`. Sort also supports `created` and `comments`. The response is `{scope:"account",filter,issues,hasMore,page}`. Every Issue retains its native repository and number, even when two repositories use the same Issue number.
+| Input    | Default    | Other values                  |
+| -------- | ---------- | ----------------------------- |
+| `filter` | `assigned` | `created`, `mentioned`, `all` |
+| `state`  | `open`     | `closed`, `all`               |
+| `sort`   | `updated`  | `created`, `comments`         |
+| `order`  | `desc`     | `asc`                         |
+| `page`   | `1`        | Positive native page number   |
 
-**All account repositories** follows the endpoint's visible owned, member, and organization repository scope under the current credential. It is not a search of every public repository. Token selection, repository permissions, and organization authorization still constrain visibility.
+Results have `{scope: "account", filter, issues, hasMore, page}`. Each issue retains its repository and number. **All account repositories** follows the authenticated endpoint's access scope; it does not mean every public repository. Created issues can include contributions to repositories outside the explicit repository picker.
 
-**Created by me** may include Issues opened in external open-source repositories. It is not necessarily a subset of **All account repositories**: Arco forwards these distinct native filters unchanged rather than restricting personal views to the discovered repository list.
+Each request reads up to 100 native entries and removes pull requests without changing the remaining order. A full PR-only page can therefore contain no issues and still have `hasMore: true`. A full final page can require an extra empty-page read. The personal feed is not replaced with the search-limited `viewer.issues` or a participation search.
 
-Each request reads one native page of up to 100 entries. GitHub may include pull requests; Arco removes them without changing the remaining source order. A PR-only full page therefore has `issues:[]` and `hasMore:true`, allowing the next native page. A full final page may require one extra empty-page read. The account feed does not inherit the Search API's 1,000-result cap. Arco keeps the native account endpoint and its explicit scopes instead of replacing them with a search or per-repository scan.
+## Summary projection and conditional reads
 
-Account list reads use GitHub CLI's `--jq` projection to keep only the fields required for issue summaries, native repository identity checks, pull-request exclusion, and pagination before the Node process parses the response. Bodies and detail-only data do not enter the list response. The initial REST response received by GitHub CLI still includes the body. Subsequent reads send `If-None-Match` for the exact endpoint and reuse validated summaries only after GitHub returns `304 Not Modified`, with no response body. A changed page returns a new `200` response; network, permission, and format failures never return stale data.
+The account endpoint initially returns its REST response to GitHub CLI, including fields not needed by the viewer. CLI `--jq` projection removes body/detail data before Node parses the summary. It does not remove that data from the initial provider-to-CLI transfer.
 
-The ETag cache is memory-only and bounded to 32 entries / 8 MiB of summary data. It is isolated by a private hash of the active GitHub credential, checked before and after the request. Credential changes discard cached pages, including for the same username. Tokens and hashes are never exposed in the tool response or written to disk. This uses the installed CLI's read-only `gh auth token --hostname github.com --no-refresh` command; GitHub CLI must support that option.
+Subsequent requests can send `If-None-Match` for the exact endpoint. A validated `304 Not Modified` reuses the matching summaries without a response body. Changed pages return fresh results; connection, permission, malformed-response, or identity errors must not become stale success.
 
-In the expanded viewer, scrolling within 200px of the list's end loads the next page. A short or PR-only page can continue immediately, with at most three automatic additional pages per scroll demand. The `Load more` action is always available when more entries remain and renews that budget. Hidden and compact lists do not automatically continue, and a failed next page waits for an explicit retry. The count shows loaded Issues, not a claimed total.
+This cache is memory-only, limited to 32 entries / 8 MiB, and bound to a private hash of the active CLI credential checked before and after each request. A changed token invalidates it even if the username is unchanged. The server obtains that identity using `gh auth token --hostname github.com --no-refresh`; the token and hash are neither returned nor persisted. The installed CLI must support that option.
 
-The 30-second poll and window-focus refresh run only while a single page is loaded. A multi-page list keeps its visible rows and can be updated with `Refresh`; source changes made in Arco still invalidate the relevant data. This avoids rereading every accumulated page every 30 seconds.
+## Repository queries
 
-The account endpoint has no full-text or Projects query parameter. The search field accepts a native GitHub Issue URL even in account scope and opens its exact repository and Issue. Full-text search is enabled after optional repository selection, using `arco_list_issues` and its native qualifiers. Its 1,000-result search cap remains separate. `involves:@me` is [a participation search](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests#search-by-a-user-thats-involved-in-an-issue-or-pull-request), and is not substituted for either account view.
+`arco_list_issues` uses GraphQL issue search with up to 100 summary rows per page. It requests native identity, title/state/update time, author, labels, assignees, and continuation metadata; bodies, comments, reactions, and images are separate detail requests.
 
-## Repository Issue reads
+Inputs preserve `repo`, `query`, `state`, `sort`, `order`, and numeric `page`, with an optional opaque `cursor`. More results return `nextCursor`. Changing scope/query/order restarts at page 1 without a cursor.
 
-Repository search uses GraphQL `search(type: ISSUE, first: 100)` and selects only summary fields, labels, assignees, and pagination metadata. Issue bodies, comments, reactions, and images are absent from the GitHub-to-CLI response. Repository identity and canonical Issue URLs are validated before returning rows. Detail, comment, and image reads keep their separate contracts and staged loading.
+Explicit `sort:` qualifiers, Boolean syntax, parentheses, legacy page-only continuation, and nested fields exceeding the summary query's limits use the existing REST search path to preserve semantics. A failed or partial GraphQL response is an error rather than a silent data-source switch. Repository search retains its distinct 1,000-result cap.
 
-The input preserves `{repo,query?,state?,sort?,order?,page?}` and adds optional `cursor`. A page with more results returns `nextCursor`; the viewer forwards it with the incremented numeric page. Repository, query, state, or ordering changes start at page 1 without a cursor. Labels have opaque GraphQL IDs in summaries; detail and editing metadata still use their independently fetched REST IDs.
+Both personal and repository responses validate native repository and canonical issue URL identity. Opaque GraphQL label IDs in summaries are not substitutes for separately fetched editing metadata.
 
-The existing result scope, filters, sorting, and search cap are preserved. Explicit `sort:` qualifiers, Boolean operators, parentheses, legacy page-only continuation, and pages containing more than 100 labels or assignees use the existing REST search path to preserve its behavior. Such REST responses still have the CLI summary projection. GraphQL authentication/network failures and partial or malformed results fail visibly rather than silently changing data source or truncating nested fields. No personal feed is replaced with GraphQL `viewer.issues` or a search-limited account query.
+## Paging and refresh in the viewer
 
-## Repository picker
+Within 200px of an expanded list's end, scrolling can request the next page. Short or PR-only pages can continue, capped at three additional automatic pages per scroll demand. **Load more** remains available and renews the budget. Hidden and compact lists do not continue automatically; a failed continuation waits for explicit retry.
 
-`arco_repositories` accepts `{page?}` and calls [`GET /user/repos`](https://docs.github.com/en/rest/repos/repos#list-repositories-for-the-authenticated-user) with owner, collaborator, and organization-member affiliations. It returns one page of 30 repositories, ordered by updated time descending:
+Counts describe loaded issues. Thirty-second polling and focus refresh run only for a single loaded page. A multi-page view uses explicit **Refresh** to update its accumulated pages, while writes still invalidate relevant data.
 
-```ts
-{
-  repositories: Array<{
-    id: string;
-    repo: string;
-    url: string;
-    private: boolean;
-    archived: boolean;
-    issuesEnabled: boolean;
-  }>;
-  hasMore: boolean;
-  page: number;
-}
-```
+The personal feed has no full-text or Project query field. The search box accepts an explicit GitHub issue URL. Repository selection enables native full-text/qualifier search without changing account-filter semantics.
 
-This discovery lists explicit repository access; it does not enumerate unrelated public repositories. Repository narrowing is optional, and pasting a URL remains an optional shortcut. Discovery does not add repository-specific reads until the user selects a scope.
+## Repository picker and settings
 
-## State and verification
+`arco_repositories({page?})` reads one page of 30 repositories through `GET /user/repos`, ordered by updated time and scoped to owner, collaborator, and organization-member access. Rows contain `id`, `repo`, `url`, `private`, `archived`, and `issuesEnabled`; the response includes `hasMore` and `page`.
 
-Saved account preferences contain only `filter`, `state`, `sort`, and `order`. Earlier settings migrate to Assigned / Open / Last updated / Descending without changing their revision or other settings. Clearing repository scope keeps registered repositories. No Issue body, title, comment, or independent Issue mirror is stored in these preferences.
+Discovery does not trigger per-repository issue reads until scope is selected. Personal preferences store only filter/state/sort/order; repository preferences and chat-specific choices are separate. Issue content is not persisted in those preferences. Missing settings use defaults; invalid settings use the recoverable process described in [Local data](local-data-boundary.md).
 
-The fixture has its own explicitly local feed: #42 is assigned to fixture-user, #42/#41 were created by that user, and #43 contains a source mention. A real authentication failure or empty account feed never returns fixture data.
+## Verification and upstream references
 
-Historical read-only production smoke on **2026-10-23 at 07:52 JST** used the then-current GitHub service and exactly six GET requests, including connection and repository discovery. It recorded counts only:
+Fixtures cover explicit filters, equal issue numbers across repositories, PR-only pages, continuation, identity validation, credential changes, and error/fixture separation. Live counts are time- and credential-specific and are not a total inventory. See [list validation](github-list-validation-2026-10-24.md), [network validation](github-network-validation-2026-10-24.md), and [implementation status](implementation-status.md).
 
-| Open Issue view, first page | Issues after PR removal | More native entries |
-| --------------------------- | ----------------------: | ------------------- |
-| Assigned to me              |                       0 | No                  |
-| Created by me               |                      23 | Yes                 |
-| Mentioned me                |      0 (one PR removed) | No                  |
-| All account repositories    |                       8 | Yes                 |
-| Repositories                |         30 repositories | Yes                 |
-
-There were **zero source writes**. No private titles or bodies were logged. Evidence: `dist/dev/github-account-discovery-live.json`. These counts are one authenticated first-page observation, not a total account inventory or native UI verification.
-
-Regressions cover native repository identity, equal Issue numbers across repositories, PR-only pages, pagination beyond the Search API cap, explicit personal filters, discovery flags, unsupported account query rejection, authentication/fixture separation, and settings migration/conflicts. Native MCP registration is also exercised by the existing fixture smoke script.
+Upstream contracts: [account issues](https://docs.github.com/en/rest/issues/issues#list-issues-assigned-to-the-authenticated-user), [repository discovery](https://docs.github.com/en/rest/repos/repos#list-repositories-for-the-authenticated-user), and [issue search](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests).

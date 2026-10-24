@@ -1,72 +1,59 @@
-# Linearの実装と検証
+# Linear adapter and live validation
 
-確認日: 2026-10-23。
+Historical validation record: 2026-10-23, with a list-query follow-up on 2026-10-24. These results are superseded as a release-readiness statement by [implementation status](implementation-status.md). No provider calls or tests were rerun for this documentation rewrite. Current setup is described in [installation](installation.md).
 
-## 実装
+## Implementation boundaries
 
-`src/server/linear/`は、元のworkspace/team/Issue IDを保った独立したLinear adapterである。GitHubのOpen/ClosedやProjects StatusをLinearのworkflowへ合成しない。
+The Linear adapter retains native connection, workspace, team, Issue, comment, and workflow identities. It does not translate GitHub Open/Closed or Projects Status into a shared workflow.
 
-- `service.ts`: 公式`@linear/sdk@99.0.0`の型付きquery/mutation。一覧・検索・ページ取得、詳細、作成・本文・状態・担当者・既存属性、incremental label、定義管理、コメントと返信、リアクション、親子・関連、添付、単純template、一括操作。
-- `auth.ts`: PKCE S256とstate照合、`actor=user` / `read,write`、loopback callback、token交換・更新・解除。client secretを配布物へ入れない。
-- `fixture.ts`: 架空のLinear workspace/team/Issue。実サービスを呼ばず、接続表示もfixtureと区別する。
-- `src/shared/linear.ts`: source固有の入力schemaとDTO。workspace/team/接続ID、本文/コメントの親子、ラベルscope、既存Project/cycle/milestone等を保持する。
+- `src/server/linear/service.ts` uses the official SDK for provider operations; operation handlers cover lists, details, native properties, incremental labels, comments/replies, reactions, relations, attachments, supported templates, and bulk results.
+- `src/server/linear/auth.ts` implements PKCE S256, state verification, user-actor `read,write` consent, loopback callback, token exchange/refresh, and disconnect without distributing a client secret.
+- Fixture data is separate and does not call Linear or pretend to be a production connection.
+- `src/shared/linear.ts` defines inputs and JSON DTOs, preserving native scope, parent comments, label groups, and existing Project/cycle/milestone identities.
 
-2026-10-24の一覧軽量化では、`linear/issue-list.ts`の専用GraphQLで一覧用の識別子・タイトル・URL・更新日時・状態を100件ずつ取得する。workspace/team確認も同じクエリ内で行い、一覧から本文と全編集metadataの取得を外した。検索は従来の`searchIssues`と`includeComments:true`、各filter・order・cursorを維持する。詳細・編集・コメント・画像の契約は従来どおり。検証の範囲と数値は[一覧の検証記録](linear-list-validation-2026-10-24.md)を参照。
+The 2026-10-24 [list change](linear-list-validation-2026-10-24.md) moved summary listing into `linear/issue-list.ts`. Details, editing, comments, and images retain their existing contracts.
 
-採用操作の保存後には元サービスを再取得する。ラベルは`addedLabelIds` / `removedLabelIds`だけを送り、無関係なラベルを全置換しない。single-select groupで明示されていない兄弟ラベルを暗黙に外さない。属性は明示したteam/workspaceの既存値を検証する。
+Saves refetch the provider result. Incremental label mutations preserve unrelated labels; selecting a group member does not silently remove unspecified siblings. UI and conversation tools use the same adapter. There is no Arco backend, Issue mirror, or agent queue.
 
-会話・UIのtool呼出しは同じadapterを使用する。Arcoの独自backend、Issue mirror、agent queueは追加していない。
+## Credential storage and refresh
 
-## 安全なcredential保存と更新
+Linear access/refresh tokens are stored together in one OS credential-store entry. They are excluded from settings/draft JSON, UI state, tool results, and logs. `@napi-rs/keyring` provides the native binding. Linux explicitly uses Secret Service; unavailable, locked, or denied storage fails without a plaintext fallback.
 
-`@napi-rs/keyring@2.1.2`を追加した。macOS/Windows/Linuxのnative packageが配布されている。macOS arm64でrandomなテストsecretのwrite/read/deleteが成功し、secret値は出力していない。
+Refresh acquires a connection-scoped cross-process lock, rereads the stored credential, refreshes only when needed, and saves the new pair together. Failure preserves the previous pair. Lock files contain metadata rather than tokens.
 
-Linear token pairはOS credential store内の一項目へ保存する。設定・下書きJSONやUI/tool結果には含めない。Linuxはupstreamの自動keyutils fallbackを使わず、`secret-service`を明示する。利用不能・ロック・拒否時は接続エラーとし、平文へfallbackしない。他OSでの実保存は未観測である。
+The callback binds only to loopback and verifies the configured path, host, and state. Code exchange is not executed twice. Completion, cancellation, and timeout remove the listener and release the active PKCE/code closure; status objects contain no secrets.
 
-refreshは接続ID単位の`proper-lockfile` process lock内でcredentialを読み直す。必要時だけrefreshし、新しいaccess/refresh token pairを一度に保存する。ファイルに置くのはlock metadataだけである。失敗時は既存pairを保持する。
+## Recorded local verification
 
-callbackは127.0.0.1だけにbindし、登録したpath/Host/stateを照合する。code交換を二重実行せず、完了・取消・時間切れでlistenerを外し、PKCE/codeを含むactive closureを破棄する。完了statusはsecretを持たないplain objectだけを保持する。
+At the initial adapter snapshot, type/lint checks and 23 Linear/auth/upload tests passed. Later integration results are indexed in [implementation status](implementation-status.md).
 
-公開根拠: [Linear OAuth](https://linear.app/developers/oauth-2-0-authentication)、[keyring binding](https://github.com/Brooooooklyn/keyring-node)。
+Coverage included:
 
-## 通った検証
+- stale-body conflicts, matching `requestId` deduplication, mismatched-payload rejection, unrelated-label preservation, reply parents, native workflow checks, scope/ID validation, and partial bulk failure;
+- state mismatch followed by a valid callback, secret-free exchange/refresh, cancellation, storage failure, disconnect versus provider revocation, and disconnect during callback processing;
+- two independent Node processes refreshing an isolated fake credential pair exactly once through the process lock, with cleanup afterward;
+- official-SDK requests against a loopback GraphQL endpoint for filters/cursors, incremental labels, refetch, duplicate-state refusal, GraphQL errors inside HTTP 200, and partial attribute/label saves;
+- saved receipts when creation/comment acknowledgement succeeded but refetch failed, retaining the saved native ID and preventing a repeated mutation for the same request;
+- valid 10 MiB base64 decoding, size rejection, invalid padding/characters, and avoiding a stack-overflow-prone repeated-group expression.
 
-型チェックとLinear対象のlintを確認した。VitestのLinear/auth/upload 23件は成功した。
+Native fake-credential write/read/delete and cross-process rotation ran successfully on macOS arm64. Other operating systems were not observed. `tests/linear-native-rotation.test.ts` skips when secure OS storage is unavailable; a skip does not establish native support.
 
-- 本文の競合検出、requestId重複・別payload拒否、無関係ラベル保持、返信parent、native workflow、Project/milestone ID、bulk部分失敗。
-- PKCE S256、state不一致拒否、その後の正常callback、secretなし交換・refresh、取消・保存失敗、local解除とprovider revokeの区別。
-- 独立した2つのNode processで、OS credential store内の架空token pairを同時refreshした。実process lockによってrefresh実行は1回となり、両processは更新済みpairを利用した。テストcredentialとlock用tempは削除済み。実Linear tokenやAPIは使っていない。
-- 公式SDKを実際のloopback HTTP GraphQL endpointへ接続し、source検索filter/cursor、incremental label mutationと保存後detail再取得、duplicate stateへの直接変更拒否、HTTP 200内のGraphQL error拒否、一つのIssueで属性保存後のlabel失敗を検証した。部分失敗は保存済み属性と再取得した現状を返す。
-- 依存関係のincoming/outgoingを元のIDを保って区別する。templateの本文未入力は元の既定値を保持し、明示的な空文字とは区別する。コメント競合、認可callback処理中の切断、providerの一般的な400応答で失効成功と誤認しないことを検証した。
-- create/commentの保存ACK後に再取得だけが失敗した場合は、作成済みのsource IDを持つ`LinearSavedReceipt`を返す。通常の作成成功DTOと区別し、未保存や再投稿可能と誤認させない。同一requestIdの再試行でmutationを再実行しないことも確認した。
-- 有効な10 MiBのbase64 uploadを実際にdecodeし、正しいbyte数を確認した。10 MiB+1は拒否し、padding/文字種/長さが不正な入力も拒否する。繰り返しgroupによる大容量正規表現のstack overflowを避ける。
+## Recorded provider verification
 
-`tests/linear-native-rotation.test.ts`は安全なOS保存先が利用できない実行環境ではskipする。今回のmacOS arm64ではskipせず成功した。
+A private development OAuth app was used for a dedicated test workspace. The loopback PKCE flow completed, consent was limited to the user actor and `read,write`, OS storage succeeded, and production MCP connection/scope reads worked. A real provider refresh saved a new pair and a later production process connected successfully. Tokens and the client secret were not printed or copied into reports.
 
-## 実認可・実データ
+This private app did not establish authorization for other workspaces or availability of a public distribution app. Contributors need usable OAuth configuration for their own environment. Existing Codex connector credentials are not a supported input to Arco.
 
-既存Codex connectorのユーザー情報を公開toolで読み、独立認可が必要なアカウントの識別だけを確認した。connectorのcredential/cacheは読んでいない。
+Two dedicated validation Issues were used for writes. Recorded production MCP checks included creation; title/body changes; priority, due date, and assignment; stale-body refusal; label-definition creation/update/deletion; incremental labels; comment/reply edits and deletion; Issue/comment reactions; parent/child and blocking/related relations; and partial bulk results. Cleanup marked both test Issues done, cleared assignment/due dates, and removed temporary labels without cleanup errors.
 
-ユーザー指定のnative Linear appで、本人の既存Yu workspaceを確認した。ユーザーの具体的なaction-time承認後、privateのArco OAuth appを登録した。登録済みcallbackは`http://127.0.0.1:53187/oauth/linear/callback`である。Public、client credentials、webhooksはすべて無効のまま。client secretはコピー・出力していない。
+A small PNG completed the official upload flow and its URL remained in the provider-normalized Markdown. Authenticated image reads validated the source Issue/comment target and allowed host before using a token server-side. The UI received validated raster data through app-only `_meta.image`, without the access token or broader CSP permissions.
 
-実認可用のproduction MCP callbackを起動し、既存のChrome仕事用profileから本人のYu accountで通常loginした。Arco / Yu workspace / read,writeのみのconsentを確認し、承認後にlocal callbackの接続完了表示を観測した。production MCPの接続・workspace/team一覧・metadata取得が成功した。新しいworkspaceは作成せず、native appや既存connectorの認証cacheを転用していない。
+The live API rejected the older `issueSearch` field, so nonempty search switched to `searchIssues`; ordinary listing used `issues`. Native filters/order/cursors were preserved. Real listing, identifier search, existing-template reads, and a bulk mix of valid/missing Issues then succeeded. The test team contained no usable template/cycle/Project milestone/estimate values; live writes for those absent values were not established. Fixture and SDK transport checks cover their contracts.
 
-実providerへのrefreshを同じprocess lock helperから1回実行し、新しいtoken pairをOS credential storeへ保存した。tokenは出力せず、その後のproduction MCP接続取得が成功した。接続は検証後も利用可能な状態を保持する。実provider revokeは未実行であり、local解除とprovider revokeの条件分岐はunit testで確認した。
+[`scripts/validate-linear-live.mjs`](../scripts/validate-linear-live.mjs) requires explicit workspace/team and dedicated test-Issue inputs. It checks existing validation titles and relationships before reuse. It performs real writes and must remain outside ordinary CI. Provider revocation was not performed in the recorded live run; local/provider disconnect branches were tested separately.
 
-登録したprivate appはYu workspace内の検証用であり、他のworkspaceへの配布認可は別途必要となる。tool policyに基づく具体的なArco登録・Yu workspaceの`actor=user` / `read,write` grantのaction-time承認はユーザーから取得済みである。
+## Remaining acceptance
 
-uploadは公式のserver-side `fileUpload` → signed PUT → 元Issue本文へのURL保存を実装した。[公式upload仕様](https://linear.app/developers/how-to-upload-a-file-to-linear)。現在のupload form/toolはdecoded 10 MiBまでに制限し、base64長とdecoded byte数の両方を検証する。これはLinear公式の最大ファイルサイズではなく、Arcoの現transfer経路の上限である。sourceの最大値と誤表記せず、大きいファイルは公式への導線を残す。
+Actual Codex composer mentions, final grouped Linear annotation presentation, final inline saving, and Windows/Linux native storage remain separate acceptance work. A successful stdio call, fixture, or type check does not prove those interactions. See the [platform matrix](platform-validation.md) and [implementation status](implementation-status.md).
 
-source保存の実証に使ったIssueは、ユーザーが許可した専用dummyの[YU-48](https://linear.app/yuarenotyu/issue/YU-48)（`0e29b2d4-5fca-435d-b695-088b61256ac0`）と[YU-49](https://linear.app/yuarenotyu/issue/YU-49)（`312fc012-f062-4441-a192-7987a33dd3ea`）だけである。既存の無関係なIssueは編集していない。Symphony等のautomation opt-in labelは適用していない。
-
-production stdio MCPで、作成・タイトル/本文・priority/due date/本人への割当・stale本文拒否、team label定義の作成/更新/削除、incremental label保持、コメント/返信/編集/削除、Issue/コメントreaction追加/取消、親子の作成/解除/再設定、blocksの両方向表示・解除、related追加/解除が成功した。試験後は両IssueをDoneにし、割当・期日を解除し、一時label定義を削除した。cleanup errorはなかった。
-
-小さなPNGを元サービスへuploadし、保存後の本文にsource URLが残った。Linearはリンクを`[name](<https://uploads.linear.app/...>)`、完了taskを`[X]`へ正規化するため、その元のMarkdownをそのまま扱う。認証付き画像GETは元Issue/コメント内のimage URL照合と公式host制限を通し、server内だけでBearerを用いた。UIへ返すのは検証済みraster dataで、app-only toolの`_meta.image`だけに載せる。access tokenをUIやモデルへ渡さず、CSPも緩めない。[認証付きfile storage](https://linear.app/developers/file-storage-authentication)。
-
-実APIはSDKに残る旧`issueSearch`をdeprecatedとして拒否したため、非空検索を現行`searchIssues`、通常一覧を`issues`へ修正した。filter/order/cursorは元APIへ渡し、独自indexは作らない。[SDKのfetch](https://linear.app/developers/sdk-fetching-and-modifying-data)、[filter](https://linear.app/developers/filtering)。
-
-修正後のproduction MCPで、空検索の通常一覧30件と`hasMore:true`、専用Issue identifierによる検索、専用2件と不存在UUIDを混ぜたbulkの結果`[true,true,false]`、既存template一覧の取得が成功した。template/cycle/Project milestone/estimate値はこのteamに0件であり、実在値の設定保存を実証したとはしない。それらのID・型・既定値の扱いはfixtureと公式SDK transport testで検証した。既存のProjectやworkflow等の定義は作成・変更していない。
-
-実行手順は`scripts/validate-linear-live.mjs WORKSPACE_ID TEAM_ID [DEDICATED_ARCO_DUMMY_ID] [DEDICATED_ARCO_CHILD_ID_TO_RESUME_UPLOAD]`。引数で対象scopeを明示し、既存IDを渡す場合は専用dummyのtitleと親子を確認する。今回の最終実行はfailureなし、cleanup errorなしで終了した。別途、既存OS保存pairのrefresh後に新しいproduction processから接続できたことも確認した。
-
-実Codexのcomposer/表示/送信と、mock host・stdio・型チェックの成功は別の受入確認として残る。
+Implementation references: [OAuth](https://linear.app/developers/oauth-2-0-authentication), [SDK data access](https://linear.app/developers/sdk-fetching-and-modifying-data), [filters](https://linear.app/developers/filtering), [uploads](https://linear.app/developers/how-to-upload-a-file-to-linear), [authenticated storage](https://linear.app/developers/file-storage-authentication), and [native keyring binding](https://github.com/Brooooooklyn/keyring-node).

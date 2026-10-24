@@ -1,0 +1,39 @@
+name: Contribution proposal
+description: Agree on a change with the maintainer before opening a PR.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [CONTRIBUTING.md](https://github.com/my-name-is-yu/Arco/blob/main/CONTRIBUTING.md) and the [product scope](https://github.com/my-name-is-yu/Arco/blob/main/docs/product-scope.md) first.
+
+        Keep this short and write in your own words. Wait for explicit maintainer approval before opening a PR.
+  - type: textarea
+    id: what
+    attributes:
+      label: What do you want to change?
+      description: Describe one concrete change and its boundaries.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is it needed?
+      description: Explain the problem this solves and why it belongs in Arco.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: Proposed approach (optional)
+      description: A brief implementation and verification plan, if you have one.
+    validations:
+      required: false
+  - type: dropdown
+    id: implement
+    attributes:
+      label: Do you want to implement this?
+      options:
+        - Yes, after maintainer approval.
+        - No, I am proposing the idea.
+    validations:
+      required: true

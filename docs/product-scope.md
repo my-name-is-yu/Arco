@@ -1,87 +1,49 @@
-# Arco 最終製品スコープ
+# Product scope
 
-更新日: 2026-10-23
-状態: 完成形の責務・操作範囲・非目標とソース非公開での無料提供を確定。2026-10-22、ユーザーが採用。初版の削減リストではない。現時点ではOSS化しない。
+Arco is an MIT-licensed client for browsing and editing GitHub and Linear issues inside Codex. It connects a local MCP server and an embedded UI to the source services, and shares explicitly selected issue context with the conversation.
 
-## 製品の定義
+GitHub and Linear remain the systems of record. Codex owns the conversation and AI execution. Arco owns issue interaction, local preferences and drafts, and the handoff of selected context.
 
-Arcoは、GitHub・Linearの既存IssueをCodex内で閲覧・操作し、同じIssueを会話の文脈として扱うためのクライアントである。
-Code Review・Linearに近い操作感と、Codex pluginとしての表示・会話連携を提供する。
+## Responsibilities
 
-「何を担う製品か」と「どの順番で実装するか」を分ける。初期表示のrepo数や簡易なフィルター案を、完成形の機能上限にしない。
+| Area                  | Arco owns                                                                                                   | Boundary                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Issue work            | Search, read, create, edit, status changes, assignees, labels, comments, and supported native relationships | Preserve source IDs, permissions, and semantics                                 |
+| Existing organization | Select existing projects, milestones, cycles, and supported field values for an issue                       | Do not administer projects, teams, workflows, or field definitions              |
+| Labels                | Create, edit, delete, and apply supported label definitions                                                 | Keep repository, workspace, team, and label-group constraints                   |
+| Conversation          | Share a whole issue or selected passages, provide issue mentions, and refresh after tool writes             | Codex owns attachment presentation, message entry, sending, and model execution |
+| Presentation          | Inline issue cards, an expanded list/detail workspace, and responsive transitions                           | Host capabilities determine the available display surfaces                      |
+| Local data            | Settings, unsent drafts, bounded annotation positions, and in-memory caches                                 | No independent issue database or service-wide mirror                            |
+| Distribution          | Source builds and manual Codex plugin installation                                                          | Official public-directory listing is not a requirement for this project         |
 
-## 合意済みの完成形
+See [Issue operations](issue-operations.md) for the supported operation categories. Product scope describes intended responsibilities; [implementation status](implementation-status.md) records the evidence available for particular operations and environments.
 
-| 領域         | 合意内容                                                                                                                           |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 対応サービス | GitHubとLinear。両方とも閲覧だけでなく、編集・進捗変更・会話連携まで扱う                                                           |
-| データの正本 | 各Issueの元サービス。Arco独自のIssueや進捗を作らない                                                                               |
-| 操作感       | 一覧と詳細の行き来、コンパクトな表示、検索、すばやい属性変更、キーボード操作                                                       |
-| 会話連携     | Issue全体とArco内の選択テキストをAdd to chatで共有、`@Arco`でのIssue選択、Codexによる更新のUI反映。添付表示と相談入力はCodexが担う |
-| 表示         | 広い管理表示・会話横パネル・inline・fullscreenとglobal/threadの入口を提供する。PiPは2026-10-23のユーザー希望で対象外とした         |
-| 実行基盤     | AIの実行と会話はCodex／hostへ委ねる。独自agent runtimeを作らない                                                                   |
-| 利用者       | まず本人向けに作り、その後の公開を目指す                                                                                           |
-| 提供形態     | ソース非公開の無料plugin。合意済みの機能を無料提供し、個人・チームやrepo数を課金で分けない。具体的な利用許諾は別途決める           |
-| 接続構成     | 端末内のUI/local MCPからGitHub・Linearへ直接接続する。Arco独自アカウントやbackendは持たない                                        |
-| 対応環境     | Codexアプリが動く環境を対象にする。macOS・Windows・Linuxを想定し、実際のhost対応OS/archで検証する。headless/CLI向け製品へ広げない  |
+## Provider semantics
 
-Linearを完成形に含めることと、初版へ含めるか・いつ提供するかは別の決定である。初版の会話連携4項目という既存の合意も維持する。
+GitHub and Linear have separate workspaces in the UI. A shared presentation component does not imply a shared business workflow.
 
-## 最終版の境界
+- GitHub issue Open/Closed state and each GitHub Project's Status are separate values. Arco does not synchronize them.
+- Linear workflow states belong to the selected team. Linear priority and estimates remain native values.
+- A label or status with the same name in two scopes is still a different definition.
+- GitHub permits multiple assignees; Linear issue assignment remains singular.
+- Editing a Linear issue does not propagate that edit to GitHub, or vice versa.
 
-以下の責務と非目標を採用する。具体的な操作と対応する型は[Issue操作対応表](issue-operations.md)を正とする。
+## Conversation boundaries
 
-| 領域            | Arcoで作る範囲                                                                                      | 作らない範囲                                                                                                                         |
-| --------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Issue管理       | 合意したIssueの検索・閲覧・作成・編集・状態変更、担当者・ラベル・コメント操作を元サービスへ反映する | Arco独自のIssue、独自の担当・進捗・優先度モデルを所有する                                                                            |
-| Project・Team等 | Issue操作に必要な既存の所属先や属性を選び、元のStatusを読み書きする                                 | Project・cycle・roadmap・工数・チーム運営を管理する独立したPM製品を作る                                                              |
-| 横断表示        | source・repo・team等の範囲を明示し、元サービスの意味を保って表示する                                | sourceごとの状態やラベルを独自の共通workflowへ変換・補完する                                                                         |
-| Codex連携       | Issue全体・選択テキストと添付のtitle/groupを渡す、結果の再取得と画面反映                            | 相談入力・依頼送信・会話作成をArco内で提供する。独自chat基盤、agent編成、実行queue、ジョブ状態、常駐の実装実行・再試行基盤を所有する |
-| データ取得      | API取得、ページ取得、再取得、表示用cache、操作単位のエラー処理                                      | Issueを複製した独立した正本、常時mirror、独自の全件検索・同期基盤を作る                                                              |
-| source間連携    | 元のsourceを識別して、そのIssueを操作する                                                           | GitHubの変更をLinearへ自動伝播するなど、サービス間の同期や自動の重複統合を行う                                                       |
-| 表示と設定      | 採用表示形式、一覧の条件・選択・位置などのUI状態を扱う                                              | 独自hostや別のチャットアプリへ発展させる                                                                                             |
+Showing an issue, browsing a panel, and sharing context are distinct operations. Opening another issue does not replace an existing attachment. Selecting text does not share it until **Add to chat** is used. Arco does not automatically send a message.
 
-MCPサーバー、認証処理、API adapter、通常のcache・再取得があること自体を、独自runtimeとは呼ばない。
-越境の基準は、ArcoがIssueの正本・業務workflow・AI作業の実行状態を所有し始めること。
-小さな共有UIやAPI処理は使えるが、任意のサービスを追加できる汎用provider platformを製品目標にはしない。
+Inline cards support reading and quick changes. Free-form body editing, comments, relationships, project membership, and bulk work belong in the expanded workspace. See [Screen structure](screen-structure.md).
 
-課金・契約・seat管理、試用期限、利用権発行、Sign in with ChatGPTによるArco登録は範囲外とする。以前の無料/有料境界案は撤回し、複数対象と採用済み一括操作も無料で提供する。保存ビュー等の具体的なUIは別途決め、採用する場合も無料とする。GitHub/Linearへのsource認可と、Codex/元サービス側の料金・権限は別に必要。
+## Outside the project
 
-## Linear対応と同期の区別
+Arco does not provide an independent issue tracker, a generic project-management platform, cross-service synchronization, migration tooling, notification inboxes, autonomous triage, or an agent execution service. It does not create an Arco account or operate an issue backend, billing service, or entitlement server.
 
-- ArcoからLinearのStatusを変更し、Linearへ保存する: 採用したIssue wrapperの責務。
-- その変更に連動してGitHub ProjectsのStatusも自動変更する: サービス間同期に当たり、製品の範囲外。
-- GitHubとLinearのIssueを表示できる: source対応。
-- それらを同じ一覧に混在させ、検索・順序・属性を統一する: 別のUX・データ仕様。source対応だけで自動的に採用しない。
+Transfers, duplicate merges, destructive issue lifecycle operations, complex issue forms, and administration of projects, cycles, milestones, teams, and workflows remain in the source service. Source links provide the handoff where an operation is unsupported.
 
-sourceと元のID・URLを保ち、同名のStatusやラベルを同一の定義として扱わない。
-GitHubではOpen／ClosedとProjects Status、Linearでは元のworkflow stateを区別する。
+Supporting another provider or adding synchronization changes the product boundary. New upstream API capabilities do not automatically become Arco requirements.
 
-## 最終スコープの決定状況
+## Access and environments
 
-| 決定             | 詰める内容                                                                             |
-| ---------------- | -------------------------------------------------------------------------------------- |
-| sourceの見せ方   | GitHub / Linearのsource切替を採用済み。混在一覧や共通workflowは作らない                |
-| 接続の範囲       | 対応するサービスはGitHub・Linearに確定。複数アカウント・workspaceを扱うかは別途決める  |
-| 配布物の利用許諾 | 開発repo非公開・成果物無料配布は確定。具体的な利用条件と依存物のlicense noticeを整える |
+Arco's code is available under the [MIT License](../LICENSE). GitHub, Linear, and Codex still require their own accounts, permissions, and service terms. Arco does not impose paid feature tiers or repository-count subscriptions.
 
-Issueと既存の所属・Status操作を扱い、Project・cycle・milestoneそのものの管理は含めない。ラベル定義管理は明示的な例外とする。
-サービス間同期、移行製品、Symphonyの監視・運転管理も範囲外に確定した。本人の一度限りの移行作業が必要な場合は、Arcoの製品機能とは別の作業として扱う。
-
-保存フィルター・複数repo・特定の初期ビューは、この責務の内側にあるUI設計判断として扱う。それらを一律に禁止して最終版を小さく見せない。
-
-## スコープが増え続けないための扱い
-
-確定した操作対応表に、新しいsource・管理対象オブジェクト・同期・実行管理を足す案は製品スコープの変更として扱う。
-接続先のAPIに新機能が追加されても、自動的にArcoの要件へ取り込まない。
-認証・表示の改善や既存操作の不具合修正は、合意した責務を満たすための実装として扱う。
-
-## 関連資料
-
-- [要件定義](requirements.md)
-- [Issue操作対応表](issue-operations.md) — 完成形の操作と非目標。ユーザー採用済み
-- [画面構成案](screen-structure.md)
-- [初期ビューのレビュー記録](initial-view-review.md) — 初期の実装案であり、最終版の非目標ではない
-- [認証・配布](auth-distribution.md)
-- [端末内のデータ境界](local-data-boundary.md)
-- [セキュリティ・プライバシー](security-and-privacy.md)
+The interactive product targets Codex desktop. Validation has been performed on macOS arm64; other operating systems and architectures require their own native builds and checks. See [Platform validation](platform-validation.md) and [Installation](installation.md).

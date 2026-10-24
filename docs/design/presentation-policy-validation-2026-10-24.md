@@ -1,59 +1,60 @@
-# 会話内を標準にする起動・表示方針の確認
+# Inline-first presentation validation
 
-確認日: 2026-10-24 JST
+Recorded on 2026-10-24 JST. This page preserves implementation and fixture evidence for the presentation-routing change, followed by a source-specific list-launch extension. It does not establish actual Codex routing after every later restart or update.
 
-## 採用した仕様と実装
+## Presentation contract
 
-「Issueを見せて」は会話内カードを標準とし、詳細画面・一覧を明示的に開く場合だけ広い表示へ移る。[表示方針](../screen-structure.md#会話内とサイドパネルの使い分け)に従い、表示先を毎回選ばせない。本文の長さや、AIへの要約・更新依頼だけではパネルを開かない。
+Showing a single identified issue uses an inline card. An explicit request for details or a list opens the workspace. Description length or a request to summarize/update an issue does not by itself open a panel. See [screen structure](../screen-structure.md).
 
-| 入口                | 用途                                      | UI resource / 表示の希望        |
-| ------------------- | ----------------------------------------- | ------------------------------- |
-| `arco_show_issue`   | 1件を会話内に表示。通常の「見せて」の入口 | `ui://arco/issue-card` / inline |
-| `arco_open_issue`   | 明示的な詳細画面の要求                    | `ui://arco/issues` / fullscreen |
-| `arco_open`         | 明示的な個人一覧・管理画面                | global入口 / fullscreen         |
-| `arco_open_project` | 明示的な会話用repo一覧・管理画面          | thread入口 / fullscreen         |
+| Tool                | Intent                                                     | UI resource and preference     |
+| ------------------- | ---------------------------------------------------------- | ------------------------------ |
+| `arco_show_issue`   | Show one native issue                                      | `ui://arco/issue-card`, inline |
+| `arco_open_issue`   | Explicitly open that issue's details                       | `ui://arco/issues`, fullscreen |
+| `arco_open`         | Explicitly open the personal list/workspace                | Global entry point, fullscreen |
+| `arco_open_project` | Explicitly open the conversation repository list/workspace | Thread entry point, fullscreen |
 
-show／open issueは厳密なsource別native refを必須とし、返されたIssueのsource・識別子・所属を照合する。対象不明時に保存済み一覧の先頭へ置き換えず、読取りエラーや異なる対象は失敗として返す。両者はread-onlyで、共有やIssueの変更は行わない。
+The two issue-display tools require a strict provider-native reference, verify returned identity and membership, and fail on read errors or mismatched targets. They do not share context or mutate the issue. They do not substitute the first saved-list issue for an unresolved target.
 
-会話内用と一覧・詳細用は、同じHTMLを別のUI resourceとして公開する。両resourceでinline／fullscreenを宣言し、カードのOpen detailsから同じIssueへ移れる。toolにも対応する表示希望を設定する。会話内用ツールにはglobal／thread入口を登録しない。
+Separate card and workspace resources serve the same HTML bundle. Both declare inline/fullscreen support so Open details can request the other presentation for the exact target. The show tool has no global/thread entry point.
 
-UIは最初の有効なlaunchをその表示インスタンスの起動情報として保持する。明示的な表示対象を共有対象より優先し、source・repo／team・選択Issueをローカル状態で初期化する。初期表示で保存済みのsource・対象範囲や、Codexの共有contextを書き換えない。targetを持つinlineでは関係のない一覧・探索・共有Issueの読取りも起動しない。Linearはtargetのconnectionを使用し、workspace不一致時はエラーにする。
+## Launch and state boundaries
 
-Open detailsは対象のnative refを選び直し、ローカルrepo／teamを合わせてから表示変更を要求する。パネルで別Issueを閲覧してinlineへ戻ると元のカード対象へ戻る。別の表示ツール結果が届いても、すでに開いているインスタンスの起動情報を勝手に置き換えない。初回tool失敗時はloadingを続けずエラーを表示し、その後の有効な起動情報で回復する。
+The first valid launch initializes an instance. An explicit target takes precedence over attached context. Source, repository/team, and issue selection initialize locally without overwriting saved settings or Codex context. A targeted inline result does not fetch unrelated issue lists, discovery data, or another shared issue. Linear uses the target's connection and rejects a workspace mismatch.
 
-## ローカル検証
+Open details selects the retained card's exact native reference before requesting presentation. Browsing another issue in details and returning to inline restores the original card. A later result from another display tool must not silently replace an existing instance's launch target. Initial errors terminate loading and can recover on a subsequent valid launch.
 
-- 型・lint・format、unit／adapter 399件・33 filesが成功した。
-- 実MCPクライアントを使う新規29件で、tool／resourceの表示希望、入口の有無、両sourceの厳密な対象、異なる識別子・所属、不正・混在入力、providerエラーを検証した。
-- host単体テスト29件で、source別targetの初期化、共有内容の保持、後続結果による既存パネルの対象変更の拒否、初回エラーと回復、起動時の表示要求・共有書込みなしを確認した。
-- launch＋inlineのbrowser 31件が成功した。fixture hostは本物のMCP tools/listとresources/readのmetadataから初期modeを決め、inlineを固定値で成功させていない。新規6件は、共有対象と異なるtarget、指定Issueの直接詳細表示、別Issue閲覧後のカード復帰、既存パネルの下書き・絞込み・保存設定の保持、Linear workspace不一致時の拒否を含む。
-- 最終buildのstdio smokeは73 tools、2 UI resources、両sourceのshow／open、mention resource、fixture保存・dedupが成功した。artifactはself-contained HTML 1,661,409 bytesで、fixture混入はない。既存の`::highlight`に関するCSS optimizer警告は継続する。
-- 最終buildで全browser 159件が一括実行で成功した（5.0分）。失敗・再試行・assertion変更はなく、新規経路に加えて既存の下書き・共有・検索・pagination・接続・操作・選択control・表示通知の回帰を確認した。最終の型・lint・format・unit検査も成功した。
+Arco does not request a mode change automatically at bootstrap. Actual host presentation and restored-panel behavior remain host decisions.
 
-内蔵ブラウザの独立したfixtureでは、表示切替ボタンを押さずに[GitHub #42が会話内で起動](references/2026-10-24-inline/presentation-default-inline.png)した。Open detailsで[同じ#42の詳細](references/2026-10-24-inline/presentation-open-details.png)を開き、#43を閲覧してからinlineへ戻しても[#42のカードを保持](references/2026-10-24-inline/presentation-returned-card.png)した。共有contextの`yu/Other#42`は置き換わっていない。別の明示的な詳細入口では、一覧先頭のYU-42ではなく[指定したYU-43の詳細](references/2026-10-24-inline/presentation-explicit-linear-detail.png)が最初から表示された。両fixtureのブラウザerrorログは0件。実サービスのIssueは変更していない。
+## Initial recorded checks
 
-## 配布と実Codexでの確認範囲
+- Type, lint, formatting, and 399 unit/adapter cases across 33 files passed.
+- New MCP-client checks covered tool/resource preferences, entry points, strict provider identity, membership mismatches, mixed/invalid inputs, and provider errors.
+- Host tests covered initialization, retained shared context, later-result isolation, initial error/recovery, and absence of automatic setting/context writes.
+- All 31 targeted launch/inline browser cases passed. The fixture used actual `tools/list` and `resources/read` metadata to choose its initial mode rather than hardcoding inline success.
+- Build, 73-tool smoke, two UI resources, mention resources, fixture save/dedup, and artifact checks passed.
+- All 159 browser cases passed together in the final initial-stage run, without retries or assertion changes. The existing CSS optimizer warning for `::highlight` remained.
 
-既存のローカルpluginを更新し、`dist/plugin`と導入済みcacheのhashが一致した。
+Manual fixture checks opened the requested GitHub issue inline without clicking a mock presentation control, opened that same issue's details, browsed another issue, and returned to the original card. A separate Linear launch opened the explicitly requested issue rather than the first list item. Unrelated attached context remained unchanged and browser error logs were empty. No real provider issues were changed.
 
-| 配布物     | SHA-256                                                            |
-| ---------- | ------------------------------------------------------------------ |
-| arco.html  | `a0a5c98e396514f66f97f23a0cc5a64b8a05f3c516a2906b2bc8b96e59d3a85a` |
-| server.mjs | `86ed942873333928455060a99cd8d89159563d7f25dd1760d7d1c62700fc92df` |
+Historical fixture screenshots for this routing work were retired during OSS documentation cleanup. Current retained inline-card examples are linked from [the card record](inline-card-validation-2026-10-24.md); they are not replacements for these routing observations.
 
-これはローカル実装・MCP契約・fixture動作と配布物の確認である。新しいツールとresourceの実Codex反映は再起動後に確認する。自然言語からのツール選択、実ホストがinlineの表示希望を採用すること、既存パネルの再利用時に明示的な詳細起動が新しい表示インスタンスになることは、fixtureの成功だけでは確認済みにしない。
+## Source-specific list launch extension
 
-Arcoの起動時に表示変更を要求する処理は追加していない。Codexが再起動時に以前のパネルを復元するかはホスト側の挙動であり、本変更で制御・解消したとは扱わない。commit／pushは行っていない。
+`arco_open` gained optional `source: github | linear`. Explicit source takes precedence over a saved or shared opposite-provider selection; omitted source keeps the prior behavior. A Linear launch checks the Linear connection and does not require GitHub authentication.
 
-## 追補: Linearと共通の一覧起動
+The host waits for a valid server launch instead of inferring all launch state from an entry-point name. Initial source precedence is target, explicit source, then shared/saved selection. The explicit initial choice does not prevent later manual source switching.
 
-単一Issueの表示・詳細起動・カード操作は両sourceの共通入口と部品を使用する。一覧についても`arco_open`へ任意の`source: github | linear`を追加し、「Linearの一覧」を明示した場合は共有中や保存済みのGitHub選択より優先する。source未指定時の従来の起動情報は保持する。Linear指定時はLinearの接続だけを確認し、GitHub接続を前提にしない。
+The extension passed 411 unit/adapter cases across 33 files, including 37 MCP presentation-contract cases and 33 host cases. All 33 targeted launch/inline browser cases passed, plus build, 73-tool smoke, and artifact checks. The earlier all-159 run predates this extension; the resulting 161-case suite was not run in full for this recorded step.
 
-hostは入口名だけで起動情報を確定せず、サーバーから最初に届いた有効なlaunchを使う。target、明示source、共有・保存済み選択の順で初期sourceを決め、起動時に設定や共有contextを書き込まない。明示sourceは初期値であり、その後の通常のsource切替を妨げない。共通部品とprovider固有の責務は[技術スタック](../technical-stack.md#github--linearの共通基盤)に記録した。
+## Installation evidence and remaining limits
 
-- 最終ソースの型・lint・format、unit／adapter **411件・33 files**が成功した。MCP表示契約37件、host単体33件を含む。
-- 最終buildのlaunch＋inline browser **33件**が成功した。両sourceで、保存済み・共有中の反対sourceより明示指定を優先すること、初期化時の設定・context書込みなし、その後の手動source切替を確認した。前節の全browser159件は追補前の記録であり、今回の全161件の一括実行ではない。
-- build、73 tools smoke、artifact検査が成功した。HTMLは1,661,392 bytes。実サービスのIssueは変更していない。
-- ローカルpluginを再更新し、buildとinstalled cacheのHTML／serverのhash一致を確認した。HTMLのSHA-256は`b1a490e38bbdba245ab53e028c89bee0cfd0d5122db238fef95ea2d47830a6cd`、serverは`2cff70a03b67882f9ca4d885b74b9a5d732e6e825861454bfbeae0e05020a269`。前節のhashは追補前の配布物である。
+Built and locally installed HTML/server hashes matched at each stage:
 
-この追補も実Codexでの新しいツールの読込み・自然言語による入口選択を確認したものではない。次回再起動後の確認として残す。
+| Stage                     | HTML SHA-256                                                       | Server SHA-256                                                     |
+| ------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Initial policy            | `a0a5c98e396514f66f97f23a0cc5a64b8a05f3c516a2906b2bc8b96e59d3a85a` | `86ed942873333928455060a99cd8d89159563d7f25dd1760d7d1c62700fc92df` |
+| Explicit-source extension | `b1a490e38bbdba245ab53e028c89bee0cfd0d5122db238fef95ea2d47830a6cd` | `2cff70a03b67882f9ca4d885b74b9a5d732e6e825861454bfbeae0e05020a269` |
+
+HTML sizes were 1,661,409 and 1,661,392 bytes respectively. These identify historical artifacts only.
+
+Actual natural-language tool selection, host acceptance of the inline preference, explicit-target behavior when reusing an existing native panel, and restart restoration remained separate native acceptance checks. Fixture success, an installed hash match, and an actual conversation-card interaction are different evidence.

@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem in Arco.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [CONTRIBUTING.md](https://github.com/my-name-is-yu/Arco/blob/main/CONTRIBUTING.md) first. Search existing issues and write a short report in your own words.
+
+        Use fictional or redacted data. Report vulnerabilities through [SECURITY.md](https://github.com/my-name-is-yu/Arco/blob/main/SECURITY.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What went wrong?
+      description: State the expected and actual behavior, and why the difference matters.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can we reproduce it?
+      description: Give minimal steps. Say whether this happens in the fixture host, Codex desktop, or a live provider operation.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and architecture, Node.js version, Codex version, and Arco commit.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Relevant evidence (optional)
+      description: Short redacted errors or screenshots. Separate observations from guesses; omit private content and credentials.
+    validations:
+      required: false
+  - type: dropdown
+    id: implement
+    attributes:
+      label: Do you want to work on a fix?
+      options:
+        - No, I am reporting the problem.
+        - Yes, after maintainer approval.
+    validations:
+      required: true

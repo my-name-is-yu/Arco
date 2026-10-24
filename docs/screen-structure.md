@@ -1,199 +1,71 @@
-# Arco 画面構成
+# Screen structure and conversation behavior
 
-更新日: 2026-10-24
-状態: v0.5 / 現在の実装と設計検討の記録。Arco本体のUIとsource操作を実装し、fixtureでの画面・操作検証を実施済み。実Codexの表示、選択内容のモデル受信、inlineカードからの詳細復帰等の受入確認は[実装・受入確認](implementation-status.md)で個別に管理する。
+Arco uses an inline card for a particular issue and an expanded workspace for browsing and detailed work. Global and chat entries are launch contexts; inline and fullscreen are display modes. The host ultimately controls the rendered surface.
 
-## 現在の実装
+## Entrances and display intent
 
-- 左側にsource切替、一覧名、対象の切替、検索・状態、補助条件のFilters、Issue一覧を置く。GitHubはglobal入口からMy issuesを開き、thread入口からProject issuesを開く。後者はrepoを選択し、チャットごとに記憶する。現行Codex pluginでは作業場所を受け取れないため自動取得は使わない。My issuesは初回Assigned to meで、Created by me・Mentioned me・All account repositoriesへ明示的に切り替える。個人・repoの条件は別々に保存し、個人一覧が空でも全repoへ自動で広げない。repo追加と追加読み込みはManage repositoriesへまとめる。Linearはworkspace内のteamと元サービスの条件を選び、Git repoからの自動対応付けはしない。[起動情報の検証](project-viewers.md)を参照。
-- 詳細上部のtoolbarにIssue全体のAdd to chatを置く。Arco内のテキスト選択には小さなAdd to chatを表示し、追加ごとに前の注釈を保持して青いハイライト・連番と任意コメント欄を表示する。編集・コピー・公式で開く・fullscreenはIssue actionsへまとめる。
-- 本文とコメントを中央に続けて表示し、状態・担当者・ラベルなどを右側へ置く。追加の属性操作はMore properties等へまとめる。本文を読む前に補助操作を積み重ねない。
-- 詳細containerの幅に応じて右側の属性を一列へ戻す。狭い画面では一覧と詳細を切り替え、一覧の条件・選択・位置を保持する。inlineは一件の要約と詳細への入口を中心にする。2026-10-23のユーザー希望でPiPは採用を取り消した。
-- 閲覧中のIssueと、明示的に共有した会話の対象を区別する。行の選択・source切替・テキスト選択だけでは共有しない。2026-10-23のユーザー希望によりAsk Codex・Send request・依頼欄を削除した。ArcoはAdd to chatでコンテキストと添付のtitle/groupを渡し、添付表示・通常の相談入力・送信はCodex／hostが担う。
-- Linearの一覧下部にある接続名のメニューからDisconnect Linearを実行できる。端末の接続を解除し、保存済み下書き・設定とCodexの添付は保持する。
-- GitHub ProjectsはIssueの所属Project、各Projectの属性定義・属性値を全ページ取得する。通常のStatus表示・変更も同じ取得処理を使い、取得が完了しない場合は不完全な候補で更新しない。
-- 配置と操作の確認状況は[実装・受入確認](implementation-status.md)に記録する。[画面比較](design/ui-audit-2026-10-23.md)のfixture画像や過去の検証は、変更後の実Codexでの全入口・全表示、全域の選択共有、添付表示、inlineからの復帰の完了を意味しない。
+| Intent                                               | Entry and behavior                                               |
+| ---------------------------------------------------- | ---------------------------------------------------------------- |
+| Show an issue or report its current state            | `arco_show_issue` with an explicit native reference; inline card |
+| Explain, summarize, or update an issue through Codex | Data tools; no panel solely for the AI task                      |
+| Open an issue's details, or use **Open details**     | `arco_open_issue`; same issue in the expanded panel              |
+| Open the personal list                               | `arco_open`, optionally with an explicit provider                |
+| Open a GitHub repository list                        | `arco_open_project`                                              |
 
-以下は、現在の実装に至る設計検討と表示ごとの役割を残したもの。配置・実装順を「案」「推奨」「候補」と記した箇所は検討時点の記録であり、現在の配置は本節、採用範囲は[要件定義](requirements.md)、確認済みの範囲は[実装・受入確認](implementation-status.md)を正とする。
+The initial card and subsequent issue cards use the same policy. Long descriptions expand inside the card rather than automatically opening a panel. A request for a more detailed explanation does not itself request a new screen.
 
-## 採用した方向
+Keep the inline target, the panel's browsing target, and shared context separate. Showing a second issue must not replace the first issue's attachment or a panel's current target. **Open details** resolves the native target of the clicked card. Returning to that card after browsing another panel issue preserves the original card target.
 
-- Codex内で普通のアプリとしてGitHub・LinearのIssueを快適に管理できる。
-- Issue全体やArco内の選択テキストを会話へ渡せる。composerからのIssue選択と、Codexの更新を同じUIへ反映する連携を初版に含める。相談はCodexの通常入力欄から行う。
-- 進捗は元サービスに保存する。GitHubではProjectsのStatus、Linearではworkflow stateを使う。
-- 広い管理画面と会話横パネルを軸とする。
-- Code ReviewとLinearに近い使用感を目指す。具体的には、一覧と詳細の行き来、コンパクトな表示、すばやい属性変更、検索・キーボード操作を詰める。
-- 本格的なCodex plugin実装の練習も兼ね、採用したinline／fullscreenを用意する。
+Opening a resource does not rewrite saved source/repository/team preferences. An explicit source on a list-opening request takes precedence for that launch. Arco declares resource display preferences but does not issue a mode-change request merely on initialization.
 
-以下の配置・操作・実装順は、この方向を具体化する提案。完成形ではGitHub・Linearの両方で編集・進捗変更・会話連携を提供する。[最終製品スコープ](product-scope.md)を基準とし、初期ビューの簡易案を完成形の上限にはしない。
+## Expanded workspace
 
-## 表示ごとの役割
+The workspace contains a list and the selected issue's details. The list header groups provider, visible scope, search, state, and secondary filters. Rows preserve native identity and support compatible bulk selection. The personal GitHub view starts with **Assigned to me**; other account filters are explicit. Project browsing uses a chat-specific repository choice. Linear uses its own workspace/team scope.
 
-global・threadは起動入口。inline・fullscreenは表示モードであり、同じ分類ではない。
+The details toolbar holds **Add to chat** and an issue-actions menu. Body and comments form a continuous reading area. Properties sit alongside the content when width permits and return to a single-column layout when narrow. Narrow views switch between list and detail while retaining filters, selection, and list position.
 
-| 入口・表示                    | 役割                                         | 中心となる内容                                            |
-| ----------------------------- | -------------------------------------------- | --------------------------------------------------------- |
-| サイドバー入口 → 広い管理表示 | 自分に関係するIssueを探す・整理する。        | My issues、担当・作成・メンションの切替、一覧・詳細。     |
-| 会話横の入口・パネル          | プロジェクトのrepoを見ながら相談・実装する。 | Project issues、repoの一覧、Issue詳細、会話への受け渡し。 |
-| inline                        | 会話中で結果や対象を確認する。               | Issue要約、更新結果、詳細を開く入口。                     |
-| fullscreen                    | Issue管理に広い領域を使う。                  | 一覧と詳細の併置、編集、複数選択での整理。                |
+Keep body reading prominent; avoid stacking secondary controls ahead of the content. Free-form body editing, comments/replies, project and relationship management, custom fields, and bulk work belong here. Unsupported operations link to the source service.
 
-作成・編集のモーダルは補助の操作面として検討する。独立した表示モードとは数えない。
+## Inline cards
 
-## 会話内とサイドパネルの使い分け
+The card is one column. Its header shows the repository/native identifier, **Open details**, and an overflow menu; the title follows. State, assignees, labels, and Linear priority appear directly below it and wrap on narrow surfaces.
 
-2026-10-24、ユーザーが次の起動・表示方針を採用した。初回も以降も「Issueを見せて」は会話内カードを標準とし、表示先を毎回選ばせない。
+Descriptions use the shared Markdown renderer. **Expand description** / **Collapse description** grows or shrinks the card without a separate internal scrolling area. When keyboard focus reaches content inside a truncated block, expansion keeps the focused control visible.
 
-| 依頼・操作                                                             | 表示                                  |
-| ---------------------------------------------------------------------- | ------------------------------------- |
-| 「#42を見せて」「今どうなっている？」                                  | 対象の会話内カード                    |
-| 状態・担当者・ラベル・優先度・チェック項目の変更                       | カード内で更新し、表示先を変えない    |
-| AIへのコメント要約や本文修正の依頼                                     | data toolで処理し、会話内で結果を返す |
-| 「詳細画面を開いて」、カードのOpen details、自分で本文やコメントを編集 | 同じIssueのサイドパネル               |
-| 「一覧を開いて」「検索しながら見比べたい」、Arcoの一覧入口を選ぶ       | 一覧を持つサイドパネル                |
+Supported quick operations are:
 
-「詳しく教えて」は会話内での説明とし、「詳細画面を開いて」と区別する。本文の長さだけではパネルへ移さず、カードの展開で読む。
+- Native issue state, including GitHub close reason and reopen; GitHub Project Status stays separate.
+- GitHub's multiple assignees or Linear's single assignee, and existing labels.
+- Native Linear priority; no synthetic GitHub priority.
+- Source Markdown checklist items, using the current save/conflict checks.
+- Copy native URL/identifier and open the source service.
 
-会話内に表示する対象、明示的に共有した対象、パネルで閲覧する対象を分ける。別のIssueを会話に表示しても既存パネルや共有内容を置き換えない。Open detailsを押した時点で、そのカードと同じnative識別子のIssueをパネルに開く。パネルで別のIssueを閲覧して会話内へ戻っても、元のカード対象を保持する。初期表示だけで対象repo／teamやactive sourceの保存設定を変更しない。
+Options and saves belong to the card's own repository/team even if another panel issue is being browsed. A quick change that removes the issue from a list's filter does not discard the card. A body draft, conflict, or draft read failure must lead to review in details rather than a checklist overwrite.
 
-実装上は`arco_show_issue`を会話内表示の入口、`arco_open_issue`を明示的な詳細表示の入口とする。どちらもsource固有のnative refを必須とし、対象が不明なら先に確認・解決する。一覧入口の`arco_open`／`arco_open_project`は明示的な一覧・管理操作に使う。「Linearの一覧」のような指定は共通の`arco_open`へ`source`を渡し、保存済みsourceや共有中の別sourceより優先して初期表示する。指定しなければ既存の共有・保存済み選択に従う。GitHub repoの一覧は`arco_open_project`を使う。会話内resourceはinlineを希望し、一覧・詳細resourceはfullscreenを希望する。UI起動時に表示切り替え要求を出さず、Codexによる再起動時のパネル復元はホスト側の挙動として別に確認する。
+Free-form title/body editing, comments, relationships, project/cycle/milestone membership, due dates, estimates, custom fields, lists, and bulk operations are outside the card.
 
-## 広い管理画面
+Use text, shape, and color together. Preserve source status/label colors where available and use a neutral fallback rather than inventing semantics. Color must not be the sole way to distinguish a state or action.
 
-主領域は「一覧」と「選択Issueの詳細」の2ペインを基本案とする。
-Code Reviewを参考に、左の縦一覧と、本文を広く読める詳細を軸にする。
-一覧はArco自身のUI領域内に置く。公式Code Reviewのfirst-party専用sidebar操作を、公開APIとして利用できる前提にはしない。
-MagicPathは選択と会話への受け渡し、Code Reviewは情報階層・表示密度・操作の集約、Linearはビュー切替・Issue整理の操作の参考とする。
+## Add to chat and annotations
 
-### 左の一覧上部と詳細ツールバー
+Arco owns context selection and annotations; Codex owns the conversation composer, attachment UI, and sending. Neither browsing a row nor selecting text shares anything automatically.
 
-- 一覧の上部にsourceと現在のアカウント／repo／team範囲、検索とフィルターをまとめる。
-- repoの絞り込みは横断範囲が分かる形にし、補助的な条件はフィルターメニューにまとめる案とする。
-- 詳細は本文とコメントを一続きに読み、小さな主要操作を上部へ置く案とする。独立した概要／アクティビティのタブは初版に追加しない推奨。
-- リンクのコピー、GitHubで開く、編集、会話への追加を整理し、幅に収まらない補助操作はoverflowへ移す。ピン留めは初版に追加しない推奨。
-- Issueの新規作成、ラベル管理などへの入口も確保する。詳細な位置は次に決める。
+Whole-issue **Add to chat** retains the source reference and relevant issue content. Passage sharing includes the selected text rather than silently adding the complete body or comment history.
 
-### 一覧
+Selecting text reveals a small **Add to chat** action. Adding it preserves earlier annotations, highlights the passage, gives it a number, and optionally opens a comment editor. Each annotation has its own `selection.text` and optional `selection.comment`. Saving a comment updates that annotation in the grouped context; Escape or outside click discards only the unsaved comment edit, keeping the attachment and marker.
 
-- タイトル、repoとIssue番号を中心にしたコンパクトな縦一覧を基本案とする。行内のStatus・担当者・ラベルの優先順位は詰める。
-- GitHubの初回は、接続済みアカウントのAssigned to meのOpen Issueを更新順で取得する。Created by me・Mentioned me・All account repositoriesは明示的に切り替え、APIから取得したrepo候補で任意に絞り込む。空の個人一覧から全repoへ自動拡大しない。repo入力・登録を初期表示の条件にしない。
-- 行の選択で右の詳細を切り替える。複数選択すると一括操作を表示する。
-- 一覧の位置と検索条件を保つ。
-- Status・担当者・ラベルの変更は、小さなメニューから行う案とする。単体と複数選択で操作の考え方を揃える。
-- Project未追加のIssueも通常一覧へ表示し、専用の未追加一覧を初版に設けない推奨。Projects Statusは、まず詳細でProject名付きで取得・編集する。
+Multiple annotations are shared as numbered content blocks under one group. Codex renders the attachment chips and group. Arco does not copy the host's composer or send a message.
 
-### 詳細
+A selection contained within the body or one comment retains that native origin; comment origins include the native comment ID. Other UI text uses a UI origin. Include a minimal issue reference only when the text safely belongs to one issue; a multi-issue selection must not be attached to an arbitrary target.
 
-- repo・Issue番号・タイトルとGitHubへのリンク。
-- Status、担当者、ラベル。
-- 本文とコメント。
-- 編集とコメント投稿。
-- 「会話へ追加」を主要な受け渡し操作とする。
+## Restoration and removal
 
-初期ビューと横断範囲は、2026-10-23に採用した要件定義D02に従う。アカウント一覧でも各Issueの元repo・番号を保持し、scopeや検索条件を切り替える操作と、会話へ渡す対象を変更する操作を区別する。
+The same Arco card can restore marker positions from the host context's snapshot UUID and local matching positions. Do not promise that a separate new card inherits another card's model context. Changed content or missing positions must not produce guessed highlights.
 
-### 詳細内の情報階層と密度
+Removing or replacing Codex context removes its annotation markers. Local position snapshots must not resurrect deleted/sent/replaced context or automatically reattach it. Verify add, comment edit, close/reopen, provider switching, and attachment removal as one lifecycle.
 
-- Open／Closed、repo・Issue番号、タイトル、作者情報を順に識別できる構成にする。
-- 幅に余裕があれば、Projectの進捗・担当者・ラベルなどは右の補助情報列へ置く。会話横など狭い表示では本文側へまとめる。
-- 本文を読むための横幅を確保し、補助情報を多数のカードに分けない。
-- 主要操作は小さなツールバーに集約し、下部に大きな操作ボタンを重ねない。
-- hostのテーマに追随する。v2画像はユーザー提供のCode Review画面に合わせたダークテーマの構成案。
+## Responsive behavior and evidence
 
-## 会話横パネル
+Respect host theme and reduced motion; preserve focus and draft input during errors and transitions. Skeletons should reflect the content being loaded. PiP is outside the current product scope.
 
-Issueの詳細を中心にする。広い画面の列構成をそのまま縮小しない。
-
-- 上部にrepo・Issue番号と、一覧へ戻る入口。
-- タイトル、Status、担当者、ラベル。
-- 本文とコメント。
-- 「会話へ追加」と、広い表示へ戻る入口。
-- 幅が足りない場合は一覧と詳細を切り替える。
-
-GitHubへのコメント投稿欄と、Codexへの相談を区別する。AI相談にはCodexの会話入力欄を使う。
-本文編集や長いコメント作成には、広い表示へ移る選択肢を用意する。
-
-## 会話とIssueを往復する操作
-
-Arcoは閲覧・選択への注釈入力・コンテキスト共有を担い、通常の会話入力・送信はCodexに任せる。
-
-pluginの公開機能を使う次の4項目は初版の必須要件とする。
-
-- Issue全体をAdd to chatで会話のコンテキストとして共有する。
-- Arco内のテキスト選択に小さなAdd to chatを表示し、選択範囲と添付のtitle/groupをCodexへ渡す。
-- 会話入力欄の`@Arco`でIssueを検索・選択する。
-- CodexがMCP toolでIssueを更新したら、Arcoが同じ対象を再取得して詳細やカードを更新する。
-
-採用は決定済みで、具体的な配置・操作とCodex上の動作確認を残す。添付のタイトル・グループ付き表示はCodexが担う。特定Issueへのdeep linkは、会話内カードから同じ詳細へ戻る導線の候補とする。
-
-1. 一覧でIssueを選ぶと、Arco内の詳細が開く。
-2. Issue全体のAdd to chat、またはテキスト選択時の小さなAdd to chatで、指定した内容を会話のコンテキストへ渡す。
-3. 選択共有では、範囲を青く保持して番号「1」「2」…と任意コメント欄を表示する。✓でその項目の注釈を添付へ反映し、各番号から再編集できる。他の注釈は変更しない。
-4. ユーザーがCodexの通常入力欄に相談内容を入力して送る。
-
-Add to chatはコメント入力を待たず選択を注釈集合へ追加し、集合全体を一件のcontextとしてCodexへ渡す。各注釈は元の`selection.text`とは別の`selection.comment`を持ち、空白だけなら付けない。Escapeまたは外側クリックでは編集中の未保存コメントだけを破棄し、添付とハイライトは残す。別Issueを閲覧しても注釈を失わず、元の箇所へ戻るとハイライトと番号を表示する。Codex側の添付削除・別contextへの置換に同期して解除する。
-
-同じArcoカードを開き直すと、Codexに残る注釈contextのsnapshot UUIDから端末内の位置情報を読み、表示内容が一致する箇所だけ番号・ハイライトとコメント編集を復元する。modelContextはカード単位のため、新しい別カードへの引継ぎは保証しない。位置情報から添付を再追加せず、送信・削除・置換でCodexのcontextから外れた注釈は復活させない。UUIDを持たない以前の添付や、位置情報が失われた添付は表示位置を復元できない。
-
-Codexへは各選択を番号・短文title付きの別content blockとして渡し、共通の`N annotations`groupへまとめる。添付のチップや項目一覧はCodexが表示する。Arco内にマイクやCodex本体のチップUIは作らない。
-
-Issue全体の共有はrepo、Issue番号・URL、タイトル、本文、状態・担当者・ラベルなど元の情報を保持する。選択共有は選んだテキストに限定し、本文全体やコメント履歴全件を補わない。
-
-本文または単一コメントの内側に収まる選択はnativeのoriginを保持し、コメントにはnative comment IDを添える。タイトル・属性・一覧などはoriginをuiとし、単一Issueに安全に対応する場合だけ最小限のnative識別情報を添える。異なるIssue領域にまたがる選択は一般のArcoコンテキストとし、任意のIssueへ対応させない。
-
-Arco内の会話への依頼欄・送信・composerへの下書き準備・新規会話作成・別の会話画面は提供しない。選択への注釈はコンテキストの一部として共有し、messageを自動送信しない。
-
-## 閲覧対象と会話の対象
-
-一覧で自由に見比べるIssueと、今の会話で扱うIssueは区別する案を推す。
-
-- 別の行を選んでも、既に会話へ渡した内容やinlineカードの対象を勝手に置き換えない。
-- 会話横・inlineカードに保持する対象の変更は、会話へ渡す操作や明示的な対象変更で行う。
-- これは表示や会話の文脈の管理であり、GitHubのStatusを自動変更する意味ではない。
-- 複数会話で別々のIssueを扱えるよう、全会話で共有する単一の「現在のIssue」を設けない。
-
-会話横での自由な閲覧と、会話に渡した対象をどう表示し分けるかは、次に具体化したい点。
-
-## inlineカード
-
-2026-10-24、ユーザーが選んだ「属性を上に」の配置へ更新した。上段にrepo・番号、「詳細を開く」、補助操作の「…」、次にタイトル、その直下に状態・担当者・ラベルとLinearの優先度を置く。一列の構成とし、狭い幅では属性を折り返す。
-
-本文は既存のMarkdown描画を使い、段落やリストなどのまとまりでプレビューする。「Expand description / Collapse description」でカード自体を伸縮し、カード内に独立したスクロール領域は作らない。長い単一ブロックの省略部分にキーボードでフォーカスした場合は、自動展開してフォーカスを見える位置へ移す。
-
-属性のボタンとメニューは、同じ色・アイコンを使う。GitHubの状態はOpenが緑の輪、Completedが紫のチェック、Not plannedが中立色の斜線。Linearの状態は元の設定色とworkflowの種類に合う形を使う。ラベルは元の色の点と名前、担当者は中立色のイニシャルまたは未割当の人型、Linear優先度は棒の段階と名前を表示する。Urgentだけを控えめな暖色で強調する。元の色が取得できない場合は中立色にし、状態名やラベル名を保持する。文字は読みやすい通常色、ボタン背景は既存の色を使い、色と併せて形・名前でも識別できるようにする。
-
-カードが担う範囲は、会話を続けながら行う次の操作とする。広い詳細表示との継続的な責務の境界として扱う。
-
-- 状態変更。GitHubはOpen／Closed · Completed／Closed · Not plannedと再オープン、Linearは対象team固有のworkflowを使う。GitHub ProjectsのStatusは別の属性であり、この状態変更と連動させない。Linearのduplicate管理は元サービスへ渡す。
-- 担当者・ラベル変更。候補に含まれる自分を先頭に表示する。GitHubの複数担当者、Linearの単一担当者、両sourceのラベル追加・削除を保持する。
-- Linearのnative優先度変更。GitHubへ独自の優先度は追加しない。
-- Markdownチェックリストの完了／未完了。元の本文の対象行だけを更新する。タイトル・本文の下書き、下書きの競合や読取エラーがある場合は詳細での確認へ案内し、カードから上書きしない。
-- 「…」からIssue URL／native識別子のコピー、元サービスで開く。
-
-候補取得と更新先は、閲覧中の別Issueではなくカードに表示したIssueのrepo／teamへ結びつける。既存の保存・競合検知・再取得を使い、クローズや担当変更で一覧の条件から外れても対象カードを保持する。
-
-タイトル・本文の自由編集、コメントの閲覧・投稿・返信・履歴、Issue間の関係、Project／cycle／milestone、期限・見積もり・custom field、一覧と一括操作は広い詳細表示で扱う。カードにはこれらの編集UIを追加しない。
-
-fixtureでの表示・操作確認と導入済み配布物の更新は[確認記録](design/inline-card-validation-2026-10-24.md)にまとめる。実Codexでのinline表示確認とは区別する。
-
-PiPは以前の構想に含まれていたが、2026-10-23にユーザーが不要と判断した。現在の実装・受入確認には含めない。
-
-## 全形式への対応順の案
-
-1. 表示と会話への受け渡しをCodex内で小さく検証する。
-2. 広い管理画面と会話横パネルで、日常のIssue管理と会話への受け渡しを成立させる。
-3. inlineでIssue要約・更新結果と詳細への導線を整える。
-4. 各表示間の遷移、状態復帰、キーボード操作を通して確認する。
-
-これは実装順の提案。採用した表示形式を提供する要件は、初版の境界とは分けて保持する。
-各形式の対応可否と実際の表示は、Codex上の検証結果として記録する。
-
-## 関連資料
-
-- [Code Review参考版の4形式イメージと生成プロンプト](design/code-review-image-prompts.md) — ユーザー提供画像を参照した旧v2。PiP案は採用取り消し。
-- [Code Reviewの公開docs・公式ソース・画像の調査](code-review-reference.md)
-- [4形式の画面イメージと生成プロンプト](design/image-prompts.md) — 以前の構成案。PiP案は採用取り消し。
-- [要件定義](requirements.md)
-- [表示仕様の調査](plugin-ux-research.md)
-- [OpenAI: Plugin Extensions](https://developers.openai.com/plugins/build/extensions)
-- [OpenAI: 表示モードの事前宣言](https://developers.openai.com/plugins/reference#declare-display-modes-before-the-ui-loads)
+Fixture screenshots and browser tests verify the mock host. Installed-plugin protocol checks and real Codex rendering/composer receipt are separate evidence. See [Design QA](../design-qa.md), [implementation status](implementation-status.md), and [presentation validation](design/presentation-policy-validation-2026-10-24.md).

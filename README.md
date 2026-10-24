@@ -1,19 +1,44 @@
 # Arco
 
-GitHub・LinearのIssueをCodex内で閲覧・編集し、選択した文脈を会話へ渡す、ソース非公開・無料のlocal MCP plugin。
+An MIT-licensed Codex plugin for browsing and editing GitHub and Linear issues, and bringing selected issue context into your conversation.
 
-実装と受入確認を進めています。操作ごとの実装先と確認範囲は[実装・受入確認](docs/implementation-status.md)を参照してください。完成条件は[要件定義](docs/requirements.md)、[最終スコープ](docs/product-scope.md)、[操作対応表](docs/issue-operations.md)です。現在の責務と保存形式は[技術スタック](docs/technical-stack.md)、今回の変更とローカル検証は[構造整理の確認記録](docs/refactor-validation-2026-10-24.md)を参照してください。
+Arco runs a local Node.js MCP server and an embedded React interface. It connects directly to your issue providers, uses your existing GitHub CLI login, and stores Linear credentials in the operating system's credential store. There is no Arco account or hosted backend.
 
-## 同梱スキル
+## What you can do
 
-- [arco-setup](plugin/skills/arco-setup/SKILL.md): 初回接続と接続エラーの案内。manifestの`onboardingSkill`から起動する。
-- [arco-issue-workflow](plugin/skills/arco-issue-workflow/SKILL.md): Issueの特定、データ取得と表示の使い分け、依頼された更新と結果確認。
+- Browse personal GitHub issues or choose a repository for a project conversation.
+- Work with Linear issues in an explicitly selected workspace and team.
+- Read and edit issue content, properties, comments, labels, and supported relationships.
+- Manage GitHub Projects fields separately from an issue's open/closed state.
+- Show an issue as an inline card or open its full details in a panel.
+- Add an entire issue or several numbered selections, with optional comments, to the Codex composer.
 
-スキルとMCP serverは同じpluginへ同梱します。`npm run build`で`dist/plugin/skills/`にもコピーします。
+GitHub and Linear remain the sources of truth. Arco preserves each provider's native fields and does not synchronize the two services. See the [product scope](docs/product-scope.md) and [operation reference](docs/issue-operations.md).
 
-## 開発と検証
+![Arco GitHub inline card with fictional fixture data](docs/design/references/2026-10-24-inline/operations-github.png)
 
-開発基準はNode `24.22.1`、npm。一つのpackageとlockfileを使います。
+The screenshot shows the local fixture interface, not a live provider connection or native Codex verification.
+
+## Install from source
+
+You need a Codex desktop environment with local plugin support, Git, npm, and Node.js **24.22.1 or later within Node 24**. GitHub integration also requires the [`gh` CLI](https://cli.github.com/). Linear requires an OAuth application client ID that you configure for your own installation.
+
+```sh
+git clone https://github.com/my-name-is-yu/Arco.git
+cd Arco
+npm ci
+npm run build
+codex plugin marketplace add .
+codex plugin add arco@arco-local
+```
+
+Restart the desktop app, start a new conversation, and run Arco's setup skill. Connect the service you want to use; both services are optional individually.
+
+The local catalog is an installation mechanism for the source build. Arco's OSS distribution does not depend on listing in the official public plugin directory. The catalog points to `dist/plugin`, so build before installing and reinstall after rebuilding. See [installation and updates](docs/installation.md) for provider setup, platform requirements, and troubleshooting.
+
+Native behavior has been exercised on **macOS arm64**. Windows and Linux need separate builds and native desktop validation; this Mac's keyring binary cannot be reused across platforms. See the [platform matrix](docs/platform-validation.md) for evidence and limitations.
+
+## Develop locally
 
 ```sh
 npm ci
@@ -22,37 +47,27 @@ npm run test:browser
 npm run dev:fixture
 ```
 
-`dev:fixture`はbuild後に使います。ブラウザ検証用URLは表示されたloopback URLです。公開SDKのAppBridgeとstdio MCPを使い、架空のIssueだけを操作します。実GitHubへのfallbackはありません。
+`check` runs static checks, unit tests, builds, MCP smoke checks, and artifact validation. The fixture host uses fictional issues and does not fall back to live provider APIs. It is a browser preview, not proof of Codex desktop behavior.
 
-読み込みを目視確認する場合は`ARCO_DEV_TOOL_DELAY_MS=2000 npm run dev:fixture`でfixtureのtool応答を遅らせられます（0〜5000ms、既定0）。[アニメーションとスケルトンの確認記録](docs/design/motion-loading-validation-2026-10-23.md)も参照してください。
+The build produces `dist/plugin/` for installation and `dist/dev/` for fixture development. The plugin includes the project license, third-party notices, and the native keyring binding installed on the build machine.
 
-`npm run build`は配布候補の`dist/plugin/`と、fixture専用の`dist/dev/`を別々に生成します。UIは単一HTML、serverはNode ESM bundleです。配布候補にはfixtureデータを含めません。
+See the [development guide](docs/development.md), [architecture](docs/technical-stack.md), and [contribution guide](CONTRIBUTING.md). Repository documentation, comments, and authored examples are written in English; provider content is displayed in its original language.
 
-GitHubは公開`gh` CLIの既存認証を利用します。メニューから開くとMy issuesを表示し、初回はAssigned to me、以後は個人用の条件を復元します。プロジェクト内から開くとProject issuesを表示し、選んだrepoをチャットごとに記憶します。現在のCodex plugin起動では作業場所を受け取れないため、repoは選択式です。個人・repoの表示条件は別々に保持し、リポジトリ管理はManage repositoriesにまとめています。[入口の分離と起動情報の検証](docs/project-viewers.md)を参照してください。
+## Documentation
 
-My issuesではCreated by me・Mentioned me・All account repositoriesへ明示的に切り替えられます。GitHub・Linearとも検索欄へIssue URLを貼って直接開けます。アカウント一覧の範囲と検索条件は[取得仕様](docs/github-account-discovery.md)を参照してください。Projectsには追加の`project`認可が必要です。Arcoから共有CLIのtokenを取得・複製したり、暗黙にlogoutしたりしません。
+- [Documentation index](docs/index.md): user guides, architecture, and dated validation records.
+- [Installation](docs/installation.md): build, install, connect, update, and remove.
+- [Security and privacy](docs/security-and-privacy.md): data flow, credentials, and shared context.
+- [Local data](docs/local-data-boundary.md): settings, drafts, retention, and recovery.
+- [Implementation status](docs/implementation-status.md): implemented behavior and remaining validation.
+- [Design and accessibility checks](design-qa.md): interaction and presentation guidance.
 
-Linearは登録したOAuth client IDで本人の`read,write`権限を認可します。token pairはOS credential storeに保存し、利用不能な場合の平文fallbackはありません。[接続と実操作の検証](docs/linear-validation.md)を参照してください。設定・検索条件・未送信の下書きは端末内に保存します。
+## Contributing and support
 
-UIは英語です。取得したIssue本文・タイトル・ラベル名等は元サービスの言語を保ちます。独自アカウント・backend・課金・Issue mirrorはありません。
+Start with a short issue and get maintainer approval before opening a pull request. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the scope, quality bar, and AI-assisted contribution policy. For vulnerabilities, follow [SECURITY.md](SECURITY.md).
 
-本人が指定した検証repoにダミーIssueを作って検証する場合だけ、明示したrepoで次を実行します。専用Issueを作成して操作し、最後にCloseします。
+Arco is an independent project and is not an official OpenAI, GitHub, or Linear product.
 
-```sh
-npm run test:live -- --repo owner/name --write
-```
+## License
 
-本repoでは[検証Issue #1](https://github.com/my-name-is-yu/Arco/issues/1)で作成・本文・ラベル・担当者・コメント・状態変更と再取得を確認しました。既存Issueを検証に流用しません。
-
-## 状態と確認範囲
-
-- [接続・Node起動の検証](docs/connection-verification.md)
-- [依存関係とbundleの検証](docs/dependency-runtime-notes.md)
-- [既存inline probeの実画面記録](docs/inline-probe-validation.md)
-- [実装対応表と残るCodex実画面確認](docs/implementation-status.md)
-- [GitHub追加操作の実接続検証](docs/github-live-validation.md)
-- [アカウントからのIssue・repo取得](docs/github-account-discovery.md)
-- [Code Reviewを基にしたUI比較と整理](docs/design/ui-audit-2026-10-23.md)
-- [Linear接続と実操作の検証](docs/linear-validation.md)
-
-ブラウザのmock hostでの成功と、Codex実機のcomposerでのIssue選択・コンテキスト共有・表示の成功は別に記録します。Issue全体やArco内で選択したテキストをAdd to chatで共有し、相談はCodexの通常入力欄から行います。添付のタイトル・グループ表示はCodexが担います。一般公開は行っていません。
+Arco's code and documentation are licensed under the [MIT License](LICENSE). Dependencies retain their own licenses; a build generates `dist/plugin/THIRD_PARTY_NOTICES.txt`. Third-party names and any content retrieved from providers remain the property of their respective owners.

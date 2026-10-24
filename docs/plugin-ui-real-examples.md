@@ -1,30 +1,19 @@
-# 公開されている実在プラグインの表示例
+# Historical plugin UI examples
 
-確認日: 2026-10-22
-生成画像ではなく、公式の公開デモ・紹介画像を確認した記録。
+Research date: 2026-10-22. These public examples informed early presentation work. Their availability and behavior have not been rechecked as part of the documentation rewrite.
 
-## 会話横パネル: Bits & Bolts Remote
+## Conversation side panel: Bits & Bolts Remote
 
-- OpenAIが提供する、拡張機能を試すための実在デモプラグイン。
-- [公式紹介](https://developers.openai.com/plugins/build/extensions#try-it-out)にインストールリンクがある。
-- [公式動画](https://developers.openai.com/videos/plugins/extensions/file-viewer.mp4)をブラウザで再生し、左の会話と右のCADファイルビューアを視覚確認した。動画内の左上にはCodex表記がある。
-- [配布ページ](https://chatgpt.com/plugins/plugin_asdk_app_6abadab6e7d881919e7491d52c7846e8)。この調査ではインストールしていない。
-- [動画の表示フレーム](design/references/bits-and-bolts-official-panel-frame.jpg)。公式動画をブラウザで表示した画面をキャプチャしたもので、元動画はダウンロードしていない。
-- file entrypointでthread side panelへ表示する例。sidebar起動のfullscreen動画とは区別する。
+The OpenAI [extensions guide](https://developers.openai.com/plugins/build/extensions#try-it-out) linked to a demo whose [public video](https://developers.openai.com/videos/plugins/extensions/file-viewer.mp4) showed a conversation beside a CAD file viewer.
 
-## 会話内カード: Spotify
+The study inspected the public video and did not install the plugin. A copied video frame was retired during OSS documentation cleanup. The observation concerned a side panel, not an inline card.
 
-- Spotify提供の実在アプリ。OpenAI製ではない。
-- [OpenAIの公式紹介記事](https://openai.com/index/introducing-apps-in-chatgpt/)に掲載された、2025-10-06公開のChatGPTモバイル画面。
-- [公式掲載画像](https://images.ctfassets.net/kftzwdyauwt9/23t0A1LumvV9QCiI9PW9Bk/6bd21637a0a371b13c352f2cb839349b/Spotify_16x9__2_.png?w=3840&q=90&fm=webp)を直接表示し、会話内のプレイリストと曲一覧を視覚確認した。画像はダウンロードしていない。
-- Codexで同じカードを表示できると確認した例ではない。
+## Inline app result: Spotify
 
-## 確認範囲
+The [OpenAI apps announcement](https://openai.com/index/introducing-apps-in-chatgpt/), published on 2025-10-06, showed a Spotify playlist result inside a mobile ChatGPT conversation. It was a visual example from another provider and host surface, not a Codex compatibility result.
 
-OpenAI製のインストール可能なプラグインで、Codex上の会話内カードを示す公開実画面は今回の調査では確認できなかった。
-Bits & Boltsの公開動画は会話横表示を示すが、inlineカードの証拠として扱わない。
-PizzazやUIガイドの架空店舗画像は公式開発サンプルであり、一般公開済みプラグインの画面とは区別する。
+## What the examples establish
 
-Arcoの完成画面案は構想図のままだが、最小のローカルprobeについてはCodexの会話本文内への表示をユーザー提供の実画面で確認した。
+They illustrate how an app can fit beside or inside a conversation. They do not establish Arco's launch contract, authentication, display-mode support, or public-directory eligibility.
 
-標準の`ui.resourceUri`経路で`Host mode: inline`とbridge初期化が表示されている。これはOpenAI公式pluginの例ではなく、自作probeの実動作の証拠。[会話内カード検証](inline-probe-validation.md)に確認範囲と実画面を記録した。
+Arco's own earliest inline rendering observation is preserved in the [inline probe record](inline-probe-validation.md). Later implementation evidence appears in the [inline-card record](design/inline-card-validation-2026-10-24.md) and [presentation record](design/presentation-policy-validation-2026-10-24.md). Generated concepts are documented separately in [design explorations](design/image-prompts.md).

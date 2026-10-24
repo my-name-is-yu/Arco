@@ -1,47 +1,52 @@
-# 依存関係と配布bundleの検証メモ
+# Dependency runtime and bundle notes
 
-確認日: 2026-10-22。現在のlockfile・インストール済みpackage・生成bundleを対象とした記録。依存の更新、override、パッチ適用は行っていない。
+These notes explain how to inspect the shipped artifact and preserve a dated dependency audit baseline. They are not a current vulnerability assessment or proof that a dependency is unreachable for every input.
 
-## npm auditのbaseline
+## Inspect the generated package
 
-`npm audit --json` はexit 1。対象packageは6件: high 1、moderate 1、low 4、critical 0。これは依存グラフの検出結果であり、6種類の独立した実行可能な攻撃を実証したものではない。
+```sh
+npm run build
+npm run check:artifact
+npm ls lodash lodash.debounce katex rehype-katex remark-math micromark-extension-math
+npm audit --json
+```
 
-| 対象 | 現在版・導入元 | auditの検出 |
-| --- | --- | --- |
-| `lodash` | `4.17.21`。Apps SDK UI `0.2.2`のexact依存 | high: `template`のimports keyに関するコード挿入、moderate: `unset` / `omit`のprototype property削除 |
-| `@openai/apps-sdk-ui` | `0.2.2`。直接依存 | moderate。上記lodashとmath関連の依存による集約 |
-| `katex` | `0.16.47`。`rehype-katex@7.0.1`と`remark-math@6.0.0 → micromark-extension-math@3.1.0` | low: 既存のprototype pollution等によるtrust制約回避 |
-| `rehype-katex` / `remark-math` / `micromark-extension-math` | 上記と同じ経路 | low。KaTeXの影響を依存グラフ上で継承 |
+The audit command contacts the registry and may exit nonzero for reported advisories. Its package graph findings must be evaluated separately from what the production bundle includes and what the running application invokes. Do not apply automatic dependency fixes without checking compatibility.
 
-公開advisoryの対象は、[lodash template](https://github.com/advisories/GHSA-r5fr-rjxr-66jc)、[lodash array path bypass](https://github.com/advisories/GHSA-f23m-r3pf-42rh)、[先行するlodash unset / omit](https://github.com/advisories/GHSA-xxjr-mmjv-4gpg)、[KaTeX trust restrictions](https://github.com/advisories/GHSA-238p-pmpm-9mq7)。lodashの現行2件の修正版は4.18.0、先行advisoryは4.17.23、KaTeXの修正版は0.18.2。現在のlockfileには未反映。
+The Vite build writes `dist/dev/ui-module-report.json` with each included module's `renderedLength` before final HTML inlining. These values describe module contribution before final output processing; they are not transferred bytes or the compressed artifact size. The report stays outside the production plugin.
 
-## 実際のbundleに含まれるもの
+## Historical audit baseline
 
-Viteの`generateBundle`で単一HTMLへのinline前のchunk module一覧と`renderedLength`を取得し、`dist/dev/ui-module-report.json`へ保存する。これは開発用の根拠で、`dist/plugin`へコピーしない。moduleがtransformされたことと、実際に出力へ残ったことを区別する。
+An audit on 2026-10-22 reported six affected package entries: one high, one moderate, four low, and no critical entries. This was a dependency-graph result, not six independently reproduced attacks.
 
-| module | UIの出力 | Node serverの出力 |
-| --- | --- | --- |
-| `node_modules/lodash/*` | 0 module | 0 module |
-| Apps SDK UIの`components/Slider/*` | 0 module | 0 module |
-| `lodash.debounce/index.js` | 1 module、renderedLength 4,161 | 0 module |
-| `katex/dist/katex.mjs` | 1 module、renderedLength 483,471 | 0 module |
-| `rehype-katex/*` | 2 modules、2,477 | 0 module |
-| `remark-math/*` | 2 modules、922 | 0 module |
-| `micromark-extension-math/*` | 4 modules、7,354 | 0 module |
+| Package path                     | Historical observation                                                                                                     |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `lodash@4.17.21` via Apps SDK UI | Reported template and property-path advisories; the full `lodash` package did not remain in the inspected UI/server bundle |
+| `@openai/apps-sdk-ui@0.2.2`      | Aggregate advisory entry through its dependencies                                                                          |
+| KaTeX and math plugin chain      | Code remained in the inspected UI bundle even though Arco disabled math                                                    |
+| `lodash.debounce@4.0.8`          | A separate package retained through UI dependencies; not interchangeable with the `lodash` advisory identity               |
 
-`renderedLength`はminify前のmodule寄与量であり、HTMLの実ファイルサイズや転送量ではない。今回のUI reportは1,240 modules。serverは`build-server.mjs`と同一条件に`metafile:true, write:false`を加えたesbuild出力で確認し、`dist/dev/server-module-report.json`へ記録した。分析用出力と当時の`dist/plugin/server.mjs`のSHA-256は一致した: `ddbff2d37b27148661117cdbaf63c4a143df2db0ddaf32f73578c1b1fa137e5c`。以後のbuildではhashは変わり得る。
+Historical advisory references: [lodash template](https://github.com/advisories/GHSA-r5fr-rjxr-66jc), [lodash path handling](https://github.com/advisories/GHSA-f23m-r3pf-42rh), [earlier lodash path advisory](https://github.com/advisories/GHSA-xxjr-mmjv-4gpg), and [KaTeX trust restrictions](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Re-run the audit against the current lockfile before drawing present-tense conclusions.
 
-Apps SDK UIの`Slider/Slider.js`は`lodash/clamp`と`lodash/round`をimportするが、現在のArcoはSliderをimportしておらず、このlodash packageは現在のUI/server出力に残っていない。別packageの`lodash.debounce@4.0.8`は`usehooks-ts`経由でUIに残る。今回のlodash advisoryのpackage名・対象関数と同一視しない。
+The original bundle check found no `lodash/*` or Apps SDK UI Slider modules in the output. It found `lodash.debounce`, KaTeX, and the Markdown math plugin chain in the UI, and no corresponding modules in the Node server. That historical module inventory must be regenerated after dependency or import changes.
 
-一方、`Markdown/Markdown.js → useMathPlugins.js → import('remark-math') / import('rehype-katex')`のmath依存は、単一HTMLへまとめたUIに残る。Arcoの`IssueMarkdown`は`includeMath={false}`を明示し、依存側のeffectも`enabled === false`ではmath pluginの読込・有効化へ進まない。しかし、**数式を無効化したことはKaTeXコードの配布除去を意味しない**。この確認ではKaTeXの攻撃経路や全入力の到達不能性を実証していない。標準CSSのKaTeX font-face除去も、JSの除去とは別の処理。
+## Math configuration
 
-## UIに残る2つのFunction式
+Arco passes `includeMath={false}` to the Markdown renderer. The UI dependency's guarded loading path does not enable math in that configuration. However, the single-file build still includes math code, and removing KaTeX font declarations only removes CSS font resources.
 
-生成HTMLをAcornで解析すると、次の2式が残る。入力文字列の動的実行機能をArcoが追加したものではない。
+Do not describe disabled math as removed JavaScript or use it alone to claim that every KaTeX attack path is unreachable.
 
-1. `lodash.debounce/index.js`の`Function('return this')()`。`freeGlobal || freeSelf || ...`のglobal取得fallback。通常のブラウザiframeでは`self.Object === Object`が成立するためfallbackへ進まない。serverにはこのmodule自体が残らない。
-2. `zod/v4/core/util.js`の空文字列`Function('')`。eval利用可否のfeature test。`globalConfig.jitless`で先にreturnするguardがあり、Arcoは`src/ui/zod-config.ts`をSDKより先に読み、`z.config({ jitless: true })`を設定する。serverにもZodは残るが、iframeのCSPとNode実行を混同しない。
+## Guarded Function probes
 
-`scripts/check-artifact.mjs`は空文字列と`return this`だけを許容し、その他の直接`eval` / `Function`、dynamic import、外部script/style/CSS URL等を拒否する。ASTで式が残ること、guardがあること、実際のCSP下で実行されなかったことは別の証拠。unsafe-evalを許可しないブラウザharnessでの`securitypolicyviolation`確認と、Codex実機での確認を別に記録する。
+The artifact checker explicitly permits two literal `Function` patterns retained by dependencies:
 
-再確認は`npm audit --json`、`npm ls lodash lodash.debounce katex rehype-katex remark-math micromark-extension-math`、`npm run build`、module report、`npm run check:artifact`、CSP付きブラウザcheckの順で行う。依存やUI importを変更した際には、このbaselineを流用せず再生成する。
+1. `Function('return this')` for a global-object fallback in `lodash.debounce`.
+2. `Function('')` for Zod's code-generation capability test.
+
+Arco loads [`src/ui/zod-config.ts`](../src/ui/zod-config.ts) before the UI SDK and configures `jitless: true`. A normal browser provides the global object without the debounce fallback. These guards explain intended behavior; browser CSP testing establishes whether a prohibited expression actually executes in that environment.
+
+The checker rejects other direct `eval` / `Function` patterns, dynamic imports, external script/stylesheet resources, remote CSS URLs, development fixtures, and source maps. Static AST checks, a passing CSP browser test, and real desktop observations are separate evidence.
+
+## Revalidation
+
+Regenerate the bundle and module report after changing dependencies or renderer imports. Run the artifact and browser checks in [Development](development.md). Record advisory graph status, output inclusion, runtime reachability evidence, and remediation decisions separately. Follow [SECURITY.md](../SECURITY.md) for vulnerability reports rather than attaching tokens or private issue content to diagnostics.

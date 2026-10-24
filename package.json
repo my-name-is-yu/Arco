@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/my-name-is-yu/Arco.git"
+  },
   "engines": {
     "node": ">=24.22.1 <25"
   },

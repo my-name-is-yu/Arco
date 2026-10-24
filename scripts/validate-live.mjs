@@ -44,7 +44,7 @@ try {
     {
       repo,
       title: "[Arco validation] GitHub Issue round trip",
-      body: "Arcoの実装検証専用のダミーIssueです。本文・属性・コメント・状態を検証し、最後にCloseします。\n\n- [ ] 保存と再取得\n\n既存のIssueへは変更しません。",
+      body: "Dedicated Arco validation issue for body, property, comment, and state checks. Closed when validation finishes.\n\n- [ ] Save and refetch\n\nExisting issues are not modified.",
     },
     "create",
   );
@@ -60,7 +60,7 @@ try {
   const ref = { repo, number: created.number };
   checks.push("dedicated Issue created through production MCP");
   const body =
-    "# Arco validation\n\n- [x] Markdown body edit and refetch\n\n| Scope | Result |\n| --- | --- |\n| GitHub source | round trip |\n\nこのIssueはArcoの動作検証専用です。";
+    "# Arco validation\n\n- [x] Markdown body edit and refetch\n\n| Scope | Result |\n| --- | --- |\n| GitHub source | round trip |\n\nThis issue is reserved for Arco validation.";
   let issue = await write(
     "arco_update_issue",
     {
@@ -112,7 +112,7 @@ try {
     assert.deepEqual(issue.assignees, []);
     checks.push("assignee add/remove");
   }
-  const commentBody = `Arco MCP検証: コメント投稿と同じrequestIdでの重複呼出しを確認。run=${run}`;
+  const commentBody = `Arco MCP validation: verify comment creation and duplicate calls with the same requestId. run=${run}`;
   const commentArgs = {
     ...ref,
     body: commentBody,
