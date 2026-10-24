@@ -16,6 +16,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
 } from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
@@ -86,6 +87,7 @@ const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const requestId = () => crypto.randomUUID();
+type IssueListPageParam = { page: number; cursor?: string };
 const accountViews = [
   { value: "assigned", label: "Assigned to me" },
   { value: "created", label: "Created by me" },
@@ -382,7 +384,13 @@ export function GitHubWorkspace({
     setShowDetail(false);
   };
   const listScope = `${connectionIdentity}|${repo || `@account:${accountView}`}|${query}|${state}|${sort}|${order}`;
-  const issues = useInfiniteQuery<IssuePage>({
+  const issues = useInfiniteQuery<
+    IssuePage,
+    Error,
+    InfiniteData<IssuePage>,
+    readonly unknown[],
+    IssueListPageParam
+  >({
     queryKey: [
       "issues",
       connection.data?.mode,
@@ -411,22 +419,29 @@ export function GitHubWorkspace({
             state,
             sort,
             order,
-            page: pageParam,
+            page: pageParam.page,
+            ...(pageParam.cursor ? { cursor: pageParam.cursor } : {}),
           })
         : host.call<AccountIssuePage>("arco_account_issues", {
             filter: accountView,
             state,
             sort,
             order,
-            page: pageParam,
+            page: pageParam.page,
           }),
     enabled:
       source === "github" &&
       connection.data?.connected === true &&
       (!projectView || Boolean(repo)) &&
       !settings.query.isPending,
-    initialPageParam: 1,
-    getNextPageParam: (last) => (last.hasMore ? last.page + 1 : undefined),
+    initialPageParam: { page: 1 },
+    getNextPageParam: (last): IssueListPageParam | undefined =>
+      last.hasMore
+        ? {
+            page: last.page + 1,
+            ...(last.nextCursor ? { cursor: last.nextCursor } : {}),
+          }
+        : undefined,
   });
   const rows = useMemo(
     () =>

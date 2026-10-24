@@ -37,6 +37,22 @@ const accountInput = {
   page: 1,
 };
 
+function createService(
+  options: Parameters<typeof createGitHubService>[0] = {},
+) {
+  const source = options.run!;
+  return createGitHubService({
+    ...options,
+    credentialIdentity: async () => "fixture-credential",
+    run: async (args, input) => {
+      const value = await source(args, input);
+      return args.includes("--include")
+        ? `HTTP/2.0 200 OK\r\n\r\n${JSON.stringify(value)}`
+        : value;
+    },
+  });
+}
+
 describe("authenticated account discovery", () => {
   it("uses the account endpoint without a repository or per-repository scan and retains each source ref", async () => {
     const run = vi.fn<GhRunner>(async () => [
@@ -44,7 +60,7 @@ describe("authenticated account discovery", () => {
       issue("organization/shared", 42),
       issue("owner/private", 43, { pull_request: {} }),
     ]);
-    const service = createGitHubService({ run, defaultRepo: "ignored/repo" });
+    const service = createService({ run, defaultRepo: "ignored/repo" });
     const page = await callDataTool(service, "arco_account_issues", {
       filter: "all",
     });
@@ -79,7 +95,7 @@ describe("authenticated account discovery", () => {
           )
         : [issue("second/repository", 3501)],
     );
-    const service = createGitHubService({ run });
+    const service = createService({ run });
     expect(
       await service.accountIssues({ ...accountInput, page: 35 }),
     ).toMatchObject({ page: 35, issues: [], hasMore: true });
@@ -96,7 +112,7 @@ describe("authenticated account discovery", () => {
 
   it("forwards native state/sort/direction and never silently performs an unrelated full-text search", async () => {
     const run = vi.fn<GhRunner>(async () => []);
-    const service = createGitHubService({ run });
+    const service = createService({ run });
     await callDataTool(service, "arco_account_issues", {
       state: "all",
       sort: "comments",
@@ -126,7 +142,7 @@ describe("authenticated account discovery", () => {
       }),
       issue("owner/repo", 1, { html_url: "invalid" }),
     ]) {
-      const service = createGitHubService({ run: async () => [source] });
+      const service = createService({ run: async () => [source] });
       await expect(service.accountIssues(accountInput)).rejects.toBeInstanceOf(
         GitHubError,
       );
@@ -143,9 +159,7 @@ describe("authenticated account discovery", () => {
         state_reason: { unexpected: "detail state" },
       }),
     ]);
-    const result = await createGitHubService({ run }).accountIssues(
-      accountInput,
-    );
+    const result = await createService({ run }).accountIssues(accountInput);
     expect(result.issues).toEqual([
       {
         repo: "owner/repo",
@@ -185,7 +199,7 @@ describe("authenticated account discovery", () => {
     const run = vi.fn<GhRunner>(async (args) =>
       args[3].endsWith("page=1") ? source : [],
     );
-    const service = createGitHubService({ run });
+    const service = createService({ run });
     const first = await service.repositories({ page: 1 });
     expect(first.hasMore).toBe(true);
     expect(first.repositories).toHaveLength(30);
@@ -208,7 +222,7 @@ describe("authenticated account discovery", () => {
     );
     expect(run.mock.calls.every(([args]) => args.includes("GET"))).toBe(true);
     await expect(
-      createGitHubService({
+      createService({
         run: async () => [
           repository("organization/repo", {
             html_url: "https://github.com/different/repo",
@@ -222,15 +236,13 @@ describe("authenticated account discovery", () => {
     const run = vi.fn<GhRunner>(async () => {
       throw new GitHubError("Existing authentication is unavailable.", "auth");
     });
-    const service = createGitHubService({ run });
+    const service = createService({ run });
     await expect(service.accountIssues(accountInput)).rejects.toMatchObject({
       code: "auth",
     });
     expect(run).toHaveBeenCalledTimes(1);
     expect(
-      await createGitHubService({ run: async () => [] }).accountIssues(
-        accountInput,
-      ),
+      await createService({ run: async () => [] }).accountIssues(accountInput),
     ).toEqual({
       issues: [],
       hasMore: false,
@@ -252,7 +264,7 @@ describe("authenticated account discovery", () => {
 
   it("uses assigned by default and keeps the three personal buckets distinct from all accessible", async () => {
     const run = vi.fn<GhRunner>(async () => []);
-    const service = createGitHubService({ run });
+    const service = createService({ run });
     expect(
       await callDataTool(service, "arco_account_issues", {}),
     ).toMatchObject({

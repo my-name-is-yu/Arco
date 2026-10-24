@@ -182,7 +182,7 @@ export function createArcoServer({
     arco_connection:
       "Check existing public gh connection. Never returns credentials.",
     arco_list_issues:
-      "List one lightweight page of up to 100 GitHub issues in an explicit repository. Excludes pull requests; use hasMore to continue.",
+      "List up to 100 GitHub issue summaries in an explicit repository. For subsequent pages pass nextCursor as cursor and increment page. Legacy page-only and complex searches retain REST compatibility. Excludes pull requests.",
     arco_account_issues:
       "Read one lightweight native page of up to 100 connected-account entries, then exclude pull requests. Default assigned; explicit created, mentioned, or all accessible filters. Supports state/sort/page, not full-text search. Few or no issues with hasMore means another page is available; a full page may require one final empty page request.",
     arco_repositories:

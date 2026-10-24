@@ -47,7 +47,11 @@ export const runGh: GhRunner = (args, input) =>
       shell: false,
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, GH_PROMPT_DISABLED: "1" },
+      env: {
+        ...process.env,
+        GH_PROMPT_DISABLED: "1",
+        GH_NO_UPDATE_NOTIFIER: "1",
+      },
     });
     let stdout = "";
     let stderr = "";
@@ -78,12 +82,23 @@ export const runGh: GhRunner = (args, input) =>
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0 || exceeded) {
+      const included = args[0] === "api" && args.includes("--include");
+      const separator = /\r?\n\r?\n/.exec(stdout);
+      const emptyNotModified =
+        included &&
+        args.includes("GET") &&
+        /^HTTP\/\S+ 304(?:\s|$)/.test(stdout) &&
+        separator !== null &&
+        stdout.slice(separator.index + separator[0].length).trim() === "" &&
+        stderr.trim() === "unexpected end of JSON input";
+      // gh's --jq attempts to parse the empty 304 body and exits 1. The HTTP
+      // status and empty body are still authoritative for this explicit read.
+      if ((code !== 0 && !emptyNotModified) || exceeded) {
         reject(commandError(stderr));
         return;
       }
       try {
-        resolve(stdout.trim() ? JSON.parse(stdout) : null);
+        resolve(included ? stdout : stdout.trim() ? JSON.parse(stdout) : null);
       } catch {
         reject(new GitHubError("Unable to read the response from GitHub."));
       }

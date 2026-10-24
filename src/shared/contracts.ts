@@ -19,6 +19,7 @@ export const listInputSchema = z.object({
   query: z.string().max(500).default(""),
   state: z.enum(["open", "closed", "all"]).default("open"),
   page: z.number().int().min(1).max(100).default(1),
+  cursor: z.string().min(1).max(2048).optional(),
   sort: z.enum(["updated", "created", "comments"]).optional(),
   order: z.enum(["asc", "desc"]).optional(),
 });
@@ -145,6 +146,7 @@ export interface IssuePage {
   issues: IssueSummary[];
   hasMore: boolean;
   page: number;
+  nextCursor?: string;
 }
 export interface AccountIssuePage extends IssuePage {
   scope: "account";

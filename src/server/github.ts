@@ -10,6 +10,8 @@ import {
   type CommentsInput,
   type GitHubService,
   type IssueDetail,
+  type IssuePage,
+  type ListInput,
   type IssueRef,
   type ProjectStatus,
 } from "../shared/contracts.js";
@@ -30,11 +32,15 @@ import {
   summary,
 } from "./github/issue-model";
 import { createIssueWrites } from "./github/issue-writes";
+import { createRepositoryIssueReader } from "./github/issue-list";
+import { createConditionalReader } from "./github/conditional-read";
+import { credentialIdentity } from "./github/credential-identity";
 import {
   createGitHubTransport,
   createGitHubWriteGuard,
   GitHubError,
   parse,
+  runGh,
   type GhRunner,
 } from "./github/transport";
 export { validateProjectStatus } from "./github/issue-writes";
@@ -55,6 +61,7 @@ export function createGitHubService(
   options: {
     run?: GhRunner;
     defaultRepo?: string | null;
+    credentialIdentity?: () => Promise<string>;
   } = {},
 ): GitHubService {
   const run = options.run;
@@ -65,6 +72,8 @@ export function createGitHubService(
 
   const transport = createGitHubTransport({ run, policy: "core" });
   const api = transport.request;
+  const conditional = createConditionalReader({ run: run ?? runGh });
+  const identity = options.credentialIdentity ?? credentialIdentity;
 
   async function issueRecord(input: IssueRef) {
     const issue = parse(
@@ -200,6 +209,53 @@ export function createGitHubService(
     };
   }
 
+  async function legacyList(input: ListInput): Promise<IssuePage> {
+    const state = input.state === "all" ? "" : `is:${input.state}`;
+    const query = `repo:${input.repo} is:issue ${state} ${input.query}`.trim();
+    const endpoint = `search/issues?q=${encodeURIComponent(query)}&sort=${input.sort ?? "updated"}&order=${input.order ?? "desc"}&per_page=${issuePageSize}&page=${input.page}`;
+    const response = parse(
+      z.object({
+        total_count: z.number(),
+        incomplete_results: z.boolean(),
+        items: z.array(apiIssueSummarySchema),
+      }),
+      await transport.read(
+        endpoint,
+        `{total_count, incomplete_results, items: [.items[] | ${issueSummaryProjection}]}`,
+      ),
+    );
+    if (response.incomplete_results)
+      throw new GitHubError(
+        "GitHub search did not complete. Narrow your search and try again.",
+      );
+    return {
+      issues: response.items
+        .filter(
+          (issue) =>
+            issue.pull_request === undefined &&
+            issue.repository_url?.toLowerCase() ===
+              `https://api.github.com/repos/${input.repo}`.toLowerCase(),
+        )
+        .map((issue) => summary(input.repo, issue)),
+      hasMore:
+        input.page * issuePageSize < Math.min(response.total_count, 1000),
+      page: input.page,
+    };
+  }
+  const repositoryIssues = createRepositoryIssueReader({
+    query: async (query, variables) => {
+      try {
+        return await transport.query(query, variables);
+      } catch (error) {
+        throw new GitHubError(
+          "Unable to load repository issues. Check GitHub access and refresh.",
+          error instanceof GitHubError ? error.code : "unavailable",
+        );
+      }
+    },
+    legacyList,
+  });
+
   return {
     ...createIssueWrites({
       api,
@@ -237,48 +293,26 @@ export function createGitHubService(
     },
     async list(raw) {
       const input = listInputSchema.parse(raw);
-      const state = input.state === "all" ? "" : `is:${input.state}`;
-      const query =
-        `repo:${input.repo} is:issue ${state} ${input.query}`.trim();
-      const endpoint = `search/issues?q=${encodeURIComponent(query)}&sort=${input.sort ?? "updated"}&order=${input.order ?? "desc"}&per_page=${issuePageSize}&page=${input.page}`;
-      const response = parse(
-        z.object({
-          total_count: z.number(),
-          incomplete_results: z.boolean(),
-          items: z.array(apiIssueSummarySchema),
-        }),
-        await transport.read(
-          endpoint,
-          `{total_count, incomplete_results, items: [.items[] | ${issueSummaryProjection}]}`,
-        ),
-      );
-      if (response.incomplete_results)
-        throw new GitHubError(
-          "GitHub search did not complete. Narrow your search and try again.",
-        );
-      return {
-        issues: response.items
-          .filter(
-            (issue) =>
-              issue.pull_request === undefined &&
-              issue.repository_url?.toLowerCase() ===
-                `https://api.github.com/repos/${input.repo}`.toLowerCase(),
-          )
-          .map((issue) => summary(input.repo, issue)),
-        hasMore:
-          input.page * issuePageSize < Math.min(response.total_count, 1000),
-        page: input.page,
-      };
+      return repositoryIssues.list(input);
     },
     async accountIssues(raw) {
       const input = accountIssuesInputSchema.parse(raw);
+      const credential = await identity();
       const response = parse(
         z.array(apiIssueSummarySchema),
-        await transport.read(
+        await conditional.read(
           `issues?filter=${input.filter}&state=${input.state}&sort=${input.sort}&direction=${input.order}&per_page=${issuePageSize}&page=${input.page}`,
           `[.[] | ${issueSummaryProjection}]`,
+          credential,
         ),
       );
+      if (credential !== (await identity())) {
+        conditional.clear();
+        throw new GitHubError(
+          "GitHub authentication changed while loading issues. Refresh and try again.",
+          "auth",
+        );
+      }
       return {
         issues: response
           .filter((issue) => issue.pull_request === undefined)
