@@ -2,16 +2,33 @@
 
 An MIT-licensed Codex plugin for browsing and editing GitHub and Linear issues, and bringing selected issue context into your conversation.
 
+## Keep several issues in view
+
+Switch between compact issue tabs and open full details when you need more room.
+
+![Switch between issue tabs and open the selected issue's full details](assets/readme/issue-tabs.gif)
+
+## Bring the right context into chat
+
+Select a passage, add an optional comment, and keep several numbered selections together as context for your conversation.
+
+![Select an issue passage, add a comment, and retain a numbered context marker](assets/readme/share-context.gif)
+
+## Edit where you read
+
+Update Markdown and labels directly from the issue workspace.
+
+![Edit an issue's Markdown body, save changes, and update its labels](assets/readme/edit-issue.gif)
+
+## Work with Linear's own fields
+
+Read Linear issues and update their native workflow states and priorities.
+
+![Update a Linear issue's native workflow state and priority](assets/readme/linear-workflow.gif)
+
+_These GIFs show the actual Arco interface with fictional local fixture data in a browser host, edited for brevity. The sharing clip shows Arco's selection controls; the Codex composer is outside the recording._
+
 Arco runs a local Node.js MCP server and an embedded React interface. It connects directly to your issue providers, uses your existing GitHub CLI login, and stores Linear credentials in the operating system's credential store. There is no Arco account or hosted backend.
-
-## What you can do
-
-- Browse personal GitHub issues or choose a repository for a project conversation.
-- Work with Linear issues in an explicitly selected workspace and team.
-- Read and edit issue content, properties, comments, labels, and supported relationships.
-- Manage GitHub Projects fields separately from an issue's open/closed state.
-- Show an issue as an inline card or open its full details in a panel.
-- Add an entire issue or several numbered selections, with optional comments, to the Codex composer.
 
 GitHub and Linear remain the sources of truth. Arco preserves each provider's native fields and does not synchronize the two services.
 
