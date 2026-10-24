@@ -193,7 +193,6 @@ export async function persistSelectionAnchor(
   },
   selectedText: string,
 ): Promise<PersistedSelectionAnchor | null> {
-  if (!globalThis.crypto?.subtle) return null;
   const target = anchor.target;
   const result = persistedSelectionAnchorSchema.safeParse({
     issueKey: anchor.issueKey,
@@ -297,7 +296,6 @@ export async function capturePersistableSelectionAnchor(
 ): Promise<PersistedSelectionAnchor | null> {
   const native = captureSelectionAnchor(target);
   if (native) return persistSelectionAnchor(native, selectedText);
-  if (!globalThis.crypto?.subtle) return null;
   const start = target.editable?.element ?? target.range?.startContainer;
   const end = target.editable?.element ?? target.range?.endContainer;
   if (!start || !end) return null;
@@ -324,11 +322,7 @@ export async function restorePersistableSelectionTarget(
   anchor: PersistedSelectionAnchor,
   selectedText: string,
 ): Promise<AnnotationTarget | null> {
-  if (
-    !globalThis.crypto?.subtle ||
-    (await sha256(selectedText)) !== anchor.selectionHash
-  )
-    return null;
+  if ((await sha256(selectedText)) !== anchor.selectionHash) return null;
   const generic = anchor.rootKind === ".arco";
   const roots = Array.from(
     document.querySelectorAll(

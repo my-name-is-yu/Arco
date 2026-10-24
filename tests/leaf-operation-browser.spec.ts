@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import { expect, test } from "@playwright/test";
 import { choose } from "./select-helpers";
 
@@ -19,12 +20,7 @@ test("a GitHub leaf failure returns to its own panel after switching sources and
     if (requestIds.length === 1) {
       await held;
       return route.fulfill({
-        json: {
-          content: [
-            { type: "text", text: "The reaction needs an explicit retry." },
-          ],
-          isError: true,
-        },
+        json: toolFailure("The reaction needs an explicit retry."),
       });
     }
     return route.fulfill({ json: { content: [], structuredContent: {} } });
@@ -53,7 +49,7 @@ test("a GitHub leaf failure returns to its own panel after switching sources and
     release();
     await choose(ui, "Issue source", "github");
     await reactions.scrollIntoViewIfNeeded();
-    await expect(reactions.getByRole("alert")).toHaveText(
+    await expect(reactions.getByRole("alert")).toContainText(
       "The reaction needs an explicit retry.",
     );
     await expect(

@@ -16,6 +16,7 @@ import { useGitHubOperation } from "./useGitHubOperation";
 import { SingleSelect } from "./SingleSelect";
 import { MultiSelect } from "./MultiSelect";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { requirePageContinuation } from "./page-continuation";
 
 type Memberships = {
   memberships: {
@@ -400,16 +401,17 @@ function Projects({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
   });
   const query = useInfiniteQuery({
     queryKey: ["github", "projects", issue.repo, owner, ownerType],
-    queryFn: ({ pageParam }) =>
-      host.call<ProjectChoices>("arco_projects", {
+    queryFn: async ({ pageParam }) => {
+      const page = await host.call<ProjectChoices>("arco_projects", {
         repo: issue.repo,
         owner,
         ownerType,
         ...(pageParam ? { cursor: pageParam } : {}),
-      }),
+      });
+      return requirePageContinuation(page, page.cursor, "GitHub Projects");
+    },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) =>
-      last.hasMore ? (last.cursor ?? undefined) : undefined,
+    getNextPageParam: (last) => (last.hasMore ? last.cursor! : undefined),
   });
   const action = useGitHubOperation(
     host,

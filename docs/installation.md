@@ -4,7 +4,7 @@ Arco is an MIT-licensed source project installed as a local Codex plugin. Offici
 
 ## Requirements
 
-- A Codex desktop environment with local plugin and interactive MCP UI support, plus the `codex` CLI for the commands below.
+- A Codex desktop environment with local plugin and interactive MCP UI support, plus the `codex` CLI for the commands below. Conversation sharing requires synchronized OpenAI model-context support with acknowledgement metadata.
 - Git, npm, and Node.js `>=24.22.1 <25`; `.node-version` records the development baseline.
 - For GitHub: the public [`gh` CLI](https://cli.github.com/) on the desktop app's executable search path, with a valid GitHub.com login.
 - For Linear: an OAuth application client ID and a working OS credential store. Linux uses an unlocked desktop Secret Service; plaintext fallback is not supported.

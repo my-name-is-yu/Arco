@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import { expect, test, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
 
@@ -27,15 +28,9 @@ for (const source of ["github", "linear"] as const) {
       if (calls.length === 1) {
         await pending;
         return route.fulfill({
-          json: {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: "Unable to confirm this batch. Refresh before retrying.",
-              },
-            ],
-          },
+          json: toolFailure(
+            "Unable to confirm this batch. Refresh before retrying.",
+          ),
         });
       }
       return route.continue();

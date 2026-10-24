@@ -105,7 +105,9 @@ describe("project repository resolution", () => {
       "remote.mirror.url",
       "git@github.com:yu/arco.git",
     ]);
-    const launch = await resolveProjectLaunch({ workingDirectory: directory });
+    const launch = await resolveProjectLaunch({
+      listRoots: async () => [{ uri: pathToFileURL(directory).href }],
+    });
     expect(launch).toMatchObject({
       view: "project",
       repo: expect.stringMatching(/^yu\/arco$/i),
@@ -121,7 +123,9 @@ describe("project repository resolution", () => {
 
   it("recognizes an actual non-Git folder as having no GitHub repository", async () => {
     const directory = await temporary();
-    const launch = await resolveProjectLaunch({ workingDirectory: directory });
+    const launch = await resolveProjectLaunch({
+      listRoots: async () => [{ uri: pathToFileURL(directory).href }],
+    });
     expect(launch.repo).toBeNull();
     expect(launch.reason).toBe("no-github-repository");
     expect(launch.projectKey).toMatch(/^[a-f0-9]{64}$/);
@@ -130,7 +134,9 @@ describe("project repository resolution", () => {
   it("recognizes an actual Git repository with no matching remotes", async () => {
     const directory = await temporary();
     await execute("git", ["init", "--quiet", directory]);
-    const launch = await resolveProjectLaunch({ workingDirectory: directory });
+    const launch = await resolveProjectLaunch({
+      listRoots: async () => [{ uri: pathToFileURL(directory).href }],
+    });
     expect(launch.repo).toBeNull();
     expect(launch.reason).toBe("no-github-repository");
     expect(launch.projectKey).toMatch(/^[a-f0-9]{64}$/);
@@ -140,7 +146,9 @@ describe("project repository resolution", () => {
     const directory = await temporary();
     await execute("git", ["init", "--quiet", directory]);
     await writeFile(join(directory, ".git", "config"), "[malformed-secret\n");
-    const launch = await resolveProjectLaunch({ workingDirectory: directory });
+    const launch = await resolveProjectLaunch({
+      listRoots: async () => [{ uri: pathToFileURL(directory).href }],
+    });
     expect(launch.repo).toBeNull();
     expect(launch.reason).toBe("unavailable");
     expect(launch.projectKey).toMatch(/^[a-f0-9]{64}$/);
@@ -148,13 +156,11 @@ describe("project repository resolution", () => {
     expect(JSON.stringify(launch)).not.toContain(directory);
   });
 
-  it("prefers advertised roots over an explicitly supplied directory", async () => {
+  it("resolves the advertised roots without another directory source", async () => {
     const root = await temporary();
-    const fallback = await temporary();
     const readRemotes = vi.fn(async () => ["git@github.com:yu/Project.git"]);
     const launch = await resolveProjectLaunch({
       listRoots: async () => [{ uri: pathToFileURL(root).href }],
-      workingDirectory: fallback,
       readRemotes,
     });
     expect(launch.repo).toBe("yu/Project");
@@ -165,7 +171,7 @@ describe("project repository resolution", () => {
   it("leaves different origin and upstream repositories ambiguous", async () => {
     const directory = await temporary();
     const launch = await resolveProjectLaunch({
-      workingDirectory: directory,
+      listRoots: async () => [{ uri: pathToFileURL(directory).href }],
       readRemotes: async () => [
         "git@github.com:yu/Fork.git",
         "https://github.com/org/Upstream.git",
@@ -238,11 +244,11 @@ describe("project repository resolution", () => {
     await symlink(root, link);
     const readRemotes = async () => [];
     const direct = await resolveProjectLaunch({
-      workingDirectory: root,
+      listRoots: async () => [{ uri: pathToFileURL(root).href }],
       readRemotes,
     });
     const linked = await resolveProjectLaunch({
-      workingDirectory: link,
+      listRoots: async () => [{ uri: pathToFileURL(link).href }],
       readRemotes,
     });
     expect(linked.projectKey).toBe(direct.projectKey);
@@ -258,15 +264,15 @@ describe("project repository resolution", () => {
     expect(readRemotes).not.toHaveBeenCalled();
   });
 
-  it("uses an explicitly supplied directory when the client supplies no roots", async () => {
-    const directory = await temporary();
+  it("leaves the project unresolved when the client supplies no roots", async () => {
+    const readRemotes = vi.fn(async () => ["git@github.com:yu/Project.git"]);
     const launch = await resolveProjectLaunch({
       listRoots: async () => [],
-      workingDirectory: directory,
-      readRemotes: async () => ["git@github.com:yu/Project.git"],
+      readRemotes,
     });
-    expect(launch.reason).toBe("detected");
-    expect(launch.repo).toBe("yu/Project");
+    expect(launch.reason).toBe("unavailable");
+    expect(launch.repo).toBeNull();
+    expect(readRemotes).not.toHaveBeenCalled();
   });
 
   it("does not replace failed or non-file advertised roots with cwd", async () => {
@@ -281,7 +287,6 @@ describe("project repository resolution", () => {
     ]) {
       const launch = await resolveProjectLaunch({
         listRoots,
-        workingDirectory: directory,
         readRemotes,
       });
       expect(launch.reason).toBe("unavailable");

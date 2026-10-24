@@ -1,3 +1,4 @@
+import { OperationError } from "../shared/errors";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { fromMarkdown } from "mdast-util-from-markdown";
@@ -81,7 +82,7 @@ function allowedUrl(value: string): URL {
   try {
     url = new URL(value);
   } catch {
-    throw new Error("The image URL is invalid.");
+    throw new OperationError("The image URL is invalid.", "invalid-input");
   }
   if (
     url.protocol !== "https:" ||
@@ -94,8 +95,9 @@ function allowedUrl(value: string): URL {
         /^\/user-attachments\/(?:assets|files)\/[^/]+/.test(url.pathname)
       ))
   )
-    throw new Error(
+    throw new OperationError(
       "This image origin is not supported in Arco. Open the image in the source service.",
+      "unsupported",
     );
   return url;
 }
@@ -132,8 +134,9 @@ export async function readIssueImage(
   options: { fetch?: typeof fetch; fixture?: boolean } = {},
 ): Promise<ImageData> {
   if (!markdownHasImage(input.markdown, input.url))
-    throw new Error(
+    throw new OperationError(
       "The image is not present in the selected issue or comment. Refresh before loading it.",
+      "invalid-input",
     );
   let url = allowedUrl(input.url);
   const sourceUrl = url.href;
@@ -142,7 +145,10 @@ export async function readIssueImage(
     (typeof __ARCO_FIXTURE__ === "undefined" || __ARCO_FIXTURE__)
   ) {
     if (sourceUrl !== FIXTURE_IMAGE_URL)
-      throw new Error("This image is not available in the local fixture.");
+      throw new OperationError(
+        "This image is not available in the local fixture.",
+        "unavailable",
+      );
     return imageDataSchema.parse({
       mimeType: "image/png",
       data: fixturePng,
@@ -170,22 +176,27 @@ export async function readIssueImage(
         signal,
       });
     } catch {
-      throw new Error(
+      throw new OperationError(
         "The source image could not be loaded. Open it in the source service.",
+        "unavailable",
       );
     }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel();
       const destination = response.headers.get("location");
       if (!destination || redirect === 3)
-        throw new Error("The source image redirected too many times.");
+        throw new OperationError(
+          "The source image redirected too many times.",
+          "invalid-response",
+        );
       url = allowedUrl(new URL(destination, url).href);
       continue;
     }
     if (!response.ok) {
       await response.body?.cancel();
-      throw new Error(
+      throw new OperationError(
         "The source image is unavailable or requires browser access. Open it in the source service.",
+        "unavailable",
       );
     }
     const mimeType =
@@ -196,8 +207,9 @@ export async function readIssueImage(
         .toLowerCase() ?? "";
     if (!imageTypes.has(mimeType)) {
       await response.body?.cancel();
-      throw new Error(
+      throw new OperationError(
         "This image format is not supported in Arco. Open it in the source service.",
+        "unsupported",
       );
     }
     if (
@@ -205,7 +217,10 @@ export async function readIssueImage(
       !response.body
     ) {
       await response.body?.cancel();
-      throw new Error("Images larger than 5 MiB cannot be previewed in Arco.");
+      throw new OperationError(
+        "Images larger than 5 MiB cannot be previewed in Arco.",
+        "unsupported",
+      );
     }
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -216,16 +231,18 @@ export async function readIssueImage(
         try {
           next = await reader.read();
         } catch {
-          throw new Error(
+          throw new OperationError(
             "The source image download did not finish. Try loading it again.",
+            "unavailable",
           );
         }
         if (next.done) break;
         length += next.value.byteLength;
         if (length > MAX_IMAGE_BYTES) {
           await reader.cancel();
-          throw new Error(
+          throw new OperationError(
             "Images larger than 5 MiB cannot be previewed in Arco.",
+            "unsupported",
           );
         }
         chunks.push(next.value);
@@ -235,14 +252,20 @@ export async function readIssueImage(
     }
     const bytes = Buffer.concat(chunks);
     if (!matchesImageType(bytes, mimeType))
-      throw new Error("The source did not return a supported image.");
+      throw new OperationError(
+        "The source did not return a supported image.",
+        "unsupported",
+      );
     return imageDataSchema.parse({
       mimeType,
       data: bytes.toString("base64"),
       sourceUrl,
     });
   }
-  throw new Error("The source image could not be loaded.");
+  throw new OperationError(
+    "The source image could not be loaded.",
+    "unavailable",
+  );
 }
 
 export function registerGitHubImageTool(

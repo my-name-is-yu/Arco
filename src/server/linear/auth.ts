@@ -1,3 +1,4 @@
+import { LinearServiceError } from "./errors";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdir } from "node:fs/promises";
@@ -37,8 +38,9 @@ export function createCredentialStore(): CredentialStore {
           ? null
           : credentialSchema.parse(JSON.parse(value));
       } catch {
-        throw new Error(
+        throw new LinearServiceError(
           "The Linear credential could not be read from the OS credential store. Check that the store is available and unlocked. Plaintext storage is not supported.",
+          "storage",
         );
       }
     },
@@ -48,8 +50,9 @@ export function createCredentialStore(): CredentialStore {
           JSON.stringify(credentialSchema.parse(value)),
         );
       } catch {
-        throw new Error(
+        throw new LinearServiceError(
           "The Linear credential could not be saved to the OS credential store. The connection was not completed.",
+          "storage",
         );
       }
     },
@@ -57,8 +60,9 @@ export function createCredentialStore(): CredentialStore {
       try {
         await entry(id).deleteCredential();
       } catch {
-        throw new Error(
+        throw new LinearServiceError(
           "The Linear credential could not be removed from the OS credential store.",
+          "storage",
         );
       }
     },
@@ -81,7 +85,10 @@ function tokenCredential(
       ? parsed.scope.split(/[ ,]+/).filter(Boolean)
       : parsed.scope;
   if (!scopes.includes("read") || !scopes.includes("write"))
-    throw new Error("Linear read and write authorization is required.");
+    throw new LinearServiceError(
+      "Linear read and write authorization is required.",
+      "auth",
+    );
   return {
     clientId,
     accessToken: parsed.access_token,
@@ -146,27 +153,41 @@ export function createLinearAuth(
         body: form,
         signal: AbortSignal.timeout(15_000),
       });
-    } catch {
-      throw new Error("The Linear authorization server could not be reached.");
+    } catch (error) {
+      throw new LinearServiceError(
+        "The Linear authorization server could not be reached.",
+        error instanceof Error &&
+          (error.name === "TimeoutError" || error.name === "AbortError")
+          ? "timeout"
+          : "unavailable",
+      );
     }
     if (!response.ok)
-      throw new Error(
+      throw new LinearServiceError(
         response.status === 400 || response.status === 401
           ? "The Linear authorization expired, or the code or refresh token is invalid. Reconnect to Linear."
           : `The Linear authorization server returned an error (${response.status}).`,
+        response.status === 400 || response.status === 401
+          ? "auth"
+          : response.status === 429
+            ? "rate-limited"
+            : response.status === 403
+              ? "forbidden"
+              : "unavailable",
       );
     try {
       return tokenCredential(clientId, await response.json(), now());
     } catch {
-      throw new Error(
+      throw new LinearServiceError(
         "The Linear token response is invalid or lacks read and write authorization. Reconnect to Linear.",
+        "auth",
       );
     }
   }
   async function accessToken(connectionId: string, forceRefresh = false) {
     return locked(connectionId, async () => {
       const current = await store.read(connectionId);
-      if (!current) throw new Error("Connect to Linear.");
+      if (!current) throw new LinearServiceError("Connect to Linear.", "auth");
       if (!forceRefresh && current.expiresAt > now() + 60_000)
         return current.accessToken;
       const updated = await exchange(
@@ -213,9 +234,13 @@ export function createLinearAuth(
         callback.search ||
         callback.hash
       )
-        throw new Error("Use the registered 127.0.0.1 loopback callback.");
+        throw new LinearServiceError(
+          "Use the registered 127.0.0.1 loopback callback.",
+        );
       if (pending.has(connectionId))
-        throw new Error("Linear authorization is already in progress.");
+        throw new LinearServiceError(
+          "Linear authorization is already in progress.",
+        );
       const pkce = createPkce();
       const status = {
         state: "pending" as "pending" | "connected" | "failed",
@@ -252,10 +277,16 @@ export function createLinearAuth(
           processing = true;
           try {
             if (!code || received.searchParams.has("error"))
-              throw new Error("Linear authorization was cancelled.");
+              throw new LinearServiceError(
+                "Linear authorization was cancelled.",
+                "auth",
+              );
             await locked(connectionId, async () => {
               if (!active)
-                throw new Error("Linear authorization was cancelled.");
+                throw new LinearServiceError(
+                  "Linear authorization was cancelled.",
+                  "auth",
+                );
               const credential = await exchange(
                 new URLSearchParams({
                   grant_type: "authorization_code",
@@ -267,7 +298,10 @@ export function createLinearAuth(
                 clientId,
               );
               if (!active)
-                throw new Error("Linear authorization was cancelled.");
+                throw new LinearServiceError(
+                  "Linear authorization was cancelled.",
+                  "auth",
+                );
               await store.write(connectionId, credential);
             });
             status.state = "connected";
@@ -277,7 +311,7 @@ export function createLinearAuth(
           } catch (error) {
             status.state = "failed";
             status.message =
-              error instanceof Error
+              error instanceof LinearServiceError
                 ? error.message
                 : "Linear authorization failed.";
             res.writeHead(400);
@@ -313,8 +347,9 @@ export function createLinearAuth(
         server.once("error", () => {
           transaction.close();
           reject(
-            new Error(
+            new LinearServiceError(
               "The Linear callback port could not be opened. Complete any other connection attempt and try again.",
+              "unavailable",
             ),
           );
         });
@@ -359,8 +394,9 @@ export function createLinearAuth(
             },
           );
           if (response.status !== 200)
-            throw new Error(
+            throw new LinearServiceError(
               "Linear authorization could not be revoked. The local credential was kept.",
+              "uncertain",
             );
         }
         await store.remove(connectionId);

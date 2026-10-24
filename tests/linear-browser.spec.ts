@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import { expect, test, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
 import { checkMarkdownSecurity } from "./markdown-security-helpers";
@@ -174,7 +175,7 @@ async function mockLinearAuthorization(
       });
     const fail = (text: string) =>
       route.fulfill({
-        json: { isError: true, content: [{ type: "text", text }] },
+        json: toolFailure(text),
       });
     if (input.name === "linear_auth_disconnect") {
       state.disconnects.push(input.arguments);
@@ -475,12 +476,7 @@ test("Linear Labels select multiple native IDs, preserve unavailable selections,
       failNext = false;
       await route.fulfill({
         status: 200,
-        json: {
-          isError: true,
-          content: [
-            { type: "text", text: "Fixture labels rejected; try again." },
-          ],
-        },
+        json: toolFailure("Fixture labels rejected; try again."),
       });
       return;
     }
@@ -634,12 +630,7 @@ test("Linear reaction pickers keep choices quiet, support keyboard dismissal, an
     fail = false;
     await route.fulfill({
       status: 200,
-      json: {
-        isError: true,
-        content: [
-          { type: "text", text: "Fixture reaction rejected; try again." },
-        ],
-      },
+      json: toolFailure("Fixture reaction rejected; try again."),
     });
   });
   await chooseIssue.click();
@@ -734,15 +725,9 @@ test("Linear retry keeps a failed request ID after an unrelated successful write
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: "Simulated lost acknowledgement after fixture save",
-              },
-            ],
-          }),
+          body: JSON.stringify(
+            toolFailure("Simulated lost acknowledgement after fixture save"),
+          ),
         });
         return;
       }
@@ -1730,15 +1715,7 @@ test("Linear refresh failures keep cached issue content and drafts usable until 
     const input = route.request().postDataJSON() as { name: string };
     if (input.name !== "linear_get_issue" || !fail) return route.continue();
     return route.fulfill({
-      json: {
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: "MCP error -32001: App server request queue is full",
-          },
-        ],
-      },
+      json: toolFailure("MCP error -32001: App server request queue is full"),
     });
   });
   await ui.getByRole("button", { name: "Refresh Linear", exact: true }).click();
@@ -1920,15 +1897,7 @@ test("Linear acknowledged writes retain receipts and clear posted drafts when re
     ) {
       await route.fulfill({
         status: 200,
-        json: {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: "Fixture source readback is temporarily unavailable",
-            },
-          ],
-        },
+        json: toolFailure("Fixture source readback is temporarily unavailable"),
       });
       return;
     }
@@ -2415,6 +2384,17 @@ test("Linear disconnect stays reachable with no issues or connection errors and 
     .click();
   await expect(selectControl(ui, "Linear Team")).toHaveAttribute(
     "data-value",
+    "",
+  );
+  await expect(
+    ui.getByText(
+      "The selected Linear team is unavailable. Choose a team to continue.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await choose(ui, "Linear Team", "another-team");
+  await expect(selectControl(ui, "Linear Team")).toHaveAttribute(
+    "data-value",
     "another-team",
   );
   await expect(
@@ -2448,11 +2428,14 @@ test("Linear disconnect stays reachable with no issues or connection errors and 
     .frames()
     .find((candidate) => candidate.url().endsWith("/arco.html"))!;
   await frame.goto(frame.url());
-  await expect(
-    ui.getByText("The Linear connection is temporarily unavailable.", {
-      exact: true,
-    }),
-  ).toBeVisible();
+  const connectionError = ui.getByText(
+    "The Linear connection is temporarily unavailable.",
+    { exact: false },
+  );
+  await expect(connectionError).toBeVisible();
+  await expect(connectionError).toContainText(
+    "Check the connection and refresh.",
+  );
   await disconnectLinear(page);
   await expect(ui.getByRole("status")).toContainText(
     "Disconnected Linear on this device",

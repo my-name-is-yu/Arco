@@ -138,26 +138,40 @@ export function createIssueWrites({
               (label) => label.name.toLowerCase() === name.toLowerCase(),
             ),
         );
-        if (add.length)
-          await api(
-            "write",
-            `repos/${input.repo}/issues/${input.number}/labels`,
-            "POST",
-            { labels: add },
-            false,
-          );
-        for (const name of input.remove) {
-          const existing = issue.labels.find(
-            (label) => label.name.toLowerCase() === name.toLowerCase(),
-          );
-          if (existing)
+        let saved = false;
+        try {
+          if (add.length) {
             await api(
               "write",
-              `repos/${input.repo}/issues/${input.number}/labels/${encodeURIComponent(existing.name)}`,
-              "DELETE",
-              undefined,
+              `repos/${input.repo}/issues/${input.number}/labels`,
+              "POST",
+              { labels: add },
               false,
             );
+            saved = true;
+          }
+          for (const name of input.remove) {
+            const existing = issue.labels.find(
+              (label) => label.name.toLowerCase() === name.toLowerCase(),
+            );
+            if (existing) {
+              await api(
+                "write",
+                `repos/${input.repo}/issues/${input.number}/labels/${encodeURIComponent(existing.name)}`,
+                "DELETE",
+                undefined,
+                false,
+              );
+              saved = true;
+            }
+          }
+        } catch (error) {
+          if (saved)
+            throw new GitHubError(
+              "Some label changes were saved to GitHub, but the remaining changes could not be confirmed. Check GitHub and refresh before retrying.",
+              "uncertain",
+            );
+          throw error;
         }
         return refreshAfterWrite(input);
       });

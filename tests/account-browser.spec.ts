@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import { expect, test, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
 
@@ -117,16 +118,10 @@ test("discovered repositories enable search without typing a URL", async ({
     if (input.name !== "arco_connection") return route.continue();
     const response = await route.fetch();
     const result = (await response.json()) as {
-      structuredContent: { mode: string; defaultRepo: string | null };
+      structuredContent: { mode: string };
     };
     expect(result.structuredContent.mode).toBe("fixture");
-    return route.fulfill({
-      response,
-      json: {
-        ...result,
-        structuredContent: { ...result.structuredContent, defaultRepo: null },
-      },
-    });
+    return route.fulfill({ response });
   });
   await open(page);
   const frame = app(page);
@@ -372,10 +367,7 @@ test("personal feed failures stay visible in compact mode and retry the same sco
     const input = route.request().postDataJSON() as { name: string };
     if (input.name !== "arco_account_issues" || !fail) return route.continue();
     return route.fulfill({
-      json: {
-        isError: true,
-        content: [{ type: "text", text: "Personal issue feed unavailable." }],
-      },
+      json: toolFailure("Personal issue feed unavailable."),
     });
   });
   await open(page);

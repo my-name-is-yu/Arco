@@ -6,10 +6,10 @@ import {
 import {
   OPENAI_MODEL_CONTEXT_KEY,
   OpenAIExtensions,
-  type OpenAIModelContextUpdateResult,
 } from "@openai/mcp-extensions/app";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { readToolFailure, ToolCallError } from "../shared/errors";
 import { imageDataSchema } from "../shared/images";
 import { annotationSnapshotIdSchema } from "../shared/annotation-state";
 import { launchContextSchema, type LaunchContext } from "../shared/launch";
@@ -133,8 +133,7 @@ export async function connectHost(): Promise<ArcoHost> {
   app.ontoolresult = (result) => {
     if (!launchContext) {
       if (result.isError) {
-        launchError =
-          "Arco could not be opened. Retry the request in the conversation.";
+        launchError = readToolFailure(result.structuredContent).message;
         notify("launch");
       } else {
         const parsed = launchContextSchema.safeParse(
@@ -160,6 +159,10 @@ export async function connectHost(): Promise<ArcoHost> {
   await app.connect();
   applyContext();
   async function attach(params: Parameters<App["updateModelContext"]>[0]) {
+    if (!openai.modelContext)
+      throw new Error(
+        "This Codex host does not support synchronized context attachments. Update Codex before sharing.",
+      );
     if (attachmentBusy)
       throw new Error(
         "Wait for the current attachment to finish, then try again.",
@@ -167,24 +170,33 @@ export async function connectHost(): Promise<ArcoHost> {
     attachmentBusy = true;
     const revision = contextRevision;
     try {
-      let receipt: OpenAIModelContextUpdateResult | undefined;
-      if (openai.modelContext)
-        receipt = await openai.modelContext.update(params);
-      else await app.updateModelContext(params);
+      const receipt = await openai.modelContext.update(params);
+      if (!receipt)
+        throw new Error(
+          "Codex did not confirm the context attachment. Check the conversation before sharing again.",
+        );
       // A native replacement or removal received while awaiting the ACK wins.
       // An echo of this exact update may arrive before its acknowledgement.
       if (
         contextRevision !== revision &&
-        (!receipt || attachment.updateId !== receipt.updateId)
+        attachment.updateId !== receipt.updateId
       )
         return;
-      applyAttachment(
-        params.structuredContent,
-        receipt?.updateId ?? attachment.updateId,
-        true,
-      );
+      applyAttachment(params.structuredContent, receipt.updateId, true);
     } finally {
       attachmentBusy = false;
+    }
+  }
+  async function callServerTool(params: Parameters<App["callServerTool"]>[0]) {
+    try {
+      return await app.callServerTool(params);
+    } catch {
+      throw new ToolCallError(
+        typeof params.arguments?.requestId === "string"
+          ? "uncertain"
+          : "unavailable",
+        "Codex did not return an operation result.",
+      );
     }
   }
   return {
@@ -206,7 +218,7 @@ export async function connectHost(): Promise<ArcoHost> {
     async readImage(issue, url, commentId, options) {
       const result = await tools.run(
         () =>
-          app.callServerTool({
+          callServerTool({
             name:
               issue.source === "github"
                 ? "arco_read_image"
@@ -226,9 +238,14 @@ export async function connectHost(): Promise<ArcoHost> {
           }),
         options,
       );
-      if (result.isError)
-        throw new Error("The source image preview could not be loaded.");
-      return imageDataSchema.parse(result._meta?.image);
+      if (result.isError) throw readToolFailure(result.structuredContent);
+      const parsed = imageDataSchema.safeParse(result._meta?.image);
+      if (!parsed.success)
+        throw new ToolCallError(
+          "invalid-response",
+          "The server returned invalid image data.",
+        );
+      return parsed.data;
     },
     async call<T>(
       name: string,
@@ -236,17 +253,17 @@ export async function connectHost(): Promise<ArcoHost> {
       options?: Parameters<ArcoHost["call"]>[2],
     ): Promise<T> {
       const result = await tools.run(
-        () => app.callServerTool({ name, arguments: args }),
+        () => callServerTool({ name, arguments: args }),
         options,
       );
       if (result.isError) {
-        const message = result.content?.find((item) => item.type === "text");
-        throw new Error(
-          message?.type === "text" ? message.text : "The operation failed.",
-        );
+        throw readToolFailure(result.structuredContent);
       }
       if (result.structuredContent == null)
-        throw new Error("The server response contains no data.");
+        throw new ToolCallError(
+          "invalid-response",
+          "The server response contains no data.",
+        );
       return result.structuredContent as T;
     },
     async share(issue) {

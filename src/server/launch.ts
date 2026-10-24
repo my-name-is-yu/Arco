@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
-import { basename, isAbsolute } from "node:path";
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { repoSchema } from "../shared/contracts";
@@ -95,14 +95,11 @@ async function readGitRemotes(directory: string): Promise<string[]> {
 
 export interface ProjectLaunchOptions {
   listRoots?: () => Promise<readonly { uri: string }[]>;
-  /** An explicitly supplied workspace directory, never the MCP process cwd. */
-  workingDirectory?: string;
   readRemotes?: (directory: string) => Promise<string[]>;
 }
 
 export async function resolveProjectLaunch({
   listRoots,
-  workingDirectory,
   readRemotes = readGitRemotes,
 }: ProjectLaunchOptions): Promise<LaunchContext> {
   const unresolved: LaunchContext = {
@@ -132,12 +129,6 @@ export async function resolveProjectLaunch({
       return unresolved;
     }
   }
-  if (
-    directories.length === 0 &&
-    workingDirectory &&
-    isAbsolute(workingDirectory)
-  )
-    directories = [workingDirectory];
   const canonical = await Promise.all(
     directories.map(async (directory) => {
       try {

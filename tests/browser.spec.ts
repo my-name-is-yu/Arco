@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
 import { checkMarkdownSecurity } from "./markdown-security-helpers";
@@ -1656,15 +1657,7 @@ test("GitHub refresh failures keep cached issue content and drafts usable until 
     const input = route.request().postDataJSON() as { name: string };
     if (input.name !== "arco_get_issue" || !fail) return route.continue();
     return route.fulfill({
-      json: {
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: "MCP error -32001: App server request queue is full",
-          },
-        ],
-      },
+      json: toolFailure("MCP error -32001: App server request queue is full"),
     });
   });
   await app.getByRole("button", { name: "Refresh", exact: true }).click();
@@ -1794,12 +1787,7 @@ test("bulk changes keep per-Issue results and report partial permission failures
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          isError: true,
-          content: [
-            { type: "text", text: "Fixture permission denied for #43" },
-          ],
-        }),
+        body: JSON.stringify(toolFailure("Fixture permission denied for #43")),
       });
     } else await route.continue();
   });
@@ -2371,7 +2359,7 @@ test("external content changes preserve the local draft and require an explicit 
   expect(await events(page, "message")).toHaveLength(0);
 });
 
-test("compact GitHub resolves the account feed when no default or saved repository exists", async ({
+test("compact GitHub resolves the account feed when no repository is selected", async ({
   page,
 }) => {
   const app = issueFrame(page);
@@ -2379,15 +2367,13 @@ test("compact GitHub resolves the account feed when no default or saved reposito
   await page.route("**/tool", async (route) => {
     const input = route.request().postDataJSON() as { name: string };
     if (input.name === "arco_account_issues") accountRead = true;
-    if (!["arco_connection", "arco_get_settings"].includes(input.name)) {
+    if (input.name !== "arco_get_settings") {
       await route.continue();
       return;
     }
     const response = await route.fetch();
     const result = await response.json();
-    if (input.name === "arco_connection")
-      result.structuredContent.defaultRepo = null;
-    else result.structuredContent.settings.activeGithubRepo = null;
+    result.structuredContent.settings.activeGithubRepo = null;
     await route.fulfill({ response, json: result });
   });
   await page.goto("/");
@@ -2494,12 +2480,7 @@ test("compact GitHub keeps connection loading and errors distinct from repositor
     await held;
     await route.fulfill({
       status: 200,
-      json: {
-        isError: true,
-        content: [
-          { type: "text", text: "Fixture GitHub connection check failed" },
-        ],
-      },
+      json: toolFailure("Fixture GitHub connection check failed"),
     });
   });
   const frame = page
@@ -2518,7 +2499,7 @@ test("compact GitHub keeps connection loading and errors distinct from repositor
   } finally {
     release();
   }
-  await expect(app.getByRole("alert")).toHaveText(
+  await expect(app.getByRole("alert")).toContainText(
     "Fixture GitHub connection check failed",
   );
   await expect(app.locator("[data-loading-skeleton]")).toHaveCount(0);

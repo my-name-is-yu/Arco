@@ -8,13 +8,12 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
-import { personalLaunchContext } from "../shared/launch";
 import { sessionValue } from "./session-state";
 function hostView(host: ArcoHost) {
   const read = () => ({
-    launch: host.launch ? host.launch() : personalLaunchContext,
+    launch: host.launch(),
     mode: host.mode(),
-    sharedIssue: host.sharedIssue?.() ?? null,
+    sharedIssue: host.sharedIssue(),
   });
   return sessionValue(host, "host-view", () => {
     let snapshot = read();

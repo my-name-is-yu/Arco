@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import {
   AppBridge,
   PostMessageTransport,
@@ -154,15 +155,7 @@ bridge.oncalltool = async (params) => {
   record("tool", { name: params.name, arguments: params.arguments });
   if (activeTools >= toolLimit) {
     record("tool-rejected", { name: params.name });
-    return {
-      isError: true,
-      content: [
-        {
-          type: "text",
-          text: "MCP error -32001: App server request queue is full",
-        },
-      ],
-    };
+    return toolFailure("MCP error -32001: App server request queue is full");
   }
   activeTools++;
   record("tool-pressure", { active: activeTools });

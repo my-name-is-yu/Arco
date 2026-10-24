@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { choose } from "./select-helpers";
 
@@ -38,10 +39,7 @@ async function openGithub(page: Page) {
 
 async function failTool(route: Route, message: string) {
   await route.fulfill({
-    json: {
-      isError: true,
-      content: [{ type: "text", text: message }],
-    },
+    json: toolFailure(message),
   });
 }
 

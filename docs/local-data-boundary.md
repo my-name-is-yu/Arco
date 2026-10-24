@@ -31,13 +31,13 @@ The current schema lives in [`src/shared/state.ts`](../src/shared/state.ts). Pos
 
 Changing `ARCO_DATA_DIR` changes local settings, drafts, annotation metadata, and lock paths. It does not create a separate OS credential namespace: Linear credential entries are still keyed by connection ID. Use isolated credentials and connection IDs for native tests.
 
-## Revision checks, locks, and recovery
+## Revision checks, locks, and invalid data
 
 Settings and draft reads/writes take a file-specific process lock. Saves compare the caller's expected revision with the current record and fail visibly on a mismatch. Atomic replacement prevents partial JSON files; revision checks prevent overwriting another view's work.
 
-Missing files use defaults. Invalid settings or drafts are recovered under the same lock. Before replacement, Arco creates a sibling `<filename>.recovery-<UUID>.bak` containing the original bytes, including invalid UTF-8. Recovery keeps fields and collection entries accepted by the current schema, uses defaults for invalid values, and advances the revision. If the backup cannot be written, the original file is not replaced.
+Missing files use defaults. Existing settings, drafts, and annotation snapshots must match the current format. Invalid JSON, invalid UTF-8, retired fields, missing required fields, and invalid revisions are reported as errors. Reads and writes leave the original bytes untouched; there is no automatic repair, migration, backup creation, or reset.
 
-Recovery backups can contain draft text and are not automatically pruned. Review them before manual cleanup. Invalid annotation snapshot files are reported as errors and preserved rather than recovered as settings/drafts. There is no general-purpose migration engine or automatic credential reset.
+A settings read failure blocks the workspace and offers a retry. Draft read failures remain visible and keep new input in memory without overwriting the unreadable file. To start over manually, preserve a copy of the affected file and move it out of Arco's data directory before retrying. Arco does not perform that cleanup automatically. Backups created by older versions may contain draft text and are not automatically pruned.
 
 Local files are created with restrictive modes where the operating system supports them. The implementation uses atomic rename and `proper-lockfile`; in-process queues alone are not considered process coordination.
 

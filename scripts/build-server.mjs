@@ -10,7 +10,7 @@ const options = {
   bundle: true,
   platform: "node",
   format: "esm",
-  target: "node22",
+  target: "node24",
   sourcemap: false,
   minifySyntax: true,
   loader: { ".svg": "text" },
@@ -43,7 +43,8 @@ for (const name of Object.keys(keyring.optionalDependencies ?? {})) {
   try {
     await readFile(join("node_modules", name, "package.json"));
     runtimePackages.push(name);
-  } catch {
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
     /* Other OS/arch packages are not installed here. */
   }
 }
@@ -74,7 +75,7 @@ for (const path of [...new Set(paths)]) {
     /^(license|copying|notice)(\.|$)/i.test(name),
   );
   const licenses = await Promise.all(
-    names.map((name) => readFile(join(path, name), "utf8").catch(() => "")),
+    names.map((name) => readFile(join(path, name), "utf8")),
   );
   notices.push(
     `${pkg.name}@${pkg.version} (${pkg.license ?? "See package metadata"})\n${licenses.join("\n")}`,

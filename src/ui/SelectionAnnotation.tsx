@@ -67,11 +67,7 @@ function targetRect(target: AnnotationTarget) {
   const visible = Array.from(range.getClientRects(), (rect) =>
     clipRect(rect, element),
   );
-  return (
-    visible.find((rect) => rect.width > 0 && rect.height > 0) ??
-    visible[0] ??
-    new DOMRect()
-  );
+  return visible.find((rect) => rect.width > 0 && rect.height > 0) ?? null;
 }
 
 function fieldStyle(input: HTMLInputElement | HTMLTextAreaElement) {
@@ -172,7 +168,7 @@ export function SelectionAnnotation({
 }: {
   number: number;
   target: AnnotationTarget;
-  layout: AnnotationLayout;
+  layout: AnnotationLayout | null;
   comment: string;
   editing: boolean;
   onEdit: () => void;
@@ -187,21 +183,26 @@ export function SelectionAnnotation({
   const editor = useRef<HTMLTextAreaElement>(null);
   const badge = useRef<HTMLButtonElement>(null);
   const input = target.editable;
-  const { rect, field } = layout;
+  const visible = Boolean(
+    layout && layout.rect.width > 0 && layout.rect.height > 0,
+  );
   const dismiss = () => {
     if (busy) return;
     onDismiss();
   };
 
   useEffect(() => {
-    if (editing) {
-      setDraft(comment);
+    if (editing) setDraft(comment);
+  }, [editing, comment]);
+  useEffect(() => {
+    if (editing && visible) {
       editor.current?.focus({ preventScroll: true });
       onLayoutChange();
     }
-  }, [editing, comment, onLayoutChange]);
+  }, [editing, visible, onLayoutChange]);
 
-  const visible = rect.width > 0 && rect.height > 0;
+  if (!layout) return null;
+  const { rect, field } = layout;
   const fieldRect = field?.rect;
   return (
     <>

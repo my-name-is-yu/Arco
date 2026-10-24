@@ -83,7 +83,7 @@ describe("persisting selection anchors", () => {
     expect(await persistSelectionAnchor(anchor, "selected")).toBeNull();
   });
 
-  it("leaves anchors transient when WebCrypto is unavailable", async () => {
+  it("rejects persistence when the required WebCrypto API is unavailable", async () => {
     vi.stubGlobal("crypto", {});
     const anchor: SelectionAnchor = {
       ...base,
@@ -94,6 +94,8 @@ describe("persisting selection anchors", () => {
         end: { path: [0], offset: 8 },
       },
     };
-    expect(await persistSelectionAnchor(anchor, "selected")).toBeNull();
+    await expect(
+      persistSelectionAnchor(anchor, "selected"),
+    ).rejects.toBeInstanceOf(TypeError);
   });
 });

@@ -10,8 +10,6 @@ import {
   type CommentsInput,
   type GitHubService,
   type IssueDetail,
-  type IssuePage,
-  type ListInput,
   type IssueRef,
   type ProjectStatus,
 } from "../shared/contracts.js";
@@ -60,14 +58,10 @@ const issueSummaryProjection = `{
 export function createGitHubService(
   options: {
     run?: GhRunner;
-    defaultRepo?: string | null;
     credentialIdentity?: () => Promise<string>;
   } = {},
 ): GitHubService {
   const run = options.run;
-  const defaultRepo = options.defaultRepo
-    ? repoSchema.parse(options.defaultRepo)
-    : null;
   const once = createGitHubWriteGuard<IssueDetail>();
 
   const transport = createGitHubTransport({ run, policy: "core" });
@@ -209,39 +203,6 @@ export function createGitHubService(
     };
   }
 
-  async function legacyList(input: ListInput): Promise<IssuePage> {
-    const state = input.state === "all" ? "" : `is:${input.state}`;
-    const query = `repo:${input.repo} is:issue ${state} ${input.query}`.trim();
-    const endpoint = `search/issues?q=${encodeURIComponent(query)}&sort=${input.sort ?? "updated"}&order=${input.order ?? "desc"}&per_page=${issuePageSize}&page=${input.page}`;
-    const response = parse(
-      z.object({
-        total_count: z.number(),
-        incomplete_results: z.boolean(),
-        items: z.array(apiIssueSummarySchema),
-      }),
-      await transport.read(
-        endpoint,
-        `{total_count, incomplete_results, items: [.items[] | ${issueSummaryProjection}]}`,
-      ),
-    );
-    if (response.incomplete_results)
-      throw new GitHubError(
-        "GitHub search did not complete. Narrow your search and try again.",
-      );
-    return {
-      issues: response.items
-        .filter(
-          (issue) =>
-            issue.pull_request === undefined &&
-            issue.repository_url?.toLowerCase() ===
-              `https://api.github.com/repos/${input.repo}`.toLowerCase(),
-        )
-        .map((issue) => summary(input.repo, issue)),
-      hasMore:
-        input.page * issuePageSize < Math.min(response.total_count, 1000),
-      page: input.page,
-    };
-  }
   const repositoryIssues = createRepositoryIssueReader({
     query: async (query, variables) => {
       try {
@@ -253,7 +214,6 @@ export function createGitHubService(
         );
       }
     },
-    legacyList,
   });
 
   return {
@@ -276,7 +236,6 @@ export function createGitHubService(
           connected: true,
           account: user.login,
           message: "Connected using your existing GitHub CLI authentication.",
-          defaultRepo,
         };
       } catch (error) {
         return {
@@ -287,7 +246,6 @@ export function createGitHubService(
             error instanceof GitHubError
               ? error.message
               : "Unable to connect to GitHub.",
-          defaultRepo,
         };
       }
     },

@@ -19,6 +19,7 @@ import {
 } from "./operation";
 import { createQueriesHandlers } from "./queries";
 import { createRelationsHandlers } from "./relations";
+import { linearFailure } from "./errors";
 export { describeTemplate, estimateValues } from "./operation";
 export function createLinearService(
   options: {
@@ -52,7 +53,11 @@ export function createLinearService(
       ...createAttachmentsHandlers(operation),
       ...createBulkHandlers(operation, issues),
     };
-    return handlers[name](input);
+    try {
+      return await handlers[name](input);
+    } catch (error) {
+      throw linearFailure(error, { write: "requestId" in input });
+    }
   }
   return {
     async call(name, args) {

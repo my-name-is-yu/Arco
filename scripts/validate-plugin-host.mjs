@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { setTimeout, clearTimeout } from "node:timers";
 
@@ -80,6 +81,37 @@ try {
     names.includes("arco_open_project"),
     "Installed Arco lacks the project viewer",
   );
+  const failure = await call("mcpServer/tool/call", {
+    threadId,
+    server: server.name,
+    tool: "search_mentions",
+    arguments: { query: "source:github source:linear" },
+  });
+  assert.equal(failure.isError, true);
+  assert.deepEqual(
+    failure.structuredContent,
+    {
+      error: {
+        kind: "invalid-input",
+        message: "Choose one source for Issue search.",
+      },
+    },
+    "The running server must expose the current structured error contract",
+  );
+  const ui = await call("mcpServer/resource/read", {
+    threadId,
+    server: server.name,
+    uri: "ui://arco/issues",
+  });
+  const html = ui.contents.find((content) => typeof content.text === "string");
+  assert(html, "Installed Arco UI resource is missing");
+  const hash = (value) => createHash("sha256").update(value).digest("hex");
+  const expectedHtmlHash = hash(await readFile("dist/plugin/arco.html"));
+  assert.equal(
+    hash(html.text),
+    expectedHtmlHash,
+    "Installed HTML differs from the candidate build",
+  );
   const open = await call("mcpServer/tool/call", {
     threadId,
     server: server.name,
@@ -121,6 +153,8 @@ try {
         githubConnected: open.structuredContent?.connected === true,
         linearConnected: linear.structuredContent?.connected === true,
         resultKeys: Object.keys(open),
+        structuredErrorContractVerified: true,
+        candidateHtmlSha256: expectedHtmlHash,
         desktopRenderingVerified: false,
       },
       null,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OperationError } from "../shared/errors";
 import type { IssueRef } from "../shared/contracts";
 import type {
   FieldValue,
@@ -43,21 +44,53 @@ const definitionSchema = z.object({
     })
     .optional(),
 });
-const valueSchema = z.object({
-  field: z.object({ id: z.string() }),
-  text: z.string().nullable().optional(),
-  number: z.number().finite().nullable().optional(),
-  date: z.string().nullable().optional(),
-  optionId: z.string().nullable().optional(),
-  iterationId: z.string().nullable().optional(),
-});
+const valueFieldSchema = z.object({ id: z.string().min(1) });
+const valueSchema = z.discriminatedUnion("__typename", [
+  z.object({
+    __typename: z.literal("ProjectV2ItemFieldTextValue"),
+    field: valueFieldSchema,
+    text: z.string().nullable(),
+  }),
+  z.object({
+    __typename: z.literal("ProjectV2ItemFieldNumberValue"),
+    field: valueFieldSchema,
+    number: z.number().finite().nullable(),
+  }),
+  z.object({
+    __typename: z.literal("ProjectV2ItemFieldDateValue"),
+    field: valueFieldSchema,
+    date: z.string().nullable(),
+  }),
+  z.object({
+    __typename: z.literal("ProjectV2ItemFieldSingleSelectValue"),
+    field: valueFieldSchema,
+    optionId: z.string().nullable(),
+  }),
+  z.object({
+    __typename: z.literal("ProjectV2ItemFieldIterationValue"),
+    field: valueFieldSchema,
+    iterationId: z.string().nullable(),
+  }),
+  z.object({
+    __typename: z.enum([
+      "ProjectV2ItemFieldLabelValue",
+      "ProjectV2ItemFieldMilestoneValue",
+      "ProjectV2ItemFieldMultiSelectValue",
+      "ProjectV2ItemFieldPullRequestValue",
+      "ProjectV2ItemFieldRepositoryValue",
+      "ProjectV2ItemFieldReviewerValue",
+      "ProjectV2ItemFieldUserValue",
+      "ProjectV2ItemIssueFieldValue",
+    ]),
+  }),
+]);
 
-export class GitHubProjectsError extends Error {
+export class GitHubProjectsError extends OperationError {
   constructor(
     message: string,
     readonly code = "unavailable",
   ) {
-    super(message);
+    super(message, code);
     this.name = "GitHubProjectsError";
   }
 }
@@ -66,6 +99,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   if (!result.success)
     throw new GitHubProjectsError(
       "GitHub returned an unexpected Projects response format.",
+      "invalid-response",
     );
   return result.data;
 }
@@ -168,6 +202,7 @@ export async function readProjectFields(
       fieldValues(first:100,after:$valuesCursor) @include(if:$includeValues) {
         pageInfo { hasNextPage endCursor }
         nodes {
+          __typename
           ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { id } } }
           ... on ProjectV2ItemFieldNumberValue { number field { ... on ProjectV2FieldCommon { id } } }
           ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2FieldCommon { id } } }
@@ -227,8 +262,8 @@ export async function readProjectFields(
     if (includeFields) {
       const connection = parse(connectionSchema, project.fields);
       for (const raw of connection.nodes) {
-        const field = definitionSchema.safeParse(raw);
-        if (field.success) addUnique(definitions, field.data.id, field.data);
+        const field = parse(definitionSchema, raw);
+        addUnique(definitions, field.id, field);
       }
       fieldsCursor = nextCursor(connection, seenFields);
       includeFields = fieldsCursor !== null;
@@ -236,18 +271,21 @@ export async function readProjectFields(
     if (includeValues) {
       const connection = parse(connectionSchema, item.fieldValues);
       for (const raw of connection.nodes) {
-        const value = valueSchema.safeParse(raw);
-        if (!value.success) continue;
-        const data = value.data;
+        const data = parse(valueSchema, raw);
+        // The query deliberately omits values for native field types Arco does not edit.
+        if (!("field" in data)) continue;
         addUnique(
           values,
           data.field.id,
-          data.text ??
-            data.number ??
-            data.date ??
-            data.optionId ??
-            data.iterationId ??
-            null,
+          "text" in data
+            ? data.text
+            : "number" in data
+              ? data.number
+              : "date" in data
+                ? data.date
+                : "optionId" in data
+                  ? data.optionId
+                  : data.iterationId,
         );
       }
       valuesCursor = nextCursor(connection, seenValues);

@@ -1,9 +1,8 @@
-export class WriteGuardError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-  ) {
-    super(message);
+import { OperationError } from "../shared/errors";
+
+export class WriteGuardError extends OperationError {
+  constructor(message: string, code: string) {
+    super(message, code);
   }
 }
 

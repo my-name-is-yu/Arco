@@ -1,20 +1,26 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import { createWriteGuard } from "../write-guard";
+import { OperationError } from "../../shared/errors";
 
 export type GhRunner = (args: string[], input?: string) => Promise<unknown>;
 
-export class GitHubError extends Error {
+export class GitHubError extends OperationError {
   constructor(
     message: string,
     readonly code = "unavailable",
   ) {
-    super(message);
+    super(message, code);
     this.name = "GitHubError";
   }
 }
 
-function commandError(stderr: string): GitHubError {
+export function commandError(stderr: string): GitHubError {
+  if (/HTTP 429|(?:secondary |API )?rate limit|abuse detection/i.test(stderr))
+    return new GitHubError(
+      "GitHub's API request limit was reached.",
+      "rate-limited",
+    );
   if (/HTTP 401|not logged|authentication|gh auth login/i.test(stderr)) {
     return new GitHubError(
       "Unable to connect to GitHub. Check gh auth login in your terminal.",
@@ -36,6 +42,18 @@ function commandError(stderr: string): GitHubError {
       "The target was not found, or you do not have permission to view it.",
       "not-found",
     );
+  if (/HTTP 409/i.test(stderr))
+    return new GitHubError(
+      "The GitHub target changed while this operation was in progress.",
+      "conflict",
+    );
+  if (/HTTP 400|HTTP 422/i.test(stderr))
+    return new GitHubError(
+      "GitHub rejected the supplied values. Check the selected target and fields.",
+      "invalid-input",
+    );
+  if (/HTTP 408|HTTP 504|timed? ?out|deadline exceeded/i.test(stderr))
+    return new GitHubError("The GitHub request timed out.", "timeout");
   return new GitHubError(
     "Unable to reach GitHub. Check your connection and refresh.",
   );
@@ -56,7 +74,11 @@ export const runGh: GhRunner = (args, input) =>
     let stdout = "";
     let stderr = "";
     let exceeded = false;
-    const timer = setTimeout(() => child.kill(), 30_000);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, 30_000);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
@@ -82,6 +104,19 @@ export const runGh: GhRunner = (args, input) =>
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (timedOut) {
+        reject(new GitHubError("The GitHub request timed out.", "timeout"));
+        return;
+      }
+      if (exceeded) {
+        reject(
+          new GitHubError(
+            "The GitHub response exceeded the supported size.",
+            "invalid-response",
+          ),
+        );
+        return;
+      }
       const included = args[0] === "api" && args.includes("--include");
       const separator = /\r?\n\r?\n/.exec(stdout);
       const emptyNotModified =
@@ -93,14 +128,19 @@ export const runGh: GhRunner = (args, input) =>
         stderr.trim() === "unexpected end of JSON input";
       // gh's --jq attempts to parse the empty 304 body and exits 1. The HTTP
       // status and empty body are still authoritative for this explicit read.
-      if ((code !== 0 && !emptyNotModified) || exceeded) {
+      if (code !== 0 && !emptyNotModified) {
         reject(commandError(stderr));
         return;
       }
       try {
         resolve(included ? stdout : stdout.trim() ? JSON.parse(stdout) : null);
       } catch {
-        reject(new GitHubError("Unable to read the response from GitHub."));
+        reject(
+          new GitHubError(
+            "Unable to read the response from GitHub.",
+            "invalid-response",
+          ),
+        );
       }
     });
     // A closed stdin must never become an uncaught process error.
@@ -111,7 +151,10 @@ export const runGh: GhRunner = (args, input) =>
 export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success)
-    throw new GitHubError("GitHub returned an unexpected response format.");
+    throw new GitHubError(
+      "GitHub returned an unexpected response format.",
+      "invalid-response",
+    );
   return result.data;
 }
 
@@ -167,7 +210,21 @@ export function createGitHubTransport(options: {
         body === undefined ? undefined : JSON.stringify(body),
       );
     } catch (error) {
-      if (access === "write")
+      if (
+        access === "write" &&
+        !(
+          error instanceof GitHubError &&
+          [
+            "auth",
+            "missing-cli",
+            "forbidden",
+            "not-found",
+            "rate-limited",
+            "conflict",
+            "invalid-input",
+          ].includes(error.code)
+        )
+      )
         throw new GitHubError(
           extended
             ? "Unable to confirm the update. Check GitHub and refresh before retrying."
@@ -182,7 +239,25 @@ export function createGitHubTransport(options: {
               : "Unable to reach GitHub.",
           );
     }
-    if (value && typeof value === "object" && "errors" in value)
+    if (value && typeof value === "object" && "errors" in value) {
+      const errors = (value as { errors: unknown }).errors;
+      const types = Array.isArray(errors)
+        ? errors.map((error: unknown) =>
+            error && typeof error === "object" && "type" in error
+              ? error.type
+              : null,
+          )
+        : [];
+      const hasPartialData = "data" in value && value.data != null;
+      if (
+        (!hasPartialData || access === "read") &&
+        types.length &&
+        types.every((type) => type === "RATE_LIMITED")
+      )
+        throw new GitHubError(
+          "GitHub's API request limit was reached.",
+          "rate-limited",
+        );
       throw new GitHubError(
         extended
           ? "Unable to verify the GitHub Projects permissions, target, or response."
@@ -191,6 +266,7 @@ export function createGitHubTransport(options: {
             : "Unable to load Projects. Check the read:project permission in GitHub CLI.",
         access === "write" ? "uncertain" : "forbidden",
       );
+    }
     return value;
   }
   const request = (

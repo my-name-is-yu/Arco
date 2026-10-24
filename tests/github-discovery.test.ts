@@ -60,7 +60,7 @@ describe("authenticated account discovery", () => {
       issue("organization/shared", 42),
       issue("owner/private", 43, { pull_request: {} }),
     ]);
-    const service = createService({ run, defaultRepo: "ignored/repo" });
+    const service = createService({ run });
     const page = await callDataTool(service, "arco_account_issues", {
       filter: "all",
     });

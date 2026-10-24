@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OperationError } from "../shared/errors";
 import {
   OpenAIMentionSearchParamsSchema,
   OpenAIMentionSearchResultSchema,
@@ -47,7 +48,10 @@ export function createMentionSearch(
     const requestedGithub =
       /(?:^|\s)source:github(?:\s|$)/i.test(query) || Boolean(repoMatch);
     if (requestedLinear && requestedGithub)
-      throw new Error("Choose one source for Issue search.");
+      throw new OperationError(
+        "Choose one source for Issue search.",
+        "invalid-input",
+      );
     const settings = (await state.readSettings()).settings;
     const clean = query
       .replace(/(?:^|\s)source:(?:github|linear)(?=\s|$)/gi, "")
@@ -67,10 +71,12 @@ export function createMentionSearch(
           )
         : settings.activeLinearTeam
           ? scopes.teams.find((team) => team.id === settings.activeLinearTeam)
-          : scopes.teams.length === 1
-            ? scopes.teams[0]
-            : undefined;
-      if (!team) throw new Error("Choose a Linear team to search.");
+          : undefined;
+      if (!team)
+        throw new OperationError(
+          "Choose a Linear team to search.",
+          "invalid-input",
+        );
       const page = linearPage.parse(
         await linear.call("linear_list_issues", {
           connectionId: "default",
@@ -88,12 +94,11 @@ export function createMentionSearch(
         })),
       });
     }
-    const connection = await github.connection();
-    const repo =
-      repoMatch?.[1] ?? settings.activeGithubRepo ?? connection.defaultRepo;
+    const repo = repoMatch?.[1] ?? settings.activeGithubRepo;
     if (!repo)
-      throw new Error(
+      throw new OperationError(
         "Specify repo:owner/name or choose a scope in Arco before using @Arco search.",
+        "invalid-input",
       );
     const page = await github.list(
       listInputSchema.parse({

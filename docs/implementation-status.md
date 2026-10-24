@@ -4,6 +4,10 @@ Updated: 2026-10-24. This is an index of implementation and previously recorded 
 
 The product boundary is defined by [requirements](requirements.md), [scope](product-scope.md), and the [operation catalog](issue-operations.md). A passing fixture test, a successful provider request, an installed artifact, and a working Codex interaction are separate evidence.
 
+The latest local cleanup is recorded in [Current-contract cleanup](code-quality-validation-2026-10-24.md). It removes retired repository-list compatibility and automatic local-data repair. Historical verification below describes its own snapshot.
+
+The follow-up [quality gate and error-recovery record](quality-gates-validation-2026-10-24.md) covers CI configuration, the structured error contract, refreshed installed-server checks, and the remaining desktop acceptance boundary. A locally installed update does not establish that an existing conversation has reloaded it.
+
 ## Implemented operations
 
 Paths below are relative to `src/ui/` or `src/server/` unless stated otherwise. The [technical stack](technical-stack.md) describes the current ownership boundaries.

@@ -32,7 +32,7 @@ This cache is memory-only, limited to 32 entries / 8 MiB, and bound to a private
 
 Inputs preserve `repo`, `query`, `state`, `sort`, `order`, and numeric `page`, with an optional opaque `cursor`. More results return `nextCursor`. Changing scope/query/order restarts at page 1 without a cursor.
 
-Explicit `sort:` qualifiers, Boolean syntax, parentheses, legacy page-only continuation, and nested fields exceeding the summary query's limits use the existing REST search path to preserve semantics. A failed or partial GraphQL response is an error rather than a silent data-source switch. Repository search retains its distinct 1,000-result cap.
+Repository lists use GraphQL only. Explicit `sort:` qualifiers, Boolean syntax, parentheses, and page-only continuation are rejected; use simple search qualifiers, the sort/order controls, and the returned cursor. Nested fields exceeding the summary query's limits, failed requests, and partial responses are errors rather than a data-source switch or a truncated success. Repository search retains its distinct 1,000-result cap (pages 1–10).
 
 Both personal and repository responses validate native repository and canonical issue URL identity. Opaque GraphQL label IDs in summaries are not substitutes for separately fetched editing metadata.
 
@@ -48,7 +48,7 @@ The personal feed has no full-text or Project query field. The search box accept
 
 `arco_repositories({page?})` reads one page of 30 repositories through `GET /user/repos`, ordered by updated time and scoped to owner, collaborator, and organization-member access. Rows contain `id`, `repo`, `url`, `private`, `archived`, and `issuesEnabled`; the response includes `hasMore` and `page`.
 
-Discovery does not trigger per-repository issue reads until scope is selected. Personal preferences store only filter/state/sort/order; repository preferences and chat-specific choices are separate. Issue content is not persisted in those preferences. Missing settings use defaults; invalid settings use the recoverable process described in [Local data](local-data-boundary.md).
+Discovery does not trigger per-repository issue reads until scope is selected. Personal preferences store only filter/state/sort/order; repository preferences and chat-specific choices are separate. Issue content is not persisted in those preferences. Missing settings use defaults; invalid settings remain unchanged and produce an error as described in [Local data](local-data-boundary.md).
 
 ## Verification and upstream references
 

@@ -1,4 +1,10 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+import {
+  OperationError,
+  operationErrorKind,
+  type OperationErrorKind,
+} from "../shared/errors";
 
 export function dataResult(
   value: object,
@@ -23,11 +29,20 @@ export function imageResult(image: object): CallToolResult {
 export function failureResult(
   error: unknown,
   fallback = "The operation failed.",
+  kind: OperationErrorKind = "unavailable",
 ): CallToolResult {
+  const failure =
+    error instanceof OperationError
+      ? { kind: operationErrorKind(error.code), message: error.message }
+      : error instanceof z.ZodError
+        ? {
+            kind: "invalid-input" as const,
+            message: "The supplied target or values are invalid.",
+          }
+        : { kind, message: fallback };
   return {
     isError: true,
-    content: [
-      { type: "text", text: error instanceof Error ? error.message : fallback },
-    ],
+    content: [{ type: "text", text: failure.message }],
+    structuredContent: { error: failure },
   };
 }

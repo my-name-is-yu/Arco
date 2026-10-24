@@ -23,7 +23,7 @@ flowchart TD
 | `src/server/index.ts`, `composition.ts`, `mcp.ts` | Build dependencies, register MCP tools/resources, notifications, stdio connection                                      |
 | `src/server/github/` and GitHub facade files      | Transport, issue lists and writes, comments, labels, fields, Projects, relationships, templates, bulk operations       |
 | `src/server/linear/`                              | OAuth, connection validation, queries, issue operations, comments, relationships, attachments, upload, bulk operations |
-| `src/server/state.ts`, `state-recovery.ts`        | Settings/drafts/annotation storage, locks, revisions, atomic writes, recovery                                          |
+| `src/server/state.ts`                             | Settings/drafts/annotation storage, locks, revisions, atomic writes, invalid-data errors                               |
 | `src/shared/`                                     | Validated contracts and native references shared across server and UI                                                  |
 | `src/ui/`                                         | Provider workspaces, inline cards, common controls, host bridge, query/session/draft state                             |
 | `plugin/`                                         | Portable and compatibility manifests, MCP launch configuration, skills, icons                                          |
@@ -40,23 +40,29 @@ Only the active provider workspace mounts its fetches. A background provider can
 
 Common startup tools are `arco_show_issue` for inline display, `arco_open_issue` for explicit details, and `arco_open` / `arco_open_project` for list workspaces. Use strict native references. Do not infer an entrypoint from the host's display mode. See [Screen structure](screen-structure.md) and [Project viewers](project-viewers.md).
 
+Provider-specific query hooks own issue list/detail reads and mutation cache updates. Shared list hooks own scroll restoration and keyboard navigation. Selection capture and context identity are independent of the annotation UI; separate hooks own host attachment synchronization and annotation position restoration/measurement. The internal host interface requires its current state readers, using explicit null values for absent launch or shared context.
+
+The [fallback policy](fallback-policy.md) lists retained data-preservation paths and removed compatibility behavior. Context sharing requires synchronized OpenAI model-context support and a host acknowledgement. Linear browsing and mention search require an explicit or saved scope; an unavailable selection is not replaced by the first team.
+
 Common rendering and control behavior is shared; native workflow semantics and mutation APIs remain provider-specific. GitHub Open/Closed differs from Project Status, and Linear's team state, single assignee, priority, and estimate are not converted into a generic model.
 
 ## Server and write behavior
 
 Zod validates input/result boundaries. GitHub invokes the public CLI with argument arrays and explicit methods. Linear validates connection/workspace/team context and uses the SDK or targeted GraphQL queries. List queries request summaries; details, comments, and image requests are staged separately.
 
+Repository issue lists use GraphQL summaries and cursor continuation only, within GitHub's 1,000-result cap. Personal account feeds keep their native REST pagination and conditional reads. Unsupported search expressions, invalid continuation inputs, and incomplete nested summary fields return errors; they do not switch transports.
+
 Write guards deduplicate identical request IDs and preserve ambiguous outcomes. Mutation receipts distinguish successful writes from subsequent read failures. Fixtures never fall back to live provider traffic.
 
 ## Persistence
 
-Local JSON records use process locks, revisions, schema validation, and atomic replacement. Invalid settings/drafts are backed up byte-for-byte before recovering valid fields into the current schema. Invalid annotation records remain errors. Linear token pairs use the OS credential store and connection-specific refresh locks, with no plaintext fallback.
+Local JSON records use process locks, revisions, schema validation, and atomic replacement. Missing files use defaults; existing records must match the current schema. Invalid settings, drafts, and annotation records produce errors without changing the stored bytes. Settings failures block workspace startup rather than selecting a default source. Linear token pairs use the OS credential store and connection-specific refresh locks, with no plaintext fallback.
 
-See [Local data](local-data-boundary.md) for paths, retention limits, and recovery semantics.
+See [Local data](local-data-boundary.md) for paths, retention limits, and invalid-data handling.
 
 ## Build and dependency compatibility
 
-Vite, Tailwind, and `vite-plugin-singlefile` produce one HTML file. esbuild produces ESM server bundles. `dist/plugin/` contains production assets; `dist/dev/` contains the fixture server and generated diagnostic output. Native keyring packages remain external to the server bundle and are copied for the build platform.
+Vite, Tailwind, and `vite-plugin-singlefile` produce one HTML file. esbuild produces ESM server bundles targeting Node 24. `dist/plugin/` contains production assets; `dist/dev/` contains the fixture server and generated diagnostic output. Native keyring packages remain external to the server bundle and are copied for the build platform.
 
 The UI disables math and removes unused external KaTeX font declarations with a PostCSS AST pass. Artifact checks inspect JS/CSS syntax rather than relying only on string searches. Compatibility decisions and dependency caveats are in [Dependency compatibility](dependency-compatibility.md) and [Runtime notes](dependency-runtime-notes.md).
 

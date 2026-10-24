@@ -1,3 +1,4 @@
+import { OperationError, toolFailureSchema } from "../src/shared/errors";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -163,7 +164,7 @@ describe("explicit issue presentation", () => {
     },
   );
 
-  it("preserves the exact legacy personal launch when no source is requested", async () => {
+  it("preserves the personal launch when no source is requested", async () => {
     const githubConnection = vi.spyOn(backend.service, "connection");
     const linearConnection = vi.spyOn(backend.linearService, "call");
     const response = await client.callTool({
@@ -320,7 +321,11 @@ describe("explicit issue presentation", () => {
           { type: "text", text: expect.stringContaining("different issue") },
         ],
       });
-      expect(response.structuredContent).toBeUndefined();
+      expect(
+        toolFailureSchema.safeParse(response.structuredContent).success,
+      ).toBe(true);
+      expect(response.structuredContent).not.toHaveProperty("launch");
+      expect(response.structuredContent).not.toHaveProperty("issue");
     },
   );
 
@@ -339,7 +344,11 @@ describe("explicit issue presentation", () => {
         arguments: { target },
       });
       expect(response.isError).toBe(true);
-      expect(response.structuredContent).toBeUndefined();
+      expect(
+        toolFailureSchema.safeParse(response.structuredContent).success,
+      ).toBe(true);
+      expect(response.structuredContent).not.toHaveProperty("launch");
+      expect(response.structuredContent).not.toHaveProperty("issue");
       expect(read).toHaveBeenCalledTimes(1);
       expect(otherProvider).not.toHaveBeenCalled();
     },
@@ -369,7 +378,11 @@ describe("explicit issue presentation", () => {
           },
         ],
       });
-      expect(response.structuredContent).toBeUndefined();
+      expect(
+        toolFailureSchema.safeParse(response.structuredContent).success,
+      ).toBe(true);
+      expect(response.structuredContent).not.toHaveProperty("launch");
+      expect(response.structuredContent).not.toHaveProperty("issue");
     },
   );
 
@@ -394,7 +407,9 @@ describe("explicit issue presentation", () => {
     async (name) => {
       const failed = vi
         .spyOn(backend.service, "get")
-        .mockRejectedValue(new Error("Issue access denied."));
+        .mockRejectedValue(
+          new OperationError("Issue access denied.", "forbidden"),
+        );
       const list = vi.spyOn(backend.service, "list");
       const account = vi.spyOn(backend.service, "accountIssues");
       const otherProvider = vi.spyOn(backend.linearService, "call");
@@ -406,14 +421,18 @@ describe("explicit issue presentation", () => {
         isError: true,
         content: [{ type: "text", text: "Issue access denied." }],
       });
-      expect(response.structuredContent).toBeUndefined();
+      expect(
+        toolFailureSchema.safeParse(response.structuredContent).success,
+      ).toBe(true);
+      expect(response.structuredContent).not.toHaveProperty("launch");
+      expect(response.structuredContent).not.toHaveProperty("issue");
       expect(failed).toHaveBeenCalledTimes(1);
       for (const untouched of [list, account, otherProvider])
         expect(untouched).not.toHaveBeenCalled();
     },
   );
 
-  it("keeps legacy launch values valid and validates optional native targets strictly", () => {
+  it("keeps current launch values valid and validates optional native targets strictly", () => {
     expect(launchContextSchema.parse(personalLaunchContext)).toEqual(
       personalLaunchContext,
     );

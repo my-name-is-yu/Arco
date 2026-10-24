@@ -14,7 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
-import { selectionIssueData } from "./SelectionShare";
+import { selectionIssueData } from "./selection-context";
 import { Notice, type NoticeValue } from "./Notice";
 import { IssueMarkdown } from "./MarkdownContent";
 import { inlineMarkdownPreview } from "./inline-markdown-preview";

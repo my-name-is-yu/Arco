@@ -5,7 +5,6 @@ import {
   readFile,
   readdir,
   rm,
-  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,17 +36,6 @@ async function recoveryFiles(file: string) {
   return (await readdir(dirname(file)))
     .filter((name) => name.startsWith(`${basename(file)}.recovery-`))
     .map((name) => join(dirname(file), name));
-}
-async function expectRecoveryBackup(file: string, original: Buffer | string) {
-  const backups = await recoveryFiles(file);
-  expect(backups).toHaveLength(1);
-  expect(basename(backups[0])).toMatch(
-    new RegExp(
-      `^${basename(file).replaceAll(".", "\\.")}\\.recovery-[a-f0-9-]{36}\\.bak$`,
-    ),
-  );
-  expect(await readFile(backups[0])).toEqual(Buffer.from(original));
-  expect((await stat(backups[0])).mode & 0o777).toBe(0o600);
 }
 afterEach(async () => {
   await Promise.all(
@@ -109,158 +97,6 @@ describe("local settings and drafts", () => {
     ).rejects.toBeInstanceOf(StateConflict);
     expect((await store.readDraft(key)).draft).toBeNull();
   });
-  it.each(["missing preferences", "missing account scope"])(
-    "recovers old settings with %s while keeping an original backup",
-    async (variant) => {
-      const dir = await temporary();
-      const store = createStateStore(dir);
-      const original = await store.readSettings();
-      const settings: Record<string, unknown> = {
-        ...original.settings,
-        githubRepos: ["yu/Arco"],
-        activeSource: "linear",
-      };
-      if (variant === "missing preferences") {
-        delete settings.githubFilters;
-        delete settings.linearFilters;
-        delete settings.projectGithubRepos;
-        delete settings.githubAccountFilter;
-      } else {
-        settings.githubAccountFilter = {
-          state: "closed",
-          sort: "comments",
-          order: "asc",
-        };
-      }
-      const file = join(dir, "settings.json");
-      const stored = JSON.stringify({ revision: 3, settings });
-      await writeFile(file, stored);
-      const recovered = await store.readSettings();
-      expect(recovered).toEqual({
-        revision: 4,
-        settings: {
-          ...defaultSettings,
-          githubRepos: ["yu/Arco"],
-          activeSource: "linear",
-          ...(variant === "missing account scope"
-            ? {
-                githubAccountFilter: {
-                  filter: "assigned",
-                  state: "closed",
-                  sort: "comments",
-                  order: "asc",
-                },
-              }
-            : {}),
-        },
-      });
-      expect(JSON.parse(await readFile(file, "utf8"))).toEqual(recovered);
-      await expectRecoveryBackup(file, stored);
-      expect((await store.readSettings()).revision).toBe(4);
-      const saved = await store.updateSettings({
-        expectedRevision: 4,
-        patch: { activeSource: "github" },
-      });
-      expect(saved.revision).toBe(5);
-      await expectRecoveryBackup(file, stored);
-    },
-  );
-  it("keeps valid settings fields and repairs invalid fields individually", async () => {
-    const dir = await temporary();
-    const file = join(dir, "settings.json");
-    const stored = JSON.stringify({
-      revision: 9,
-      settings: {
-        ...defaultSettings,
-        githubRepos: ["invalid", "yu/Arco"],
-        activeGithubRepo: "yu/Arco",
-        projectGithubRepos: {
-          ["a".repeat(64)]: "yu/Arco",
-          invalid: "yu/Arco",
-        },
-        activeSource: "retired-source",
-        githubAccountFilter: {
-          filter: "retired-filter",
-          state: "closed",
-          sort: "retired-sort",
-          order: "asc",
-          query: "retired query",
-        },
-        linearTeams: [
-          { workspaceId: "workspace", teamId: "team", name: "Team" },
-          { workspaceId: "workspace", name: "Incomplete" },
-        ],
-        activeLinearTeam: "team",
-        githubFilters: {
-          "yu/Arco": {
-            query: "bug",
-            state: "closed",
-            sort: "comments",
-            order: "asc",
-          },
-          "other/Arco": {
-            query: 42,
-            state: "open",
-            sort: "updated",
-            order: "desc",
-          },
-        },
-        linearFilters: {
-          team: {
-            query: "bug",
-            stateId: "closed",
-            assigneeId: "yu",
-            labelId: "",
-            projectId: "",
-            order: "createdAt",
-          },
-          invalid: { query: "incomplete" },
-        },
-        retiredPreference: true,
-      },
-    });
-    await writeFile(file, stored);
-    const recovered = await createStateStore(dir).readSettings();
-    expect(recovered).toEqual({
-      revision: 10,
-      settings: {
-        ...defaultSettings,
-        githubRepos: ["yu/Arco"],
-        activeGithubRepo: "yu/Arco",
-        projectGithubRepos: { ["a".repeat(64)]: "yu/Arco" },
-        githubAccountFilter: {
-          filter: "assigned",
-          state: "closed",
-          sort: "updated",
-          order: "asc",
-        },
-        linearTeams: [
-          { workspaceId: "workspace", teamId: "team", name: "Team" },
-        ],
-        activeLinearTeam: "team",
-        githubFilters: {
-          "yu/Arco": {
-            query: "bug",
-            state: "closed",
-            sort: "comments",
-            order: "asc",
-          },
-        },
-        linearFilters: {
-          team: {
-            query: "bug",
-            stateId: "closed",
-            assigneeId: "yu",
-            labelId: "",
-            projectId: "",
-            order: "createdAt",
-          },
-        },
-      },
-    });
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(recovered);
-    await expectRecoveryBackup(file, stored);
-  });
   it("persists bounded account filters separately and preserves repositories and revision conflicts", async () => {
     const dir = await temporary();
     const store = createStateStore(dir);
@@ -316,7 +152,7 @@ describe("local settings and drafts", () => {
       issue: "issue",
     },
   ])(
-    "reloads current drafts and recovers retired stored fields for $source",
+    "reloads current drafts and rejects retired stored fields for $source",
     async (key) => {
       const dir = await temporary();
       const store = createStateStore(dir);
@@ -324,161 +160,137 @@ describe("local settings and drafts", () => {
         title: "Title",
         body: "Current body draft",
         comment: "Unsent comment",
-        baseBody: "Original body",
-        baseUpdatedAt: "2026-10-24T00:00:00Z",
       };
       await store.writeDraft({ key, expectedRevision: 0, draft });
       expect((await createStateStore(dir).readDraft(key)).draft).toEqual(draft);
       const file = draftFile(dir, key);
-      expect(await recoveryFiles(file)).toEqual([]);
       const stored = JSON.stringify({
         revision: 1,
-        draft: { ...draft, promptText: "Retired request", promptTarget: "new" },
+        draft: { ...draft, promptText: "Retired request" },
       });
       await writeFile(file, stored);
-      const recovered = await store.readDraft(key);
-      expect(recovered).toEqual({ revision: 2, draft });
-      expect(JSON.parse(await readFile(file, "utf8"))).toEqual(recovered);
-      await expectRecoveryBackup(file, stored);
-      const saved = await store.writeDraft({
-        key,
-        expectedRevision: 2,
-        draft: { ...draft, comment: "Continued after recovery" },
-      });
-      expect(saved.revision).toBe(3);
-      expect(saved.draft.comment).toBe("Continued after recovery");
-      await expectRecoveryBackup(file, stored);
+      await expect(store.readDraft(key)).rejects.toThrow("current format");
+      await expect(
+        store.writeDraft({ key, expectedRevision: 1, draft }),
+      ).rejects.toThrow("current format");
+      await expect(
+        store.deleteDraft({ key, expectedRevision: 1 }),
+      ).rejects.toThrow("current format");
+      expect(await readFile(file, "utf8")).toBe(stored);
+      expect(await recoveryFiles(file)).toEqual([]);
     },
   );
-  it("keeps usable draft fields and defaults invalid or missing text", async () => {
-    const dir = await temporary();
-    const store = createStateStore(dir);
-    const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
-    const file = draftFile(dir, key);
-    await mkdir(dirname(file), { recursive: true });
-    const stored = JSON.stringify({
-      revision: 6,
-      draft: {
-        title: 42,
-        body: "Keep my writing",
-        githubLabels: ["bug"],
-        githubAssignees: false,
-        linearTemplateId: "",
-        linearDescriptionTouched: false,
-        baseBody: "Original body",
-        promptText: "Retired request",
-      },
-    });
-    await writeFile(file, stored);
-    const recovered = await store.readDraft(key);
-    expect(recovered).toEqual({
-      revision: 7,
-      draft: {
-        title: "",
-        body: "Keep my writing",
-        comment: "",
-        githubLabels: ["bug"],
-        linearDescriptionTouched: false,
-        baseBody: "Original body",
-      },
-    });
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(recovered);
-    await expectRecoveryBackup(file, stored);
-  });
-  it.each([undefined, -1, "5"])(
-    "recovers an invalid stored revision %s from revision one",
-    async (revision) => {
-      const dir = await temporary();
-      const file = join(dir, "settings.json");
-      const stored = JSON.stringify({ revision, settings: defaultSettings });
-      await writeFile(file, stored);
-      expect(await createStateStore(dir).readSettings()).toEqual({
-        revision: 1,
-        settings: defaultSettings,
-      });
-      await expectRecoveryBackup(file, stored);
-    },
-  );
-  it.each(["settings", "draft"])(
-    "backs up exact corrupt %s bytes before resetting to an empty record",
+  it.each(["settings", "draft", "annotations"])(
+    "preserves invalid %s bytes and refuses to replace them",
     async (kind) => {
       const dir = await temporary();
       const store = createStateStore(dir);
       const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
       const file =
-        kind === "settings" ? join(dir, "settings.json") : draftFile(dir, key);
+        kind === "draft" ? draftFile(dir, key) : join(dir, `${kind}.json`);
       await mkdir(dirname(file), { recursive: true });
-      const original = Buffer.from([0x7b, 0x22, 0xff, 0x00, 0x80]);
-      await writeFile(file, original);
-      const read = () =>
-        kind === "settings" ? store.readSettings() : store.readDraft(key);
-      const expected =
-        kind === "settings"
-          ? { revision: 1, settings: defaultSettings }
-          : { revision: 1, draft: null };
-      expect(await read()).toEqual(expected);
-      expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expected);
-      await expectRecoveryBackup(file, original);
-      expect(await read()).toEqual(expected);
-      await expectRecoveryBackup(file, original);
-    },
-  );
-  it.each(["settings", "draft"])(
-    "recovers invalid UTF-8 inside otherwise valid %s JSON before saving again",
-    async (kind) => {
-      const dir = await temporary();
-      const store = createStateStore(dir);
-      const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
-      const file =
-        kind === "settings" ? join(dir, "settings.json") : draftFile(dir, key);
-      await mkdir(dirname(file), { recursive: true });
-      const marker = "invalid-byte-here";
-      const stored =
+      const record =
         kind === "settings"
           ? {
               revision: 3,
-              settings: { ...defaultSettings, activeLinearTeam: marker },
+              settings: { ...defaultSettings, activeLinearTeam: "marker" },
             }
-          : {
-              revision: 3,
-              draft: { title: "Title", body: marker, comment: "" },
-            };
-      const [before, after] = JSON.stringify(stored).split(marker);
-      const original = Buffer.concat([
-        Buffer.from(before),
-        Buffer.from([0xff]),
-        Buffer.from(after),
-      ]);
-      await writeFile(file, original);
-      const recovered =
+          : kind === "draft"
+            ? {
+                revision: 3,
+                draft: { title: "Title", body: "marker", comment: "" },
+              }
+            : {};
+      const [before, after] = JSON.stringify(record)
+        .replace('"marker"', '"invalid-byte-here"')
+        .split("invalid-byte-here");
+      const cases = [
+        Buffer.from("{broken json"),
+        Buffer.from(JSON.stringify({ ...record, retiredField: true })),
+        Buffer.concat([
+          Buffer.from(before),
+          Buffer.from([0xff]),
+          Buffer.from(after ?? ""),
+        ]),
+        Buffer.from(
+          JSON.stringify({
+            revision: -1,
+            settings: defaultSettings,
+            draft: { body: "Keep writing" },
+          }),
+        ),
+        Buffer.from(
+          JSON.stringify({
+            revision: 3,
+            settings: { ...defaultSettings, retiredPreference: true },
+            draft: { title: "Title", body: "Body" },
+          }),
+        ),
+      ];
+      const read = () =>
         kind === "settings"
-          ? await store.readSettings()
-          : await store.readDraft(key);
-      expect(recovered).toEqual(
+          ? store.readSettings()
+          : kind === "draft"
+            ? store.readDraft(key)
+            : store.readAnnotationSnapshot(
+                "00000000-0000-4000-8000-000000000001",
+              );
+      const write = () =>
         kind === "settings"
-          ? { revision: 1, settings: defaultSettings }
-          : { revision: 1, draft: null },
-      );
-      expect(JSON.parse(await readFile(file, "utf8"))).toEqual(recovered);
-      await expectRecoveryBackup(file, original);
-      const saved =
-        kind === "settings"
-          ? await store.updateSettings({
-              expectedRevision: 1,
+          ? store.updateSettings({
+              expectedRevision: 3,
               patch: { activeSource: "linear" },
             })
-          : await store.writeDraft({
-              key,
-              expectedRevision: 1,
-              draft: {
-                title: "Title",
-                body: "Saved after recovery",
-                comment: "",
-              },
-            });
-      expect(saved.revision).toBe(2);
-      expect(JSON.parse(await readFile(file, "utf8"))).toEqual(saved);
-      await expectRecoveryBackup(file, original);
+          : kind === "draft"
+            ? store.writeDraft({
+                key,
+                expectedRevision: 3,
+                draft: { title: "New", body: "New", comment: "" },
+              })
+            : store.deleteAnnotationSnapshot(
+                "00000000-0000-4000-8000-000000000001",
+              );
+      for (const original of cases) {
+        await writeFile(file, original);
+        await expect(read()).rejects.toThrow("current format");
+        await expect(write()).rejects.toThrow("current format");
+        expect(await readFile(file)).toEqual(original);
+        expect(await recoveryFiles(file)).toEqual([]);
+      }
+    },
+  );
+  it.each([undefined, -1, "5"])(
+    "rejects invalid revision %s without changing the settings file",
+    async (revision) => {
+      const dir = await temporary();
+      const file = join(dir, "settings.json");
+      const original = JSON.stringify({ revision, settings: defaultSettings });
+      await writeFile(file, original);
+      await expect(createStateStore(dir).readSettings()).rejects.toThrow(
+        "current format",
+      );
+      expect(await readFile(file, "utf8")).toBe(original);
+    },
+  );
+  it.each(["missing preferences", "missing account scope"])(
+    "rejects old settings with %s without filling in fields",
+    async (variant) => {
+      const dir = await temporary();
+      const file = join(dir, "settings.json");
+      const settings: Record<string, unknown> = { ...defaultSettings };
+      if (variant === "missing preferences") delete settings.githubFilters;
+      else
+        settings.githubAccountFilter = {
+          state: "closed",
+          sort: "comments",
+          order: "asc",
+        };
+      const original = JSON.stringify({ revision: 3, settings });
+      await writeFile(file, original);
+      await expect(createStateStore(dir).readSettings()).rejects.toThrow(
+        "current format",
+      );
+      expect(await readFile(file, "utf8")).toBe(original);
     },
   );
   it("leaves current settings and deleted draft tombstones untouched", async () => {
@@ -527,36 +339,6 @@ describe("local settings and drafts", () => {
     expect(await recoveryFiles(join(dir, "settings.json"))).toEqual([]);
     expect(await recoveryFiles(draftFile(dir, key))).toEqual([]);
   });
-  it.each(["settings", "draft"])(
-    "serializes concurrent independent stores recovering %s only once",
-    async (kind) => {
-      const dir = await temporary();
-      const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
-      const file =
-        kind === "settings" ? join(dir, "settings.json") : draftFile(dir, key);
-      await mkdir(dirname(file), { recursive: true });
-      const stored =
-        kind === "settings"
-          ? JSON.stringify({
-              revision: 8,
-              settings: { activeSource: "linear" },
-            })
-          : JSON.stringify({ revision: 8, draft: { body: "Keep my writing" } });
-      await writeFile(file, stored);
-      const records = await Promise.all(
-        Array.from({ length: 6 }, () => {
-          const store = createStateStore(dir);
-          return kind === "settings"
-            ? store.readSettings()
-            : store.readDraft(key);
-        }),
-      );
-      expect(records.every((record) => record.revision === 9)).toBe(true);
-      for (const record of records) expect(record).toEqual(records[0]);
-      expect(JSON.parse(await readFile(file, "utf8"))).toEqual(records[0]);
-      await expectRecoveryBackup(file, stored);
-    },
-  );
   it("serializes two independent processes: exactly one write can use revision zero", async () => {
     const dir = await temporary();
     const output = join(dir, "worker.mjs");

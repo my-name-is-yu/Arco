@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import { expect, test, type Page } from "@playwright/test";
 import type { LinearIssueSummary, LinearPage } from "../src/shared/linear";
 import { choose, selectControl } from "./select-helpers";
@@ -93,10 +94,7 @@ async function listFixture(
     const value = await result(input.arguments);
     if ("error" in value)
       return route.fulfill({
-        json: {
-          isError: true,
-          content: [{ type: "text", text: value.error }],
-        },
+        json: toolFailure(value.error),
       });
     return route.fulfill({ json: { content: [], structuredContent: value } });
   });
@@ -110,6 +108,27 @@ async function open(page: Page) {
   await expect(selectControl(app(page), "Linear Team")).toBeVisible();
   await expect(page.locator("#harness-error")).toBeEmpty();
 }
+
+test("a Linear page without a required cursor reports an error instead of silently ending the list", async ({
+  page,
+}) => {
+  const calls = await listFixture(page, () => ({
+    issues: [],
+    hasMore: true,
+    cursor: null,
+  }));
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await open(page);
+  await expect(
+    app(page).getByText(
+      "Linear returned no continuation cursor. Refresh the list.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(calls).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
 
 async function restoreFocus(page: Page) {
   await app(page)

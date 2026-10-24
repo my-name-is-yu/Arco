@@ -31,6 +31,18 @@ Use the fixture environment for ordinary UI and integration work. Real provider 
 
 For Markdown outside the package formatting script's scope, run `npx --no-install prettier --check '**/*.md'` from the repository root. If Chromium is missing, `npx --no-install playwright install chromium` downloads the browser required by the Playwright configuration.
 
+Type checking rejects unused locals and parameters. Keep provider semantics explicit; share interaction mechanics only where both providers need the same behavior. Do not add compatibility routes for retired Arco inputs or storage formats. See [Local data](local-data-boundary.md) for invalid-data handling.
+
+The [fallback policy](fallback-policy.md) fixes the allowed recovery paths. Routine browser fixtures start with an explicitly saved fictional Linear team. First-run scope tests clear that selection and verify that no issue or metadata reads start before a choice.
+
+## Continuous integration
+
+The [Quality workflow](../.github/workflows/quality.yml) runs on pull requests and pushes to `main`. Its `Quality checks` job uses Ubuntu 24.04, the Node.js version in `.node-version`, and `npm ci`. It runs `npm run check`, installs Chromium and its system dependencies, then runs `npm run test:browser` without retries. Failed browser runs retain Playwright traces and screenshots for seven days. The workflow uses read-only repository permissions and commit-pinned official actions; it does not receive provider credentials or run live-validation scripts.
+
+After the workflow is available on GitHub and has produced its first status, configure `Quality checks` as a required status check for `main` in the repository's branch protection or ruleset settings. The workflow file alone does not enable that requirement. Keep the check name stable when changing its implementation.
+
+The Linux runner may skip the isolated native credential rotation test when no unlocked Secret Service is available. This does not validate desktop credential storage, native Codex rendering, or another OS; those checks remain separate acceptance work.
+
 ## Fixture preview
 
 ```sh
@@ -50,16 +62,15 @@ The allowed delay is 0–5000 ms. `ARCO_DEV_PORT` overrides the loopback port. T
 
 ## Repository map
 
-| Path           | Responsibility                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------- |
-| `src/server/`  | MCP composition, provider services, authorization, writes, and local persistence.           |
-| `src/shared/`  | Shared validation schemas, issue references, and state contracts.                           |
-| `src/ui/`      | Embedded React interface, host bridge, drafts, and context sharing.                         |
-| `plugin/`      | Portable and compatibility manifests, MCP startup configuration, icons, and bundled skills. |
-| `scripts/`     | Build, artifact checks, fixture host, and explicit live-validation tools.                   |
-| `tests/`       | Unit, service, and Playwright tests; mock host bridge.                                      |
-| `experiments/` | Isolated historical probes, separate from the product package.                              |
-| `docs/`        | User/developer guides and dated validation records.                                         |
+| Path          | Responsibility                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------- |
+| `src/server/` | MCP composition, provider services, authorization, writes, and local persistence.           |
+| `src/shared/` | Shared validation schemas, issue references, and state contracts.                           |
+| `src/ui/`     | Embedded React interface, host bridge, drafts, and context sharing.                         |
+| `plugin/`     | Portable and compatibility manifests, MCP startup configuration, icons, and bundled skills. |
+| `scripts/`    | Build, artifact checks, fixture host, and explicit live-validation tools.                   |
+| `tests/`      | Unit, service, and Playwright tests; mock host bridge.                                      |
+| `docs/`       | User/developer guides and dated validation records.                                         |
 
 ## Build outputs and licensing
 

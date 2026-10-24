@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createFixtureService, FIXTURE_REPO } from "../src/server/fixture.js";
 import { createGitHubService, type GhRunner } from "../src/server/github.js";
 import { createWriteGuard } from "../src/server/write-guard";
+import { GitHubError } from "../src/server/github/transport";
 
 const ref = { repo: FIXTURE_REPO, number: 42 };
 const apiIssue = (overrides: Record<string, unknown> = {}) => ({
@@ -47,7 +48,13 @@ const projectFields = {
       id: "item-42",
       project: { id: "project-A" },
       content: { id: "I_42" },
-      fieldValues: page([{ optionId: "todo", field: { id: "field-A" } }]),
+      fieldValues: page([
+        {
+          __typename: "ProjectV2ItemFieldSingleSelectValue",
+          optionId: "todo",
+          field: { id: "field-A" },
+        },
+      ]),
     },
   },
 };
@@ -63,7 +70,6 @@ function stubRun(
   overrides: {
     write?: GhRunner;
     projects?: unknown;
-    search?: unknown;
     issue?: unknown;
     projectRead?: (
       query: string,
@@ -110,14 +116,6 @@ function stubRun(
           : apiIssue())
       );
     if (endpoint === "user") return { login: "test-user" };
-    if (endpoint?.startsWith("search/issues"))
-      return (
-        overrides.search ?? {
-          total_count: 1,
-          incomplete_results: false,
-          items: [apiIssue()],
-        }
-      );
     if (endpoint?.includes("/issues/42/comments")) return [];
     if (endpoint?.includes("/labels?"))
       return [
@@ -460,6 +458,35 @@ describe("write safety across the service boundary", () => {
     ]);
   });
 
+  it.each(["forbidden", "rate-limited"])(
+    "reports a saved label addition when a following removal is %s without replaying it",
+    async (code) => {
+      const write = vi.fn<GhRunner>(async (args) => {
+        if (args.includes("DELETE")) throw new GitHubError("Rejected", code);
+        return [];
+      });
+      const service = createGitHubService({ run: stubRun({ write }) });
+      const input = {
+        ...ref,
+        requestId: `partially-saved-labels-${code}`,
+        add: ["needs/review"],
+        remove: ["keep"],
+      };
+      for (let attempt = 0; attempt < 2; attempt++)
+        await expect(service.labels(input)).rejects.toMatchObject({
+          code: "uncertain",
+          message: expect.stringContaining("Some label changes were saved"),
+        });
+      expect(write).toHaveBeenCalledTimes(2);
+      expect(
+        write.mock.calls.filter(([args]) => args.includes("POST")),
+      ).toHaveLength(1);
+      expect(
+        write.mock.calls.filter(([args]) => args.includes("DELETE")),
+      ).toHaveLength(1);
+    },
+  );
+
   it("rejects mixed Project/field/item/option IDs before a mutation", async () => {
     for (const mismatch of [
       { projectId: "project-B" },
@@ -778,68 +805,17 @@ describe("reads and explicit fixtures", () => {
     ).toBe(true);
   });
 
-  it("keeps the selected repo and excludes pull requests even when search syntax widens the source query", async () => {
-    const run = stubRun({
-      search: {
-        total_count: 3,
-        incomplete_results: false,
-        items: [
-          apiIssue(),
-          apiIssue({
-            number: 99,
-            pull_request: { url: "https://api.github.com/pulls/99" },
-          }),
-          apiIssue({
-            number: 100,
-            repository_url: "https://api.github.com/repos/other/repo",
-          }),
-        ],
-      },
-    });
-    const page = await createGitHubService({ run }).list({
-      repo: FIXTURE_REPO,
-      query: "OR repo:other/repo",
-      state: "all",
-      page: 1,
-    });
-    expect(page.issues.map((issue) => issue.number)).toEqual([42]);
-    expect(run.mock.calls[0][0][3]).toContain("sort=updated&order=desc");
-  });
-
-  it("uses 100 lightweight search summaries and stops at GitHub's 1,000-result boundary", async () => {
-    const run = stubRun({
-      search: {
-        total_count: 1200,
-        incomplete_results: false,
-        items: Array.from({ length: 100 }, (_, index) =>
-          apiIssue({
-            number: index + 1,
-            body: { unexpected: "detail body is not parsed for a list" },
-            type: { unexpected: "detail type" },
-          }),
-        ),
-      },
-    });
-    const service = createGitHubService({ run });
-    const input = { repo: FIXTURE_REPO, query: "", state: "all" as const };
-    const ninth = await service.list({ ...input, page: 9 });
-    expect(ninth.issues).toHaveLength(100);
-    expect(ninth.hasMore).toBe(true);
-    expect(await service.list({ ...input, page: 10 })).toMatchObject({
-      page: 10,
-      hasMore: false,
-    });
-    expect(run).toHaveBeenCalledTimes(2);
-    for (const [args] of run.mock.calls) {
-      expect(args[3]).toContain("per_page=100");
-      expect(args).toContain("--jq");
-      const projection = args[args.indexOf("--jq") + 1];
-      expect(projection).toContain("total_count, incomplete_results");
-      expect(projection).not.toMatch(
-        /\b(body|body_html|body_text|comments|reactions|type|state_reason)\b/,
-      );
-    }
-    expect(ninth.issues.every((issue) => !("body" in issue))).toBe(true);
+  it("rejects retired repository search syntax before sending a request", async () => {
+    const run = stubRun();
+    await expect(
+      createGitHubService({ run }).list({
+        repo: FIXTURE_REPO,
+        query: "OR repo:other/repo",
+        state: "all",
+        page: 1,
+      }),
+    ).rejects.toThrow("Boolean expressions");
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("preserves the Issue when Projects permission is missing", async () => {
@@ -870,7 +846,6 @@ describe("reads and explicit fixtures", () => {
     const service = createFixtureService();
     expect(await service.connection()).toMatchObject({
       mode: "fixture",
-      defaultRepo: FIXTURE_REPO,
     });
     const comment = {
       ...ref,

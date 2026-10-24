@@ -8,7 +8,10 @@ import { createFixtureService } from "./fixture";
 import { createGitHubService } from "./github";
 import { createGitHubOperations } from "./github-operations";
 import { createFixtureGitHubOperations } from "./github-operations-fixture";
-import { createLinearFixtureService } from "./linear/fixture";
+import {
+  LINEAR_FIXTURE_SCOPE,
+  createLinearFixtureService,
+} from "./linear/fixture";
 import { createLinearService } from "./linear/service";
 import { createStateStore } from "./state";
 
@@ -22,9 +25,7 @@ export interface ArcoBackend {
 }
 
 export function createLiveBackend(): ArcoBackend {
-  const service = createGitHubService({
-    defaultRepo: process.env.ARCO_GITHUB_REPO,
-  });
+  const service = createGitHubService();
   return {
     service,
     linearService: createLinearService(),
@@ -38,11 +39,17 @@ export function createLiveBackend(): ArcoBackend {
 export async function createFixtureBackend(): Promise<ArcoBackend> {
   const directory = await mkdtemp(join(tmpdir(), "arco-fixture-state-"));
   const service = createFixtureService();
+  const stateStore = createStateStore(directory);
+  // Routine fixtures represent an explicitly saved team. First-run tests clear it.
+  await stateStore.updateSettings({
+    expectedRevision: 0,
+    patch: { activeLinearTeam: LINEAR_FIXTURE_SCOPE.teamId },
+  });
   return {
     service,
     linearService: createLinearFixtureService(),
     operations: createFixtureGitHubOperations({ service }),
-    stateStore: createStateStore(directory),
+    stateStore,
     fixture: true,
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
   };

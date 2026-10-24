@@ -135,7 +135,11 @@ function setup(
               project: { id: "project-A" },
               content: { id: overrides.projectContentId ?? "fixture-issue-42" },
               fieldValues: page([
-                { number: 0, field: { id: "project-number" } },
+                {
+                  __typename: "ProjectV2ItemFieldNumberValue",
+                  number: 0,
+                  field: { id: "project-number" },
+                },
               ]),
             },
           },
@@ -491,8 +495,15 @@ describe("explicit additional GitHub operations", () => {
       name: `Field ${index + 1}`,
       dataType: index === 0 ? "NUMBER" : "TEXT",
     }));
-    const firstValues = [{ field: { id: "field-1" }, number: 0 }];
+    const firstValues = [
+      {
+        __typename: "ProjectV2ItemFieldNumberValue",
+        field: { id: "field-1" },
+        number: 0,
+      },
+    ];
     const middleValues = firstFields.slice(1).map((field) => ({
+      __typename: "ProjectV2ItemFieldTextValue",
       field: { id: field.id },
       text: `Value for ${field.id}`,
     }));
@@ -513,6 +524,7 @@ describe("explicit additional GitHub operations", () => {
                 ? page(middleValues, "values-2")
                 : page([
                     {
+                      __typename: "ProjectV2ItemFieldSingleSelectValue",
                       field: { id: "project-select" },
                       optionId: "option-todo",
                     },
@@ -686,6 +698,7 @@ describe("explicit additional GitHub operations", () => {
             page(
               [
                 {
+                  __typename: "ProjectV2ItemFieldTextValue",
                   field: { id: "project-text" },
                   text:
                     second && changed === "value"

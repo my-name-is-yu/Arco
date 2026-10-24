@@ -33,6 +33,24 @@ async function setup() {
 }
 
 describe("native Issue mention resources", () => {
+  it("requires an explicit or saved GitHub repository instead of choosing an implicit default", async () => {
+    const { github, search } = await setup();
+    const list = vi.spyOn(github, "list");
+    const connection = vi.spyOn(github, "connection");
+    await expect(search({ query: "workflow" })).rejects.toThrow(
+      "Specify repo:",
+    );
+    expect(list).not.toHaveBeenCalled();
+    expect(connection).not.toHaveBeenCalled();
+  });
+  it("requires a Linear team choice even if only one team is available", async () => {
+    const { linear, search } = await setup();
+    const call = vi.spyOn(linear, "call");
+    await expect(search({ query: "source:linear workflow" })).rejects.toThrow(
+      "Choose a Linear team",
+    );
+    expect(call.mock.calls.map(([name]) => name)).toEqual(["linear_scopes"]);
+  });
   it("uses an explicit repository and retains the GitHub source identity", async () => {
     const { search } = await setup();
     const result = await search({ query: "repo:yu/Arco" });

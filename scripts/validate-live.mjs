@@ -16,7 +16,7 @@ const client = new Client({
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: ["dist/plugin/server.mjs"],
-  env: { ...process.env, ARCO_GITHUB_REPO: repo },
+  env: { ...process.env },
   stderr: "pipe",
 });
 const run = randomUUID();

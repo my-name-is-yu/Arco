@@ -11,7 +11,7 @@ Arco's embedded UI communicates with a local Node.js MCP server through the host
 | Provider credentials   | Keep credentials out of UI HTML, `_meta`, model-facing results, local draft/settings JSON, and logs                            |
 | Source identity        | Validate repository/workspace/team, native issue IDs, canonical URLs, and required Project/field IDs before access or mutation |
 | External issue content | Treat bodies, comments, images, links, and API errors as untrusted data                                                        |
-| Local persistence      | Use schema validation, process locks, revision checks, atomic replacement, and recoverable backups                             |
+| Local persistence      | Use schema validation, process locks, revision checks, atomic replacement, and rejection of invalid stored data                |
 | Conversation sharing   | Share only explicitly selected context; do not send messages automatically                                                     |
 | Distribution           | Ship required license notices and target-native dependencies; exclude fixtures, source maps, and secrets                       |
 
@@ -39,9 +39,11 @@ Request IDs deduplicate identical operations. An uncertain response must not tri
 
 Provider exceptions can include request text, private content, and credentials. Return sanitized, actionable errors instead of raw subprocess or SDK output.
 
+Only authored `OperationError` messages cross the MCP tool boundary. Errors use the strict `{ error: { kind, message } }` contract in `src/shared/errors.ts`; unknown exceptions receive a safe generic message. The UI preserves the kind and shows its next action. It rejects malformed or retired text-only failure payloads. A missing transport response to a dispatched provider mutation is an unconfirmed result, not permission to replay the change.
+
 ## Persistence and sharing
 
-Drafts can contain confidential issue text. They use the same protected local directory as settings, with separate native scope keys. Recovery preserves original bytes in a sibling backup before replacing an invalid settings/draft file. Backups require the same care as active drafts. See [Local data](local-data-boundary.md).
+Drafts can contain confidential issue text. They use the same protected local directory as settings, with separate native scope keys. Invalid stored records are rejected without replacing their original bytes. Backups created by older versions require the same care as active drafts. See [Local data](local-data-boundary.md).
 
 **Add to chat** is an explicit handoff. Whole-issue sharing and passage sharing have different payloads; a selected passage must not silently include the full issue or comment history. Preserve a native origin only when the selection belongs to one well-defined issue or comment. Multi-issue text must not be assigned an arbitrary native target.
 

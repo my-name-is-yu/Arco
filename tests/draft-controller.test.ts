@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { draftController } from "../src/ui/useDraftPersistence";
@@ -33,8 +33,8 @@ function fixture() {
   return { host: { call } as unknown as ArcoHost, call };
 }
 describe("host-lifetime draft controller", () => {
-  it("loads a legacy disk draft and saves new input without an error or manual retry", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "arco-draft-recovery-"));
+  it("preserves a retired disk draft and keeps new input in memory when loading fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arco-draft-invalid-"));
     try {
       const store = createStateStore(directory);
       await store.writeDraft({
@@ -71,18 +71,19 @@ describe("host-lifetime draft controller", () => {
         },
       } as unknown as ArcoHost;
       const controller = draftController(host);
-      await expect(controller.load(github)).resolves.toEqual(
-        draft("Unsent legacy comment"),
-      );
-      expect(controller.get()[JSON.stringify(github)]?.state).toBe("saved");
-      controller.schedule(github, draft("New input after recovery"));
+      const original = await readFile(file);
+      await expect(controller.load(github)).resolves.toBeUndefined();
+      expect(controller.get()[JSON.stringify(github)]).toMatchObject({
+        state: "error",
+        error: expect.stringContaining("current format"),
+      });
+      controller.schedule(github, draft("New unsent input"));
       controller.flush();
       await vi.waitFor(() =>
-        expect(controller.get()[JSON.stringify(github)]?.state).toBe("saved"),
+        expect(controller.get()[JSON.stringify(github)]?.state).toBe("error"),
       );
-      expect(
-        (await createStateStore(directory).readDraft(github)).draft,
-      ).toEqual(draft("New input after recovery"));
+      expect(controller.value(github)).toEqual(draft("New unsent input"));
+      expect(await readFile(file)).toEqual(original);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

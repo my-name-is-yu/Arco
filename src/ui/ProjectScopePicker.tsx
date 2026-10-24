@@ -4,6 +4,7 @@ import type { ArcoHost } from "../shared/contracts";
 import type { ProjectChoices } from "../shared/github-operations";
 import { SingleSelect } from "./SingleSelect";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { requirePageContinuation } from "./page-continuation";
 
 export function ProjectScopePicker({
   host,
@@ -22,16 +23,17 @@ export function ProjectScopePicker({
   const [ownerType, setOwnerType] = useState<"user" | "organization">("user");
   const query = useInfiniteQuery({
     queryKey: ["github", "scope-projects", repo, owner, ownerType],
-    queryFn: ({ pageParam }) =>
-      host.call<ProjectChoices>("arco_projects", {
+    queryFn: async ({ pageParam }) => {
+      const page = await host.call<ProjectChoices>("arco_projects", {
         repo,
         owner,
         ownerType,
         ...(pageParam ? { cursor: pageParam } : {}),
-      }),
+      });
+      return requirePageContinuation(page, page.cursor, "GitHub Projects");
+    },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) =>
-      last.hasMore ? (last.cursor ?? undefined) : undefined,
+    getNextPageParam: (last) => (last.hasMore ? last.cursor! : undefined),
     enabled: open && Boolean(repo),
   });
   return (

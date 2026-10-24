@@ -46,6 +46,6 @@ This script uses the current Codex installation and existing provider connection
 
 On 2026-10-22, the isolated `experiments/host-node-check/` plugin tested a host-supplied Node variable. With the variable inherited, a macOS arm64 app-server process connected and called the probe; without it, that probe failed before initialization. This did not establish that all desktop launches inject that variable.
 
-That experiment is retained for provenance only. The production launch configuration uses `node`; it does not require the experimental host variable. See the [experiment README](../experiments/host-node-check/README.md) for the exact opt-in command.
+The completed experiment code has been removed. The production launch configuration uses `node`; it does not require the experimental host variable. This paragraph records the historical result only.
 
 Later checks on 2026-10-23 recorded installed-plugin transport, GitHub and Linear connections, dedicated issue writes, and Linear refresh on macOS arm64. Refer to [implementation status](implementation-status.md), [GitHub validation](github-live-validation.md), [Linear validation](linear-validation.md), and [platform validation](platform-validation.md) for their limits. Historical success is not a current connection test.

@@ -1,3 +1,4 @@
+import { LinearServiceError } from "./errors";
 import {
   assertSuccess,
   type LinearHandlers,
@@ -11,13 +12,15 @@ export function createCommentsHandlers(operation: LinearOperation) {
       const { client } = await context(input);
       const issue = await checkedIssue(client, input);
       if (input.action === "create") {
-        if (!input.body) throw new Error("Enter a comment body.");
+        if (!input.body) throw new LinearServiceError("Enter a comment body.");
         if (
           input.parentId &&
           (await (await client.comment({ id: input.parentId })).issue)?.id !==
             issue.id
         )
-          throw new Error("The reply target does not belong to this issue.");
+          throw new LinearServiceError(
+            "The reply target does not belong to this issue.",
+          );
         const created = await client.createComment({
           issueId: issue.id,
           body: input.body,
@@ -34,19 +37,23 @@ export function createCommentsHandlers(operation: LinearOperation) {
           created.commentId ? { commentId: created.commentId } : undefined,
         );
       } else {
-        if (!input.commentId) throw new Error("Choose a target comment.");
+        if (!input.commentId)
+          throw new LinearServiceError("Choose a target comment.");
         const comment = await client.comment({ id: input.commentId });
         if ((await comment.issue)?.id !== issue.id)
-          throw new Error("The comment does not belong to the selected issue.");
+          throw new LinearServiceError(
+            "The comment does not belong to the selected issue.",
+          );
         if (
           input.expectedUpdatedAt &&
           comment.updatedAt.toISOString() !== input.expectedUpdatedAt
         )
-          throw new Error(
+          throw new LinearServiceError(
             "This Linear comment changed elsewhere. Keep your draft and refresh.",
+            "conflict",
           );
         if (input.action === "update" && !input.body)
-          throw new Error("Enter a comment body.");
+          throw new LinearServiceError("Enter a comment body.");
         assertSuccess(
           input.action === "delete"
             ? await client.deleteComment(comment.id)
@@ -69,7 +76,9 @@ export function createCommentsHandlers(operation: LinearOperation) {
         ? await client.comment({ id: input.commentId })
         : null;
       if (comment && (await comment.issue)?.id !== issue.id)
-        throw new Error("The comment does not belong to this issue.");
+        throw new LinearServiceError(
+          "The comment does not belong to this issue.",
+        );
       if (input.action === "add")
         assertSuccess(
           await client.createReaction({
@@ -84,7 +93,10 @@ export function createCommentsHandlers(operation: LinearOperation) {
         );
         const viewer = await client.viewer;
         if (!existing || existing.userId !== viewer.id)
-          throw new Error("You can only remove your own matching reaction.");
+          throw new LinearServiceError(
+            "You can only remove your own matching reaction.",
+            "forbidden",
+          );
         assertSuccess(await client.deleteReaction(existing.id));
       }
       return refreshAfterWrite(

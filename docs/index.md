@@ -11,7 +11,7 @@ Arco is an MIT-licensed local Codex plugin for GitHub and Linear issues. Start w
 - [Personal and project views](project-viewers.md): repository selection and conversation scope.
 - [GitHub account discovery](github-account-discovery.md): assigned, created, mentioned, and account-wide lists.
 - [Authentication and distribution](auth-distribution.md): provider credentials and the source-distribution model.
-- [Local data](local-data-boundary.md): settings, drafts, annotation snapshots, and recovery.
+- [Local data](local-data-boundary.md): settings, drafts, annotation snapshots, and invalid-data handling.
 - [Security and privacy](security-and-privacy.md): data flow and security boundaries.
 
 ## Contribute
@@ -19,6 +19,7 @@ Arco is an MIT-licensed local Codex plugin for GitHub and Linear issues. Start w
 - [Contributing](../CONTRIBUTING.md) and [security reporting](../SECURITY.md).
 - [Development guide](development.md): commands, fixtures, source map, packaging, and verification.
 - [Architecture](technical-stack.md): runtime flow and component ownership.
+- [Fallback policy](fallback-policy.md): retained recovery paths and required current contracts.
 - [Requirements](requirements.md): behavior and acceptance criteria.
 - [Developer entry points](implementation-handoff.md): where to start making changes.
 - [Dependencies](dependency-compatibility.md) and [runtime packaging](dependency-runtime-notes.md).
@@ -28,11 +29,13 @@ Arco is an MIT-licensed local Codex plugin for GitHub and Linear issues. Start w
 
 [Implementation status](implementation-status.md), [platform validation](platform-validation.md), and [connection verification](connection-verification.md) describe evidence and open checks. Dated records preserve the environment and limits of earlier observations; they are not a claim that the current revision passed those checks again.
 
+[Quality gates and error recovery](quality-gates-validation-2026-10-24.md) records the current CI setup, error-contract checks, and latest-build desktop acceptance limits.
+
 | Area                | Records                                                                                                                                                                                                                       |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GitHub              | [Live operations](github-live-validation.md), [list behavior](github-list-validation-2026-10-24.md), [network and paging](github-network-validation-2026-10-24.md)                                                            |
 | Linear              | [Authorization and live operations](linear-validation.md), [list behavior](linear-list-validation-2026-10-24.md)                                                                                                              |
-| Architecture        | [Refactor checks](refactor-validation-2026-10-24.md), [native host checks](real-codex-refactor-validation-2026-10-24.md)                                                                                                      |
+| Architecture        | [Current-contract cleanup](code-quality-validation-2026-10-24.md), [refactor checks](refactor-validation-2026-10-24.md), [native host checks](real-codex-refactor-validation-2026-10-24.md)                                   |
 | Inline presentation | [Card design](design/inline-card-validation-2026-10-24.md), [presentation policy](design/presentation-policy-validation-2026-10-24.md)                                                                                        |
 | Interaction         | [UI audit](design/ui-audit-2026-10-23.md), [loading and motion](design/motion-loading-validation-2026-10-23.md), [hover](design/hover-validation-2026-10-23.md), [hover scaling](design/hover-scale-validation-2026-10-23.md) |
 

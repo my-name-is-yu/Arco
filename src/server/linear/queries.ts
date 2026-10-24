@@ -1,3 +1,4 @@
+import { LinearServiceError } from "./errors";
 import { linearIssueUrl } from "../../shared/issue-url";
 import { readIssueImage } from "../images";
 import { createLinearIssueReader } from "./issue-list";
@@ -26,7 +27,7 @@ export function createQueriesHandlers(operation: LinearOperation) {
       const client = makeClient(await auth.accessToken(input.connectionId));
       const organization = await client.organization;
       if (organization.urlKey.toLowerCase() !== target.workspace)
-        throw new Error(
+        throw new LinearServiceError(
           "This issue URL belongs to a different Linear workspace. Use its authorized connection.",
         );
       const issue = await client.issue(target.identifier);
@@ -36,7 +37,7 @@ export function createQueriesHandlers(operation: LinearOperation) {
         canonical.identifier !== target.identifier ||
         issue.identifier.toUpperCase() !== target.identifier
       )
-        throw new Error(
+        throw new LinearServiceError(
           "Linear returned a different issue than the pasted URL.",
         );
       const team = await issue.team;
@@ -45,7 +46,7 @@ export function createQueriesHandlers(operation: LinearOperation) {
         team.id !== issue.teamId ||
         (await team.organization).id !== organization.id
       )
-        throw new Error(
+        throw new LinearServiceError(
           "The resolved issue team does not belong to this Linear workspace.",
         );
       return {
@@ -73,7 +74,9 @@ export function createQueriesHandlers(operation: LinearOperation) {
         (comment.id !== input.commentId ||
           (await comment.issue)?.id !== issue.id)
       )
-        throw new Error("The image comment does not belong to this issue.");
+        throw new LinearServiceError(
+          "The image comment does not belong to this issue.",
+        );
       const markdown = comment ? comment.body : (issue.description ?? "");
       return readIssueImage(
         {

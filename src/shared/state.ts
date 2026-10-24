@@ -64,10 +64,12 @@ export const settingsSchema = z
       .refine((value) => Object.keys(value).length <= 100),
   })
   .strict();
-export const settingsRecordSchema = z.object({
-  revision: z.number().int().nonnegative(),
-  settings: settingsSchema,
-});
+export const settingsRecordSchema = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    settings: settingsSchema,
+  })
+  .strict();
 export const settingsUpdateSchema = z
   .object({
     expectedRevision: z.number().int().nonnegative(),
@@ -108,10 +110,12 @@ export const draftSchema = z
     baseUpdatedAt: z.string().optional(),
   })
   .strict();
-export const draftRecordSchema = z.object({
-  revision: z.number().int().nonnegative(),
-  draft: draftSchema.nullable(),
-});
+export const draftRecordSchema = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    draft: draftSchema.nullable(),
+  })
+  .strict();
 export const draftReadSchema = z.object({ key: draftKeySchema }).strict();
 export const draftWriteSchema = draftReadSchema.extend({
   expectedRevision: z.number().int().nonnegative(),

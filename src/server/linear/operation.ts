@@ -1,3 +1,4 @@
+import { LinearServiceError } from "./errors";
 import {
   LinearClient,
   PaginationOrderBy,
@@ -47,8 +48,9 @@ export async function all<T>(value: PromiseLike<Connection<T>>): Promise<T[]> {
     const before = connection.pageInfo.endCursor;
     await connection.fetchNext();
     if (connection.pageInfo.endCursor === before)
-      throw new Error(
+      throw new LinearServiceError(
         "Linear pagination did not advance. Refresh and try again.",
+        "invalid-response",
       );
   }
   return connection.nodes;
@@ -76,8 +78,9 @@ export const reaction = (value: Reaction) => ({
 
 export function assertSuccess(value: { success: boolean }) {
   if (!value.success)
-    throw new Error(
+    throw new LinearServiceError(
       "Linear did not accept this change. It has not been marked as saved.",
+      "invalid-input",
     );
 }
 
@@ -197,12 +200,14 @@ export function createLinearOperation(options: {
     const client = makeClient(await auth.accessToken(scope.connectionId));
     const organization = await client.organization;
     if (organization.id !== scope.workspaceId)
-      throw new Error(
+      throw new LinearServiceError(
         "The selected Linear workspace does not match this connection.",
       );
     const team = await client.team(scope.teamId);
     if ((await team.organization).id !== scope.workspaceId)
-      throw new Error("The selected team does not belong to this workspace.");
+      throw new LinearServiceError(
+        "The selected team does not belong to this workspace.",
+      );
     return { client, organization, team };
   }
 
@@ -212,7 +217,7 @@ export function createLinearOperation(options: {
   ): Promise<Issue> {
     const issue = await client.issue(ref.issueId);
     if (issue.teamId !== ref.teamId)
-      throw new Error(
+      throw new LinearServiceError(
         "The issue does not belong to the selected team. Move issues in Linear.",
       );
     return issue;
@@ -303,7 +308,10 @@ export function createLinearOperation(options: {
       meta.states.find((value) => value.id === issue.stateId) ??
       (await issue.state);
     if (!state)
-      throw new Error("The Linear workflow state could not be loaded.");
+      throw new LinearServiceError(
+        "The Linear workflow state could not be loaded.",
+        "invalid-response",
+      );
     const creator =
       meta.members.find((value) => value.id === issue.creatorId) ??
       (await issue.creator);
@@ -323,8 +331,9 @@ export function createLinearOperation(options: {
       meta.labels.find((value) => value.id === id),
     );
     if (labels.some((value) => !value))
-      throw new Error(
+      throw new LinearServiceError(
         "The issue label definitions could not be loaded completely. Refresh and try again.",
+        "invalid-response",
       );
     return {
       connectionId: scope.connectionId,
@@ -380,8 +389,9 @@ export function createLinearOperation(options: {
     });
     const next = connection.pageInfo.endCursor ?? null;
     if (connection.pageInfo.hasNextPage && (!next || next === cursor))
-      throw new Error(
+      throw new LinearServiceError(
         "Linear comment pagination did not advance. Refresh and try again.",
+        "invalid-response",
       );
     return {
       comments: await Promise.all(connection.nodes.map(commentData)),
@@ -410,20 +420,45 @@ export function createLinearOperation(options: {
           [...outward, ...inward].map((item) => [item.id, item]),
         ).values(),
       ].map(async (item) => {
+        const { issueId, relatedIssueId } = item;
+        if (
+          typeof item.id !== "string" ||
+          !item.id ||
+          typeof issueId !== "string" ||
+          !issueId ||
+          typeof relatedIssueId !== "string" ||
+          !relatedIssueId ||
+          (issueId !== issue.id && relatedIssueId !== issue.id)
+        )
+          throw new LinearServiceError(
+            "Linear returned an incomplete or mismatched issue relation.",
+            "invalid-response",
+          );
         const other =
-          item.issueId === issue.id
-            ? await item.relatedIssue
-            : await item.issue;
+          issueId === issue.id ? await item.relatedIssue : await item.issue;
+        const otherId = issueId === issue.id ? relatedIssueId : issueId;
+        if (
+          !other ||
+          other.id !== otherId ||
+          typeof other.identifier !== "string" ||
+          !other.identifier ||
+          typeof other.title !== "string" ||
+          !other.title
+        )
+          throw new LinearServiceError(
+            "Linear returned an incomplete or mismatched related issue.",
+            "invalid-response",
+          );
         return {
           id: item.id,
           type:
             item.type === "blocks" && item.relatedIssueId === issue.id
               ? "blocked-by"
               : item.type,
-          issueId: item.issueId ?? "",
-          relatedIssueId: item.relatedIssueId ?? "",
-          identifier: other?.identifier ?? "",
-          title: other?.title ?? "",
+          issueId,
+          relatedIssueId,
+          identifier: other.identifier,
+          title: other.title,
         };
       }),
     );
@@ -462,7 +497,9 @@ export function createLinearOperation(options: {
         const { client } = await context(scope);
         const comment = await client.comment({ id: commentChange.commentId });
         if ((await comment.issue)?.id !== scope.issueId)
-          throw new Error("The comment does not belong to the selected issue.");
+          throw new LinearServiceError(
+            "The comment does not belong to the selected issue.",
+          );
         refreshed.changedComment = await commentData(comment);
       }
       if (commentChange?.deletedCommentId)
@@ -481,7 +518,10 @@ export function createLinearOperation(options: {
           ...receipt,
           message,
         };
-      throw new Error(`${message} Your draft was kept.`);
+      throw new LinearServiceError(
+        `${message} Your draft was kept.`,
+        "uncertain",
+      );
     }
   }
 

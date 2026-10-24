@@ -1,3 +1,4 @@
+import { LinearServiceError } from "./errors";
 import { type Issue } from "@linear/sdk";
 import { type LinearRef } from "../../shared/linear";
 import type { IssueUpdateInput } from "./operation";
@@ -24,7 +25,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
       field: string,
     ) => {
       if (id != null && !values.some((value) => value.id === id))
-        throw new Error(
+        throw new LinearServiceError(
           `${field} does not match an existing value in the selected team.`,
         );
     };
@@ -34,14 +35,17 @@ export function createIssuesHandlers(operation: LinearOperation) {
         (state) => state.id === patch.stateId && state.type === "duplicate",
       )
     )
-      throw new Error(
+      throw new LinearServiceError(
         "Merge duplicate issues in Linear. Changing the state alone cannot perform a merge.",
+        "unsupported",
       );
     includes(meta.members, patch.assigneeId, "Assignee");
     includes(meta.projects, patch.projectId, "Project");
     includes(meta.cycles, patch.cycleId, "cycle");
     if (patch.estimate != null && !meta.estimateValues.includes(patch.estimate))
-      throw new Error("This value is not in the team's estimate scale.");
+      throw new LinearServiceError(
+        "This value is not in the team's estimate scale.",
+      );
     if (
       patch.projectMilestoneId != null &&
       !meta.milestones.some(
@@ -53,7 +57,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
               : patch.projectId),
       )
     )
-      throw new Error(
+      throw new LinearServiceError(
         "The project milestone does not match the target project.",
       );
     if (patch.parentId) {
@@ -63,7 +67,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
         parent.id === current.id ||
         (await (await parent.team)?.organization)?.id !== scope.workspaceId
       )
-        throw new Error(
+        throw new LinearServiceError(
           "The parent issue is in another workspace or refers to this issue itself.",
         );
     }
@@ -87,7 +91,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
       ) ||
       input.add.some((id) => input.remove.includes(id))
     )
-      throw new Error(
+      throw new LinearServiceError(
         "Choose existing team or workspace labels without overlapping additions and removals. Label groups cannot be applied directly.",
       );
     for (const addition of additions)
@@ -106,7 +110,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
                   !input.remove.includes(value.id)),
             )
           )
-            throw new Error(
+            throw new LinearServiceError(
               "To replace a label in a single-select group, explicitly choose the label to remove.",
             );
         }
@@ -132,13 +136,16 @@ export function createIssuesHandlers(operation: LinearOperation) {
           (value) => value.id === input.templateId && value.supported,
         )
       )
-        throw new Error(
+        throw new LinearServiceError(
           "Create an issue from this template in Linear so every field is preserved.",
+          "unsupported",
         );
       if (input.parentId) {
         const parent = await client.issue(input.parentId);
         if ((await (await parent.team)?.organization)?.id !== input.workspaceId)
-          throw new Error("The parent issue belongs to another workspace.");
+          throw new LinearServiceError(
+            "The parent issue belongs to another workspace.",
+          );
       }
       const created = await client.createIssue({
         teamId: input.teamId,
@@ -153,8 +160,9 @@ export function createIssuesHandlers(operation: LinearOperation) {
       });
       assertSuccess(created);
       if (!created.issueId)
-        throw new Error(
+        throw new LinearServiceError(
           "The created Linear issue ID could not be loaded. Check Linear before creating another issue.",
+          "uncertain",
         );
       return refreshAfterWrite(
         { ...input, issueId: created.issueId },
@@ -166,8 +174,9 @@ export function createIssuesHandlers(operation: LinearOperation) {
       const { client } = await context(input);
       const current = await checkedIssue(client, input);
       if (current.updatedAt.toISOString() !== input.expectedUpdatedAt)
-        throw new Error(
+        throw new LinearServiceError(
           "This Linear issue changed elsewhere. Keep your draft and refresh.",
+          "conflict",
         );
       assertSuccess(
         await client.updateIssue(
@@ -183,7 +192,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
     linear_label_definition: async (input) => {
       const { client } = await context(input);
       if (input.action === "create") {
-        if (!input.name) throw new Error("Enter a label name.");
+        if (!input.name) throw new LinearServiceError("Enter a label name.");
         assertSuccess(
           await client.createIssueLabel({
             name: input.name,
@@ -193,16 +202,21 @@ export function createIssuesHandlers(operation: LinearOperation) {
           }),
         );
       } else {
-        if (!input.labelId) throw new Error("Choose a target label.");
+        if (!input.labelId)
+          throw new LinearServiceError("Choose a target label.");
         const current = await client.issueLabel(input.labelId);
         if (
           (current.teamId ?? null) !==
           (input.scope === "team" ? input.teamId : null)
         )
-          throw new Error(
+          throw new LinearServiceError(
             "The original label scope does not match. Move label scopes in Linear.",
           );
-        if (current.isGroup) throw new Error("Manage label groups in Linear.");
+        if (current.isGroup)
+          throw new LinearServiceError(
+            "Manage label groups in Linear.",
+            "unsupported",
+          );
         assertSuccess(
           input.action === "delete"
             ? await client.deleteIssueLabel(current.id)
@@ -213,7 +227,14 @@ export function createIssuesHandlers(operation: LinearOperation) {
               }),
         );
       }
-      return metadata(input);
+      try {
+        return await metadata(input);
+      } catch {
+        throw new LinearServiceError(
+          "The Linear label change was saved, but its choices could not be refreshed. Check Linear and refresh before another change.",
+          "uncertain",
+        );
+      }
     },
   } satisfies Pick<
     LinearHandlers,

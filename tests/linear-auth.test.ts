@@ -245,6 +245,40 @@ describe("Linear PKCE and local authorization", () => {
     expect(await store.read("connection")).toEqual(initial);
     expect(store.remove).not.toHaveBeenCalled();
   });
+  it.each([
+    [401, "auth"],
+    [403, "forbidden"],
+    [429, "rate-limited"],
+    [503, "unavailable"],
+  ])(
+    "classifies token refresh rejection %s and preserves credentials",
+    async (status, code) => {
+      const initial = {
+        clientId: "client",
+        accessToken: "private-expired-access",
+        refreshToken: "private-refresh-token",
+        expiresAt: 0,
+        scopes: ["read", "write"],
+      };
+      const store = memoryStore(initial);
+      const http = vi.fn<typeof fetch>(
+        async () => new Response("private-response", { status }),
+      );
+      const auth = createLinearAuth({
+        store,
+        directory: await directory(),
+        fetch: http,
+      });
+      authorizations.push(auth);
+      await expect(auth.accessToken("connection")).rejects.toMatchObject({
+        code,
+        message: expect.not.stringContaining("private-"),
+      });
+      expect(store.write).not.toHaveBeenCalled();
+      expect(await store.read("connection")).toEqual(initial);
+      expect(http).toHaveBeenCalledTimes(1);
+    },
+  );
   it("does not save an in-flight callback credential after disconnect cancels it", async () => {
     const store = memoryStore();
     let releaseExchange!: () => void;

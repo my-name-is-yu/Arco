@@ -93,6 +93,7 @@ export function registerStateTools(
           return failureResult(
             error,
             "Unable to save locally. Keep your current input.",
+            "storage",
           );
         }
       },

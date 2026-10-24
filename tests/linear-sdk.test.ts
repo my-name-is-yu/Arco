@@ -685,7 +685,10 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
         expectedUpdatedAt: issue.updatedAt,
         patch: { title: "Rejected title" },
       }),
-    ).rejects.toThrow("Source rejected");
+    ).rejects.toMatchObject({
+      code: "uncertain",
+      message: expect.not.stringContaining("Source rejected"),
+    });
     expect(issue.title).toBe("Source title");
     controls.partialError = false;
     const result = (await service.call("linear_bulk", {

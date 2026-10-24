@@ -42,21 +42,12 @@ function reader(value: unknown = response()) {
   const query = vi.fn<
     (query: string, variables: Record<string, unknown>) => Promise<unknown>
   >(async () => value);
-  const legacyList = vi.fn(async (request: ListInput) => ({
-    issues: [],
-    hasMore: false,
-    page: request.page,
-  }));
-  return {
-    query,
-    legacyList,
-    service: createRepositoryIssueReader({ query, legacyList }),
-  };
+  return { query, service: createRepositoryIssueReader({ query }) };
 }
 
 describe("repository issue list GraphQL reader", () => {
   it("requests only summary fields and retains the displayed data", async () => {
-    const { service, query, legacyList } = reader();
+    const { service, query } = reader();
     expect(await service.list(input())).toEqual({
       issues: [
         {
@@ -85,7 +76,6 @@ describe("repository issue list GraphQL reader", () => {
       query: `repo:${repo} is:issue is:open sort:updated-desc`,
       after: null,
     });
-    expect(legacyList).not.toHaveBeenCalled();
   });
 
   it.each(["open", "closed", "all"] as const)(
@@ -129,13 +119,12 @@ describe("repository issue list GraphQL reader", () => {
   });
 
   it("rejects a repeated cursor rather than loading the same page again", async () => {
-    const { service, legacyList } = reader(
+    const { service } = reader(
       response([issue()], { count: 500, cursor: "repeated-cursor" }),
     );
     await expect(
       service.list(input({ page: 2, cursor: "repeated-cursor" })),
     ).rejects.toThrow("invalid issue search page");
-    expect(legacyList).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -146,23 +135,22 @@ describe("repository issue list GraphQL reader", () => {
     { query: "(label:bug label:feature)" },
     { page: 2 },
     { page: 11, cursor: "past-limit" },
-  ])("keeps legacy REST behavior for %j", async (overrides) => {
-    const { service, query, legacyList } = reader();
-    const request = input(overrides);
-    expect(await service.list(request)).toEqual({
-      issues: [],
-      hasMore: false,
-      page: request.page,
-    });
-    expect(legacyList).toHaveBeenCalledExactlyOnceWith(request);
-    expect(query).not.toHaveBeenCalled();
-  });
+  ])(
+    "rejects retired search and page-only inputs %j before requesting GitHub",
+    async (overrides) => {
+      const { service, query } = reader();
+      await expect(
+        service.list({ repo, query: "", state: "open", page: 1, ...overrides }),
+      ).rejects.toThrow();
+      expect(query).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["labels", "assignees"])(
-    "uses complete REST data when an issue has another page of %s",
+    "rejects incomplete %s instead of switching transports or truncating",
     async (field) => {
       const value = issue();
-      const { service, legacyList } = reader(
+      const { service, query } = reader(
         response([
           issue({
             [field]: {
@@ -172,8 +160,10 @@ describe("repository issue list GraphQL reader", () => {
           }),
         ]),
       );
-      await service.list(input());
-      expect(legacyList).toHaveBeenCalledExactlyOnceWith(input());
+      await expect(service.list(input())).rejects.toMatchObject({
+        code: "unsupported",
+      });
+      expect(query).toHaveBeenCalledTimes(1);
     },
   );
 
@@ -228,9 +218,8 @@ describe("repository issue list GraphQL reader", () => {
       },
     },
   ])("rejects invalid or partial response %j", async (value) => {
-    const { service, legacyList } = reader(value);
+    const { service } = reader(value);
     await expect(service.list(input())).rejects.toBeInstanceOf(GitHubError);
-    expect(legacyList).not.toHaveBeenCalled();
   });
 
   it("does not mask network or permission errors with a REST retry", async () => {
@@ -238,14 +227,8 @@ describe("repository issue list GraphQL reader", () => {
     const query = vi.fn(async () => {
       throw error;
     });
-    const legacyList = vi.fn(async () => ({
-      issues: [],
-      hasMore: false,
-      page: 1,
-    }));
-    const service = createRepositoryIssueReader({ query, legacyList });
+    const service = createRepositoryIssueReader({ query });
     await expect(service.list(input())).rejects.toBe(error);
-    expect(legacyList).not.toHaveBeenCalled();
   });
 
   it("ends at the existing 1,000-result cap", async () => {
@@ -266,8 +249,8 @@ describe("repository issue list GraphQL reader", () => {
   it("rejects a continuation cursor passed as the first page", async () => {
     const { service, query } = reader();
     await expect(
-      service.list(input({ cursor: "unexpected-cursor" })),
-    ).rejects.toMatchObject({ code: "invalid" });
+      service.list({ ...input(), cursor: "unexpected-cursor" }),
+    ).rejects.toThrow("Start without a cursor");
     expect(query).not.toHaveBeenCalled();
   });
 });

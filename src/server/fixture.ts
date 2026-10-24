@@ -1,3 +1,4 @@
+import { OperationError } from "../shared/errors";
 import {
   accountIssuesInputSchema,
   commentInputSchema,
@@ -228,11 +229,15 @@ export function createFixtureService(): FixtureGitHubService {
         account: "fixture-user",
         message:
           "Local fixture. Changes are stored in memory and are not sent to GitHub.",
-        defaultRepo: FIXTURE_REPO,
       };
     },
     async list(raw) {
       const input = listInputSchema.parse(raw);
+      if (input.cursor && input.cursor !== `fixture:${input.page - 1}`)
+        throw new OperationError(
+          "Invalid fixture issue cursor. Refresh the list.",
+          "invalid-input",
+        );
       const matches = issues
         .filter(
           (issue) =>
@@ -260,8 +265,11 @@ export function createFixtureService(): FixtureGitHubService {
             .slice((input.page - 1) * 100, input.page * 100)
             .map(listSummary),
         ),
-        hasMore: matches.length > input.page * 100,
+        hasMore: matches.length > input.page * 100 && input.page < 10,
         page: input.page,
+        ...(matches.length > input.page * 100 && input.page < 10
+          ? { nextCursor: `fixture:${input.page}` }
+          : {}),
       };
     },
     async accountIssues(raw) {

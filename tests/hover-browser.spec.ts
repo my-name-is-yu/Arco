@@ -283,7 +283,10 @@ test.beforeEach(async ({ page }) => {
     });
   });
   await page.route("**/tool", async (route) => {
-    const input = route.request().postDataJSON() as { name: string };
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: { page: number };
+    };
     if (!["arco_get_issue", "arco_list_issues"].includes(input.name))
       return route.continue();
     const response = await route.fetch();
@@ -291,7 +294,10 @@ test.beforeEach(async ({ page }) => {
     if (input.name === "arco_get_issue")
       result.structuredContent.body +=
         "\n\n[Fixture documentation](https://example.com/arco-hover)";
-    else result.structuredContent.hasMore = true;
+    else {
+      result.structuredContent.hasMore = input.arguments.page < 10;
+      result.structuredContent.nextCursor = `fixture:${input.arguments.page}`;
+    }
     await route.fulfill({ response, json: result });
   });
 });

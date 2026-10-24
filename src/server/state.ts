@@ -4,6 +4,7 @@ import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
 import { z } from "zod";
+import { OperationError } from "../shared/errors";
 import {
   annotationSnapshotSchema,
   annotationSnapshotIdSchema,
@@ -20,7 +21,6 @@ import {
   defaultSettings,
   type DraftKey,
 } from "../shared/state";
-import { recoverDraft, recoverSettings } from "./state-recovery";
 
 export function stateDirectory(
   platform = process.platform,
@@ -35,10 +35,11 @@ export function stateDirectory(
   return join(env.XDG_STATE_HOME || join(home, ".local", "state"), "arco");
 }
 
-export class StateConflict extends Error {
+export class StateConflict extends OperationError {
   constructor() {
     super(
       "Another Arco view changed this data. Your input is preserved. Review the latest saved version before saving.",
+      "conflict",
     );
   }
 }
@@ -48,7 +49,6 @@ export function createStateStore(directory = stateDirectory()) {
     file: string,
     schema: z.ZodType<T>,
     initial: T,
-    recover?: (value: unknown) => T,
   ): Promise<T> {
     let content;
     try {
@@ -61,9 +61,10 @@ export function createStateStore(directory = stateDirectory()) {
         error.code === "ENOENT"
       )
         return initial;
-      throw new Error("Unable to read local settings and drafts.", {
-        cause: error,
-      });
+      throw new OperationError(
+        "Unable to read local settings and drafts.",
+        "storage",
+      );
     }
     let value: unknown;
     try {
@@ -75,26 +76,10 @@ export function createStateStore(directory = stateDirectory()) {
     }
     const parsed = schema.safeParse(value);
     if (parsed.success) return parsed.data;
-    if (!recover)
-      throw new Error(
-        "Local settings or drafts do not match the current format. The stored data was preserved without overwriting it.",
-      );
-    const recovered = recover(value);
-    // Callers hold the file lock through backup and replacement. A failed backup
-    // must leave the original file intact, including invalid UTF-8 bytes.
-    const backup = await open(
-      `${file}.recovery-${randomUUID()}.bak`,
-      "wx",
-      0o600,
+    throw new OperationError(
+      "Local settings, drafts, or annotations do not match the current format. The stored data was preserved without overwriting it.",
+      "storage",
     );
-    try {
-      await backup.writeFile(content);
-      await backup.sync();
-    } finally {
-      await backup.close();
-    }
-    await writeAtomic(file, recovered);
-    return recovered;
   }
   async function writeAtomic(file: string, data: unknown) {
     const temporary = `${file}.${randomUUID()}.tmp`;
@@ -132,12 +117,10 @@ export function createStateStore(directory = stateDirectory()) {
   );
   const readAnnotations = () => read(annotationsFile, annotationsSchema, {});
   const readSettings = () =>
-    read(
-      settingsFile,
-      settingsRecordSchema,
-      { revision: 0, settings: { ...defaultSettings } },
-      recoverSettings,
-    );
+    read(settingsFile, settingsRecordSchema, {
+      revision: 0,
+      settings: { ...defaultSettings },
+    });
   function draftFile(input: DraftKey) {
     const key = draftKeySchema.parse(input);
     return join(
@@ -147,12 +130,7 @@ export function createStateStore(directory = stateDirectory()) {
     );
   }
   const readDraft = (key: DraftKey) =>
-    read(
-      draftFile(key),
-      draftRecordSchema,
-      { revision: 0, draft: null },
-      recoverDraft,
-    );
+    read(draftFile(key), draftRecordSchema, { revision: 0, draft: null });
   return {
     async readAnnotationSnapshot(id: string) {
       const key = annotationSnapshotIdSchema.parse(id);

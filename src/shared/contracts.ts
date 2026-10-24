@@ -14,15 +14,34 @@ export const issueRefSchema = z.object({
   repo: repoSchema,
   number: z.number().int().positive(),
 });
-export const listInputSchema = z.object({
-  repo: repoSchema,
-  query: z.string().max(500).default(""),
-  state: z.enum(["open", "closed", "all"]).default("open"),
-  page: z.number().int().min(1).max(100).default(1),
-  cursor: z.string().min(1).max(2048).optional(),
-  sort: z.enum(["updated", "created", "comments"]).optional(),
-  order: z.enum(["asc", "desc"]).optional(),
-});
+export const listInputSchema = z
+  .object({
+    repo: repoSchema,
+    query: z
+      .string()
+      .max(500)
+      .refine(
+        (query) =>
+          !/(^|\s)-?sort\s*:|(^|\s)(AND|OR|NOT)(?=\s|$)|[()]/i.test(query),
+        "Boolean expressions and sort qualifiers are not supported. Use simple search qualifiers and the sort controls.",
+      )
+      .default(""),
+    state: z.enum(["open", "closed", "all"]).default("open"),
+    page: z.number().int().min(1).max(10).default(1),
+    cursor: z.string().min(1).max(2048).optional(),
+    sort: z.enum(["updated", "created", "comments"]).optional(),
+    order: z.enum(["asc", "desc"]).optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if ((input.page === 1) === Boolean(input.cursor))
+      context.addIssue({
+        code: "custom",
+        path: ["cursor"],
+        message:
+          "Start without a cursor, then continue with nextCursor and increment page. Refresh the list if the cursor is unavailable.",
+      });
+  });
 /** Native account feed has no full-text search parameter; repository search stays separate. */
 export const accountIssueFilterSchema = z.enum([
   "assigned",
@@ -170,7 +189,6 @@ export interface Connection {
   connected: boolean;
   account: string | null;
   message: string;
-  defaultRepo: string | null;
 }
 export interface RepoMetadata {
   labels: Label[];
@@ -227,11 +245,11 @@ export type ConversationIssue = IssueDetail | LinearIssue;
 export type SharedIssueRef =
   ({ source: "github" } & IssueRef) | ({ source: "linear" } & LinearRef);
 export interface ArcoHost {
-  launch?(): LaunchContext | null;
-  launchError?(): string | null;
-  sharedIssue?(): SharedIssueRef | null;
-  sharedAnnotations?(): SelectionAnnotationContext[] | null;
-  annotationSnapshotId?(): string | null;
+  launch(): LaunchContext | null;
+  launchError(): string | null;
+  sharedIssue(): SharedIssueRef | null;
+  sharedAnnotations(): SelectionAnnotationContext[] | null;
+  annotationSnapshotId(): string | null;
   call<T>(
     name: string,
     args: Record<string, unknown>,

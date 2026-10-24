@@ -7,10 +7,6 @@ export function useNearViewport<T extends HTMLElement>() {
   const [near, setNear] = useState(false);
   useEffect(() => {
     if (near || !ref.current) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setNear(true);
-      return;
-    }
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;

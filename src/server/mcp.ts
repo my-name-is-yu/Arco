@@ -14,6 +14,7 @@ import {
 } from "@openai/mcp-extensions";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
+import { OperationError } from "../shared/errors";
 import iconDark from "../../plugin/assets/icon-dark.svg";
 import iconLight from "../../plugin/assets/icon.svg";
 import { issueRefSchema } from "../shared/contracts";
@@ -141,8 +142,9 @@ export function createArcoServer({
           canonical.repo.toLowerCase() !== target.repo.toLowerCase() ||
           canonical.number !== target.number
         )
-          throw new Error(
+          throw new OperationError(
             "GitHub returned a different issue than the requested target.",
+            "invalid-response",
           );
       } else {
         issue = await linearService.call("linear_get_issue", {
@@ -160,8 +162,9 @@ export function createArcoServer({
           canonical.teamId !== target.teamId ||
           canonical.issueId !== target.issueId
         )
-          throw new Error(
+          throw new OperationError(
             "Linear returned a different issue or scope. Use linear_resolve_issue with the official issue URL, then pass its native IDs.",
+            "invalid-response",
           );
       }
       return result({
@@ -300,7 +303,7 @@ export function createArcoServer({
     arco_connection:
       "Check existing public gh connection. Never returns credentials.",
     arco_list_issues:
-      "List up to 100 GitHub issue summaries in an explicit repository. For subsequent pages pass nextCursor as cursor and increment page. Legacy page-only and complex searches retain REST compatibility. Excludes pull requests.",
+      "List up to 100 GitHub issue summaries in an explicit repository using GraphQL. For subsequent pages pass nextCursor as cursor and increment page, up to page 10. Boolean expressions and sort qualifiers are unsupported; use simple search qualifiers and the sort/order inputs. Excludes pull requests.",
     arco_account_issues:
       "Read one lightweight native page of up to 100 connected-account entries, then exclude pull requests. Default assigned; explicit created, mentioned, or all accessible filters. Supports state/sort/page, not full-text search. Few or no issues with hasMore means another page is available; a full page may require one final empty page request.",
     arco_repositories:

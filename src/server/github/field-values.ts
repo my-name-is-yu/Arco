@@ -4,9 +4,9 @@ import {
   type FieldValue,
 } from "../../shared/github-operations";
 import { invalid } from "./operations-context";
+import { parse } from "./transport";
 export function fieldValue(raw: unknown): FieldValue {
-  const parsed = fieldValueSchema.safeParse(raw);
-  return parsed.success ? parsed.data : (JSON.stringify(raw) ?? null);
+  return parse(fieldValueSchema, raw);
 }
 
 export function checkFieldValue(

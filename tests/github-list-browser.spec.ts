@@ -1,3 +1,4 @@
+import { toolFailure } from "./tool-failure";
 import { expect, test, type Page } from "@playwright/test";
 import type { IssueSummary } from "../src/shared/contracts";
 import { choose, selectControl } from "./select-helpers";
@@ -60,10 +61,7 @@ async function listFixture(
     const value = await result(call);
     if ("error" in value)
       return route.fulfill({
-        json: {
-          isError: true,
-          content: [{ type: "text", text: value.error }],
-        },
+        json: toolFailure(value.error),
       });
     return route.fulfill({
       json: {

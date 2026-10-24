@@ -3,20 +3,11 @@ import { WorkspaceLayout, WorkspaceHeader } from "./WorkspaceLayout";
 import { RefreshFailure } from "./RefreshFailure";
 import { GitHubDetail } from "./GitHubDetail";
 import { StateIcon, ShortDate } from "./GitHubIssueMeta";
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   useInfiniteQuery,
-  useMutation,
   useQuery,
   useQueryClient,
-  type InfiniteData,
 } from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
@@ -25,7 +16,7 @@ import {
   Plus,
   MagnifyingGlassSearch,
 } from "@openai/apps-sdk-ui/components/Icon";
-import { selectionIssueData, isTextSelectionClick } from "./SelectionShare";
+import { selectionIssueData, isTextSelectionClick } from "./selection-context";
 import { SingleSelect, type SingleSelectHandle } from "./SingleSelect";
 import {
   DraftStatus,
@@ -54,14 +45,11 @@ import {
 } from "../shared/issue-url";
 import type {
   ArcoHost,
-  AccountIssuePage,
   AccountIssuesInput,
   Connection,
   IssueDetail,
-  IssuePage,
   IssueRef,
   IssueSummary,
-  RepoMetadata,
   RepositoryPage,
 } from "../shared/contracts";
 import { DisclosureSummary } from "./DisclosureSummary";
@@ -77,33 +65,25 @@ import {
 import { useHostView } from "./HostProvider";
 import { Notice, type NoticeValue } from "./Notice";
 import {
-  commentsKey,
-  commentPostsKey,
-  mergeCommentPages,
-} from "./github-comments";
-import type { Comment } from "../shared/contracts";
+  githubIssueKey as issueKey,
+  useGitHubIssueList,
+  useGitHubIssue,
+  useGitHubMetadata,
+  useGitHubIssueMutation,
+} from "./github-queries";
+import { useListScroll, useListKeyboard } from "./useListInteraction";
 import { useIssueListContinuation } from "./useIssueListContinuation";
 
-const issueKey = (issue: IssueRef) =>
-  ["issue", issue.repo, issue.number] as const;
 const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const requestId = () => crypto.randomUUID();
-type IssueListPageParam = { page: number; cursor?: string };
 const accountViews = [
   { value: "assigned", label: "Assigned to me" },
   { value: "created", label: "Created by me" },
   { value: "mentioned", label: "Mentioned me" },
   { value: "all", label: "All account repositories" },
 ] as const;
-const isInput = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  Boolean(
-    target.closest(
-      'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="button"]',
-    ),
-  );
 
 function IssueRow({
   issue,
@@ -162,7 +142,7 @@ export function GitHubWorkspace({
   const { mode, sharedIssue } = useHostView();
   const target = launch.target?.source === "github" ? launch.target : null;
   const targetedInline = Boolean(target) && mode === "inline";
-  const [restoredShared] = useState(() => host.sharedIssue?.() ?? null);
+  const [restoredShared] = useState(() => host.sharedIssue());
   const restoredGithub =
     restoredShared?.source === "github" ? restoredShared : null;
   const [restoreSharedView] = useState(
@@ -241,7 +221,6 @@ export function GitHubWorkspace({
     "github:filtersRef",
     {},
   );
-  const source = "github";
   const [selected, setSelected] = useSessionState<IssueRef | null>(
     host,
     "github:selected",
@@ -278,12 +257,6 @@ export function GitHubWorkspace({
   const searchRef = useRef<HTMLInputElement>(null);
   const scopeSelectRef = useRef<SingleSelectHandle>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const scrollPositions = useSessionRef(
-    host,
-    "github:scrollPositions",
-    new Map<string, number>(),
-  );
-  const restoredListScope = useRef<string | null>(null);
   const connection = useQuery({
     queryKey: ["connection"],
     queryFn: () => host.call<Connection>("arco_connection", {}),
@@ -359,7 +332,6 @@ export function GitHubWorkspace({
       [
         repo,
         ...launch.candidates,
-        connection.data?.defaultRepo,
         ...(settings.query.data?.settings.githubRepos ?? []),
         ...registeredRepos,
         ...(repositoryDiscovery.data?.pages.flatMap((page) =>
@@ -390,65 +362,19 @@ export function GitHubWorkspace({
     setShowDetail(false);
   };
   const listScope = `${connectionIdentity}|${repo || `@account:${accountView}`}|${query}|${state}|${sort}|${order}`;
-  const issues = useInfiniteQuery<
-    IssuePage,
-    Error,
-    InfiniteData<IssuePage>,
-    readonly unknown[],
-    IssueListPageParam
-  >({
-    queryKey: [
-      "issues",
-      connection.data?.mode,
-      connection.data?.account,
-      connection.data?.connected,
-      repo,
-      accountView,
-      query,
-      state,
-      sort,
-      order,
-    ],
-    // Replaying a long, scrolled list every 30s grows with every loaded page.
-    // Keep automatic refresh bounded; Refresh still updates the complete list.
-    refetchInterval: (query) =>
-      query.state.data?.pages.length === 1 && query.state.status !== "error"
-        ? 30_000
-        : false,
-    refetchOnWindowFocus: (query) =>
-      query.state.data?.pages.length === 1 && query.state.status !== "error",
-    queryFn: ({ pageParam }) =>
-      repo
-        ? host.call<IssuePage>("arco_list_issues", {
-            repo,
-            query,
-            state,
-            sort,
-            order,
-            page: pageParam.page,
-            ...(pageParam.cursor ? { cursor: pageParam.cursor } : {}),
-          })
-        : host.call<AccountIssuePage>("arco_account_issues", {
-            filter: accountView,
-            state,
-            sort,
-            order,
-            page: pageParam.page,
-          }),
+  const issues = useGitHubIssueList(host, {
+    connection: connection.data,
+    repo,
+    accountView,
+    query,
+    state,
+    sort,
+    order,
     enabled:
-      source === "github" &&
       !targetedInline &&
       connection.data?.connected === true &&
       (!projectView || Boolean(repo)) &&
       !settings.query.isPending,
-    initialPageParam: { page: 1 },
-    getNextPageParam: (last): IssueListPageParam | undefined =>
-      last.hasMore
-        ? {
-            page: last.page + 1,
-            ...(last.nextCursor ? { cursor: last.nextCursor } : {}),
-          }
-        : undefined,
   });
   const rows = useMemo(
     () =>
@@ -485,138 +411,48 @@ export function GitHubWorkspace({
     if (activeDraftKey) void loadDraft(activeDraftKey);
   }, [activeDraftKey, loadDraft]);
 
-  const detail = useQuery({
-    queryKey: activeRef ? issueKey(activeRef) : ["issue", "none"],
-    refetchInterval: 30_000,
-    queryFn: ({ signal }) =>
-      host.call<IssueDetail>(
-        "arco_get_issue",
-        {
-          repo: activeRef!.repo,
-          number: activeRef!.number,
-        },
-        { signal, priority: "background" },
-      ),
-    enabled: source === "github" && !targetedInline && Boolean(activeRef),
-  });
-  const sharedDetail = useQuery({
-    queryKey: shared ? issueKey(shared) : ["issue", "shared-none"],
-    refetchInterval: 30_000,
-    queryFn: ({ signal }) =>
-      host.call<IssueDetail>(
-        "arco_get_issue",
-        {
-          repo: shared!.repo,
-          number: shared!.number,
-        },
-        { signal, priority: "background" },
-      ),
-    enabled: source === "github" && !targetedInline && Boolean(shared),
-  });
-  const targetDetail = useQuery({
-    queryKey: target ? issueKey(target) : ["issue", "target-none"],
-    refetchInterval: 30_000,
-    queryFn: ({ signal }) =>
-      host.call<IssueDetail>(
-        "arco_get_issue",
-        { repo: target!.repo, number: target!.number },
-        { signal, priority: "background" },
-      ),
-    enabled: targetedInline,
-  });
+  const detail = useGitHubIssue(
+    host,
+    activeRef,
+    !targetedInline && Boolean(activeRef),
+  );
+  const sharedDetail = useGitHubIssue(
+    host,
+    shared,
+    !targetedInline && Boolean(shared),
+  );
+  const targetDetail = useGitHubIssue(host, target, targetedInline);
   const metadataRepo = targetedInline
     ? target!.repo
     : mode === "inline" && shared
       ? (sharedDetail.data?.repo ?? shared.repo)
       : (activeRef?.repo ?? repo);
-  const metadata = useQuery({
-    queryKey: ["metadata", metadataRepo],
-    queryFn: () =>
-      host.call<RepoMetadata>("arco_repo_metadata", { repo: metadataRepo }),
-    enabled:
-      source === "github" &&
-      Boolean(metadataRepo) &&
-      connection.data?.connected === true,
-  });
-  const mutation = useMutation({
-    mutationFn: ({
-      name,
-      args,
-    }: {
-      name: string;
-      args: Record<string, unknown>;
-    }) => host.call<IssueDetail>(name, args),
-    onSuccess: async (result) => {
-      if (result.postedComment)
-        queryClient.setQueryData<Comment[]>(
-          commentPostsKey(result),
-          (previous = []) =>
-            mergeCommentPages([], [...previous, result.postedComment!]),
-        );
-      queryClient.setQueryData(issueKey(result), result);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["issues"] }),
-        queryClient.invalidateQueries({ queryKey: issueKey(result) }),
-        queryClient.invalidateQueries({ queryKey: commentsKey(result) }),
-      ]);
-    },
-  });
+  const metadata = useGitHubMetadata(
+    host,
+    metadataRepo,
+    Boolean(metadataRepo) && connection.data?.connected === true,
+  );
+  const mutation = useGitHubIssueMutation(host);
 
-  useLayoutEffect(() => {
-    const element = listRef.current;
-    if (!element || !issues.isSuccess) {
-      restoredListScope.current = null;
-      return;
-    }
-    const scope = `${mode}:${listScope}`;
-    if (restoredListScope.current !== scope) {
-      element.scrollTop = scrollPositions.current.get(listScope) ?? 0;
-      restoredListScope.current = scope;
-    }
-  }, [listScope, mode, issues.isSuccess, scrollPositions]);
-  const rememberListScroll = () => {
-    if (listRef.current && restoredListScope.current === `${mode}:${listScope}`)
-      scrollPositions.current.set(listScope, listRef.current.scrollTop);
-  };
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (source !== "github") return;
-      if (
-        event.defaultPrevented ||
-        isInput(event.target) ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      )
-        return;
-      if (event.key === "/") {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
-      if (event.key === "Escape") {
-        setShowDetail(false);
-      }
-      if (event.key === "j" || event.key === "k") {
-        event.preventDefault();
-        const index = rows.findIndex(
-          (row) => activeRef && refKey(row) === refKey(activeRef),
-        );
-        const next =
-          rows[
-            Math.min(
-              rows.length - 1,
-              Math.max(0, index + (event.key === "j" ? 1 : -1)),
-            )
-          ];
-        if (next) {
-          setSelected({ repo: next.repo, number: next.number });
-          setShowDetail(true);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [rows, activeRef, source, setSelected, setShowDetail]);
+  const rememberListScroll = useListScroll({
+    host,
+    sessionKey: "github:scrollPositions",
+    listRef,
+    scope: listScope,
+    mode,
+    ready: issues.isSuccess,
+  });
+  useListKeyboard({
+    rows,
+    activeKey: activeRef ? refKey(activeRef) : null,
+    keyForRow: refKey,
+    onSelect: (issue) => {
+      setSelected({ repo: issue.repo, number: issue.number });
+      setShowDetail(true);
+    },
+    onClose: () => setShowDetail(false),
+    searchRef,
+  });
 
   const save = async (
     name: string,

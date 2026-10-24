@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createGitHubTransport,
+  commandError,
   GitHubError,
   type GhRunner,
 } from "../src/server/github/transport";
@@ -65,7 +66,7 @@ describe("GitHub transport contracts", () => {
     });
   });
 
-  it("uses explicit access for POST reads and uncertain mutations, independent of query text", async () => {
+  it("keeps definitive rejections distinct from uncertain mutation outcomes", async () => {
     const run = vi.fn<GhRunner>(async () => {
       throw new GitHubError("Denied", "forbidden");
     });
@@ -75,7 +76,7 @@ describe("GitHub transport contracts", () => {
     ).rejects.toMatchObject({ code: "forbidden" });
     await expect(
       transport.mutate("mutation NativeWrite { save }", {}),
-    ).rejects.toMatchObject({ code: "uncertain" });
+    ).rejects.toMatchObject({ code: "forbidden" });
     await expect(
       transport.request("read", "graphql", "POST", {
         query: "mutation-shaped untrusted text",
@@ -83,7 +84,21 @@ describe("GitHub transport contracts", () => {
     ).rejects.toMatchObject({ message: "Denied", code: "forbidden" });
     await expect(
       transport.request("write", "repos/owner/repo/issues/1", "PATCH", {}),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    run.mockRejectedValueOnce(new GitHubError("Request timed out", "timeout"));
+    await expect(
+      transport.mutate("mutation Save { save }", {}),
     ).rejects.toMatchObject({ code: "uncertain" });
+    run.mockRejectedValueOnce(
+      new Error("Bearer private-secret network detail"),
+    );
+    await expect(
+      transport.mutate("mutation Save { save }", {}),
+    ).rejects.toMatchObject({
+      code: "uncertain",
+      message: expect.not.stringContaining("private-secret"),
+    });
+    expect(run).toHaveBeenCalledTimes(6);
   });
 
   it("treats partial GraphQL results as failed reads or uncertain writes", async () => {
@@ -100,5 +115,43 @@ describe("GitHub transport contracts", () => {
         transport.mutate("mutation NativeWrite { save }", {}),
       ).rejects.toMatchObject({ code: "uncertain" });
     }
+  });
+
+  it.each([
+    ["gh: API rate limit exceeded (HTTP 403) private-token", "rate-limited"],
+    ["gh: You have exceeded a secondary rate limit (HTTP 403)", "rate-limited"],
+    ["gh: Too many requests (HTTP 429)", "rate-limited"],
+    ["gh: Resource not accessible by integration (HTTP 403)", "forbidden"],
+    ["gh: Bad credentials (HTTP 401)", "auth"],
+    ["gh: Not Found (HTTP 404)", "not-found"],
+    ["gh: Validation Failed (HTTP 422)", "invalid-input"],
+    ["gh: Conflict (HTTP 409)", "conflict"],
+    ["gh: context deadline exceeded private-token", "timeout"],
+    ["gh: upstream private-token (HTTP 503)", "unavailable"],
+  ])("classifies CLI rejection without exposing stderr: %s", (stderr, code) => {
+    const error = commandError(stderr);
+    expect(error.code).toBe(code);
+    expect(error.message).not.toContain("private-token");
+  });
+
+  it("keeps mutation partial success uncertain even if a rate-limit error is present", async () => {
+    const run = vi.fn<GhRunner>(async () => ({
+      errors: [{ type: "RATE_LIMITED" }],
+    }));
+    const transport = createGitHubTransport({ run, policy: "core" });
+    await expect(
+      transport.query("query Read { viewer { login } }", {}),
+    ).rejects.toMatchObject({ code: "rate-limited" });
+    await expect(
+      transport.mutate("mutation Write { save }", {}),
+    ).rejects.toMatchObject({ code: "rate-limited" });
+    run.mockResolvedValueOnce({
+      data: { save: { id: "saved" } },
+      errors: [{ type: "RATE_LIMITED" }],
+    });
+    await expect(
+      transport.mutate("mutation Write { save }", {}),
+    ).rejects.toMatchObject({ code: "uncertain" });
+    expect(run).toHaveBeenCalledTimes(3);
   });
 });

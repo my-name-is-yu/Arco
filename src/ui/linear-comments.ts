@@ -13,6 +13,10 @@ import type {
   LinearIssue,
   LinearRef,
 } from "../shared/linear";
+import {
+  pageContinuationError,
+  requirePageContinuation,
+} from "./page-continuation";
 
 export type LinearCommentChanges = Record<string, LinearComment | null>;
 export const linearCommentsKey = (issue: LinearRef) =>
@@ -82,10 +86,16 @@ export function useLinearComments(host: ArcoHost, issue: LinearIssue) {
     () => linearCommentsKey({ connectionId, workspaceId, teamId, issueId }),
     [connectionId, workspaceId, teamId, issueId],
   );
+  const initialPage = firstPage(issue);
+  const firstPageError = pageContinuationError(
+    initialPage.hasMore,
+    initialPage.cursor,
+    "Linear comments",
+  );
   const query = useInfiniteQuery({
     queryKey: key,
     initialPageParam: undefined as string | undefined,
-    initialData: { pages: [firstPage(issue)], pageParams: [undefined] },
+    initialData: { pages: [initialPage], pageParams: [undefined] },
     structuralSharing: (previous, incoming) => {
       const pages = incoming as InfiniteData<
         LinearCommentPage,
@@ -101,12 +111,14 @@ export function useLinearComments(host: ArcoHost, issue: LinearIssue) {
         pageParams: current.commentsHasMore ? pages.pageParams : [undefined],
       });
     },
-    queryFn: ({ pageParam, signal }) => {
-      if (pageParam === undefined)
-        return firstPage(
+    queryFn: async ({ pageParam, signal }) => {
+      if (pageParam === undefined) {
+        const page = firstPage(
           cache.getQueryData<LinearIssue>(["linear-issue", key[1]]) ?? issue,
         );
-      return host.call<LinearCommentPage>(
+        return requirePageContinuation(page, page.cursor, "Linear comments");
+      }
+      const page = await host.call<LinearCommentPage>(
         "linear_comments",
         {
           ...key[1],
@@ -114,9 +126,9 @@ export function useLinearComments(host: ArcoHost, issue: LinearIssue) {
         },
         { signal, priority: "background" },
       );
+      return requirePageContinuation(page, page.cursor, "Linear comments");
     },
-    getNextPageParam: (page) =>
-      page.hasMore ? (page.cursor ?? undefined) : undefined,
+    getNextPageParam: (page) => (page.hasMore ? page.cursor! : undefined),
     // The issue detail already refreshes page one. Once more pages are opened,
     // refresh only that finite set of pages using the provider's current cursors.
     enabled: (entry) => (entry.state.data?.pages.length ?? 1) > 1,
@@ -158,7 +170,12 @@ export function useLinearComments(host: ArcoHost, issue: LinearIssue) {
     );
   }, [cache, key, query.data]);
   return {
-    ...query,
     comments: displayedLinearComments(query.data.pages, changes.data),
+    error: firstPageError ?? query.error,
+    isError: firstPageError !== null || query.isError,
+    hasNextPage: firstPageError === null && query.hasNextPage,
+    isFetching: query.isFetching,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
   };
 }

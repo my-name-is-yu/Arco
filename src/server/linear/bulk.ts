@@ -1,3 +1,4 @@
+import { LinearServiceError, linearFailure } from "./errors";
 import type { createIssuesHandlers } from "./issues";
 import {
   assertSuccess,
@@ -19,7 +20,9 @@ export function createBulkHandlers(
         !input.addLabels?.length &&
         !input.removeLabels?.length
       )
-        throw new Error("Choose a property or label for the bulk change.");
+        throw new LinearServiceError(
+          "Choose a property or label for the bulk change.",
+        );
       const results = [];
       for (const issueId of [...new Set(input.issueIds)]) {
         let saved = false;
@@ -53,9 +56,7 @@ export function createBulkHandlers(
             success: false,
             ...(issue ? { issue } : {}),
             error: `${saved ? "Properties were saved, but a later change failed. " : "Refresh and check the saved state. "}${
-              error instanceof Error
-                ? error.message
-                : "The Linear bulk change failed."
+              linearFailure(error, { write: true }).message
             }`,
           });
         }

@@ -1,3 +1,4 @@
+import { OperationError } from "../../shared/errors";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { linearIssueUrl } from "../../shared/issue-url";
@@ -135,15 +136,19 @@ export function createLinearFixtureService(): LinearService {
       value.workspaceId !== LINEAR_FIXTURE_SCOPE.workspaceId ||
       value.teamId !== LINEAR_FIXTURE_SCOPE.teamId
     )
-      throw new Error(
+      throw new OperationError(
         "The fixture connection, workspace, or team does not match.",
+        "invalid-input",
       );
   }
   function find(value: LinearRef) {
     scope(value);
     const issue = issues.get(value.issueId);
     if (!issue)
-      throw new Error("This Linear issue does not exist in the fixture.");
+      throw new OperationError(
+        "This Linear issue does not exist in the fixture.",
+        "not-found",
+      );
     return issue;
   }
   function touch(issue: LinearIssue) {
@@ -157,8 +162,9 @@ export function createLinearFixtureService(): LinearService {
       ? issue.comments.findIndex((comment) => comment.id === cursor) + 1
       : 0;
     if (cursor && start === 0)
-      throw new Error(
+      throw new OperationError(
         "The comment cursor is no longer available. Refresh and try again.",
+        "invalid-input",
       );
     const comments = issue.comments.slice(start, start + 30);
     return {
@@ -187,7 +193,11 @@ export function createLinearFixtureService(): LinearService {
     ) => {
       if (id === null) return null;
       const value = values.find((item) => item.id === id);
-      if (!value) throw new Error(`The source ID for ${field} does not match.`);
+      if (!value)
+        throw new OperationError(
+          `The source ID for ${field} does not match.`,
+          "invalid-input",
+        );
       return value;
     };
     if (patch.title !== undefined) issue.title = patch.title;
@@ -202,7 +212,10 @@ export function createLinearFixtureService(): LinearService {
         patch.estimate !== null &&
         !meta.estimateValues.includes(patch.estimate)
       )
-        throw new Error("This value is not in the team's estimate scale.");
+        throw new OperationError(
+          "This value is not in the team's estimate scale.",
+          "invalid-input",
+        );
       issue.estimate = patch.estimate;
     }
     if (patch.dueDate !== undefined) issue.dueDate = patch.dueDate;
@@ -215,7 +228,10 @@ export function createLinearFixtureService(): LinearService {
         "milestone",
       );
       if (value && value.projectId !== issue.project?.id)
-        throw new Error("The project and milestone do not match.");
+        throw new OperationError(
+          "The project and milestone do not match.",
+          "invalid-input",
+        );
       issue.projectMilestone = value;
     }
     if (patch.cycleId !== undefined)
@@ -223,7 +239,10 @@ export function createLinearFixtureService(): LinearService {
     if (patch.parentId !== undefined) {
       const parent = patch.parentId ? issues.get(patch.parentId) : undefined;
       if (patch.parentId && (!parent || parent.issueId === issue.issueId))
-        throw new Error("The parent issue is invalid.");
+        throw new OperationError(
+          "The parent issue is invalid.",
+          "invalid-input",
+        );
       if (issue.parent) {
         const oldParent = issues.get(issue.parent.id);
         if (oldParent)
@@ -248,8 +267,9 @@ export function createLinearFixtureService(): LinearService {
   }
   function labels(issue: LinearIssue, add: string[], remove: string[]) {
     if (add.some((id) => remove.includes(id)))
-      throw new Error(
+      throw new OperationError(
         "A label cannot be added and removed in the same operation.",
+        "invalid-input",
       );
     const additions = add.map((id) =>
       meta.labels.find((value) => value.id === id),
@@ -258,7 +278,10 @@ export function createLinearFixtureService(): LinearService {
       additions.some((value) => !value || value.isGroup) ||
       remove.some((id) => !meta.labels.some((value) => value.id === id))
     )
-      throw new Error("The source label ID or scope does not match.");
+      throw new OperationError(
+        "The source label ID or scope does not match.",
+        "invalid-input",
+      );
     issue.labels = issue.labels.filter((value) => !remove.includes(value.id));
     for (const value of additions)
       if (value && !issue.labels.some((item) => item.id === value.id))
@@ -272,7 +295,10 @@ export function createLinearFixtureService(): LinearService {
         message: "Local fixture data.",
       };
     if (name.startsWith("linear_auth_"))
-      throw new Error("The fixture does not change real Linear authorization.");
+      throw new OperationError(
+        "The fixture does not change real Linear authorization.",
+        "unsupported",
+      );
     if (name === "linear_connection")
       return {
         connected: true,
@@ -299,14 +325,18 @@ export function createLinearFixtureService(): LinearService {
         input.connectionId !== LINEAR_FIXTURE_SCOPE.connectionId ||
         target.workspace !== "fixture"
       )
-        throw new Error(
+        throw new OperationError(
           "The fixture connection or workspace does not match this issue URL.",
+          "invalid-input",
         );
       const issue = [...issues.values()].find(
         (value) => value.identifier === target.identifier,
       );
       if (!issue)
-        throw new Error("This Linear issue does not exist in the fixture.");
+        throw new OperationError(
+          "This Linear issue does not exist in the fixture.",
+          "not-found",
+        );
       return {
         connectionId: issue.connectionId,
         workspaceId: issue.workspaceId,
@@ -327,7 +357,10 @@ export function createLinearFixtureService(): LinearService {
         ? issue.comments.find((comment) => comment.id === input.commentId)?.body
         : issue.body;
       if (markdown === undefined)
-        throw new Error("The image comment does not belong to this issue.");
+        throw new OperationError(
+          "The image comment does not belong to this issue.",
+          "invalid-input",
+        );
       return readIssueImage({ url: input.url, markdown }, { fixture: true });
     }
     if (name === "linear_templates") {
@@ -376,8 +409,9 @@ export function createLinearFixtureService(): LinearService {
         ? matches.findIndex((issue) => issue.issueId === input.cursor) + 1
         : 0;
       if (input.cursor && start === 0)
-        throw new Error(
+        throw new OperationError(
           "The issue cursor is no longer available. Refresh and try again.",
+          "invalid-input",
         );
       const page = matches.slice(start, start + 100);
       return {
@@ -401,7 +435,10 @@ export function createLinearFixtureService(): LinearService {
       const input = linearSchemas[name].parse(raw);
       scope(input);
       if (input.templateId && input.templateId !== "linear-simple-template")
-        throw new Error("Create an issue from this template in Linear.");
+        throw new OperationError(
+          "Create an issue from this template in Linear.",
+          "unsupported",
+        );
       const number = issues.size + 42;
       const issue = {
         ...structuredClone(first),
@@ -432,8 +469,9 @@ export function createLinearFixtureService(): LinearService {
       const input = linearSchemas[name].parse(raw);
       const issue = find(input);
       if (issue.updatedAt !== input.expectedUpdatedAt)
-        throw new Error(
+        throw new OperationError(
           "This Linear issue changed elsewhere. Keep your draft and refresh.",
+          "conflict",
         );
       const candidate = structuredClone(issue);
       patchIssue(candidate, input.patch);
@@ -450,7 +488,11 @@ export function createLinearFixtureService(): LinearService {
       const input = linearSchemas[name].parse(raw);
       scope(input);
       if (input.action === "create") {
-        if (!input.name) throw new Error("A label name is required.");
+        if (!input.name)
+          throw new OperationError(
+            "A label name is required.",
+            "invalid-input",
+          );
         meta.labels.push({
           id: randomUUID(),
           name: input.name,
@@ -466,7 +508,10 @@ export function createLinearFixtureService(): LinearService {
           !label ||
           label.teamId !== (input.scope === "team" ? input.teamId : null)
         )
-          throw new Error("The label scope does not match.");
+          throw new OperationError(
+            "The label scope does not match.",
+            "invalid-input",
+          );
         if (input.action === "delete") {
           meta.labels = meta.labels.filter((item) => item.id !== input.labelId);
           for (const issue of issues.values())
@@ -492,7 +537,10 @@ export function createLinearFixtureService(): LinearService {
           (input.parentId &&
             !issue.comments.some((item) => item.id === input.parentId))
         )
-          throw new Error("Check the comment body and reply target.");
+          throw new OperationError(
+            "Check the comment body and reply target.",
+            "invalid-input",
+          );
         issue.comments.push({
           id: randomUUID(),
           body: input.body,
@@ -509,20 +557,25 @@ export function createLinearFixtureService(): LinearService {
           (item) => item.id === input.commentId,
         );
         if (!comment || comment.authorId !== userId)
-          throw new Error("You can only change your own comment.");
+          throw new OperationError(
+            "You can only change your own comment.",
+            "forbidden",
+          );
         if (
           input.expectedUpdatedAt &&
           comment.updatedAt !== input.expectedUpdatedAt
         )
-          throw new Error(
+          throw new OperationError(
             "This Linear comment changed elsewhere. Keep your draft and refresh.",
+            "conflict",
           );
         if (input.action === "delete")
           issue.comments = issue.comments.filter(
             (item) => item.id !== input.commentId,
           );
         else {
-          if (!input.body) throw new Error("A body is required.");
+          if (!input.body)
+            throw new OperationError("A body is required.", "invalid-input");
           comment.body = input.body;
           comment.updatedAt = new Date(
             Math.max(Date.now(), Date.parse(comment.updatedAt) + 1),
@@ -546,7 +599,11 @@ export function createLinearFixtureService(): LinearService {
       const target = input.commentId
         ? issue.comments.find((item) => item.id === input.commentId)
         : issue;
-      if (!target) throw new Error("The target comment does not match.");
+      if (!target)
+        throw new OperationError(
+          "The target comment does not match.",
+          "invalid-input",
+        );
       if (input.action === "add") {
         if (
           !target.reactions.some(
@@ -563,7 +620,10 @@ export function createLinearFixtureService(): LinearService {
           (item) => item.id === input.reactionId,
         );
         if (!current || current.userId !== userId)
-          throw new Error("You can only remove your own matching reaction.");
+          throw new OperationError(
+            "You can only remove your own matching reaction.",
+            "forbidden",
+          );
         target.reactions = target.reactions.filter(
           (item) => item.id !== current.id,
         );
@@ -581,7 +641,10 @@ export function createLinearFixtureService(): LinearService {
       if (input.action === "add") {
         const other = issues.get(input.relatedIssueId ?? "");
         if (!other || other.issueId === issue.issueId)
-          throw new Error("The related issue does not match.");
+          throw new OperationError(
+            "The related issue does not match.",
+            "invalid-input",
+          );
         const relation = {
           id: randomUUID(),
           type: input.kind === "related" ? "related" : "blocks",
@@ -639,7 +702,7 @@ export function createLinearFixtureService(): LinearService {
       }
       return { results };
     }
-    throw new Error("Unsupported fixture operation.");
+    throw new OperationError("Unsupported fixture operation.", "unsupported");
   }
   return {
     async call(name, raw) {

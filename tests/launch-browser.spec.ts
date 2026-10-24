@@ -326,6 +326,8 @@ test("choosing a repository at capacity keeps the newest 100 chat bindings and r
   await expect(ui.locator(".project-repository-empty strong")).toHaveText(
     "Choose a repository",
   );
+  await selectControl(ui, "GitHub scope").getByRole("button").click();
+  await ui.getByRole("dialog").getByRole("combobox").fill("yu/Arco");
   await choose(ui, "GitHub scope", "yu/Arco");
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),

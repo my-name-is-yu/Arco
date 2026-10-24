@@ -79,12 +79,6 @@ const responseSchema = z.object({
   }),
 });
 
-function compatibleQuery(query: string): boolean {
-  // A query's sort qualifier can override the separately supplied REST sort.
-  // Keep that behavior and the legacy parser's Boolean syntax handling intact.
-  return !/(^|\s)-?sort\s*:|(^|\s)(AND|OR|NOT)(?=\s|$)|[()]/i.test(query);
-}
-
 function issueSummary(
   repo: string,
   issue: z.infer<typeof issueSchema>,
@@ -124,22 +118,10 @@ export function createRepositoryIssueReader(options: {
     query: string,
     variables: Record<string, unknown>,
   ) => Promise<unknown>;
-  legacyList: (input: ListInput) => Promise<IssuePage>;
 }) {
   return {
     async list(raw: ListInput): Promise<IssuePage> {
       const input = listInputSchema.parse(raw);
-      if (
-        !compatibleQuery(input.query) ||
-        input.page * pageSize > searchLimit ||
-        (input.page > 1 && !input.cursor)
-      )
-        return options.legacyList(input);
-      if (input.page === 1 && input.cursor)
-        throw new GitHubError(
-          "Refresh the issue list before continuing to its next page.",
-          "invalid",
-        );
       const state = input.state === "all" ? "" : `is:${input.state}`;
       const query =
         `repo:${input.repo} is:issue ${state} ${input.query}`.trim() +
@@ -164,8 +146,7 @@ export function createRepositoryIssueReader(options: {
           node.repository.nameWithOwner.toLowerCase() ===
             input.repo.toLowerCase(),
       );
-      // Labels/assignees must remain complete. Fall back this page and its
-      // subsequent page-only continuation rather than silently truncating them.
+      // Never present a truncated set of labels or assignees as complete.
       if (
         issues.some(
           (issue) =>
@@ -173,7 +154,10 @@ export function createRepositoryIssueReader(options: {
             issue.assignees.pageInfo.hasNextPage,
         )
       )
-        return options.legacyList(input);
+        throw new GitHubError(
+          "An issue has more labels or assignees than this list can display. Narrow your search or open the issue directly.",
+          "unsupported",
+        );
       const hasMore =
         search.pageInfo.hasNextPage &&
         input.page * pageSize < Math.min(search.issueCount, searchLimit);

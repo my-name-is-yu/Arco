@@ -1,13 +1,8 @@
 import { AsyncState } from "./AsyncState";
 import { WorkspaceLayout, WorkspaceHeader } from "./WorkspaceLayout";
 import { RefreshFailure } from "./RefreshFailure";
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import {
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-  type InfiniteData,
-} from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
   ArrowRotateCw,
@@ -21,8 +16,6 @@ import type { LaunchContext } from "../shared/launch";
 import type {
   LinearConnection,
   LinearIssue,
-  LinearMetadata,
-  LinearPage,
   LinearRef,
   LinearSavedReceipt,
   LinearScope,
@@ -43,7 +36,7 @@ import {
   IssueListSkeleton,
   WorkspaceSkeleton,
 } from "./LoadingSkeleton";
-import { selectionIssueData, isTextSelectionClick } from "./SelectionShare";
+import { selectionIssueData, isTextSelectionClick } from "./selection-context";
 import { isSavedReceipt } from "./linear-run";
 import "./linear.css";
 import {
@@ -61,18 +54,16 @@ import { resolveContentDraft } from "./content-drafts";
 import { toggleMarkdownTask } from "./markdown-tasks";
 import { isIssueUrlInput, linearIssueUrl } from "../shared/issue-url";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { useListScroll, useListKeyboard } from "./useListInteraction";
 import { useIssueListContinuation } from "./useIssueListContinuation";
 import {
-  linearCommentChangesKey,
-  type LinearCommentChanges,
-} from "./linear-comments";
+  linearRef,
+  useLinearIssueList,
+  useLinearIssue,
+  useLinearMetadata,
+  useLinearIssueCache,
+} from "./linear-queries";
 
-export const linearRef = (issue: LinearRef): LinearRef => ({
-  connectionId: issue.connectionId,
-  workspaceId: issue.workspaceId,
-  teamId: issue.teamId,
-  issueId: issue.issueId,
-});
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const linearDataKeys = new Set([
@@ -95,6 +86,7 @@ export function LinearWorkspace({
   onSourceChange: (source: "github" | "linear") => void;
 }) {
   const cache = useQueryClient();
+  const issueCache = useLinearIssueCache();
   const settings = useLinearSettings(host);
   const target = launch.target?.source === "linear" ? launch.target : null;
   const [teamOverride, setTeamOverride] = useSessionState(
@@ -102,7 +94,7 @@ export function LinearWorkspace({
     "linear:teamOverride",
     () => {
       if (target) return target.teamId;
-      const shared = host.sharedIssue?.();
+      const shared = host.sharedIssue();
       return shared?.source === "linear" ? shared.teamId : "";
     },
   );
@@ -111,7 +103,7 @@ export function LinearWorkspace({
     "linear:selected",
     () => {
       if (target) return linearRef(target);
-      const shared = host.sharedIssue?.();
+      const shared = host.sharedIssue();
       return shared?.source === "linear" ? linearRef(shared) : null;
     },
   );
@@ -175,12 +167,6 @@ export function LinearWorkspace({
     [setUrlBusy],
   );
   const list = useRef<HTMLDivElement>(null);
-  const positions = useSessionRef(
-    host,
-    "linear:positions",
-    new Map<string, number>(),
-  );
-  const restoredScope = useRef<string | null>(null);
   const [bulk, setBulk] = useSessionState<string[]>(host, "linear:bulk", []);
   const selectedStateTypes = useSessionRef(
     host,
@@ -255,15 +241,10 @@ export function LinearWorkspace({
     enabled: canRead && !targetedInline,
   });
   const savedTeam = settings.query.data?.settings.activeLinearTeam;
-  const teamId =
-    (scopes.data?.teams.some((team) => team.id === teamOverride)
-      ? teamOverride
-      : undefined) ||
-    (scopes.data?.teams.some((team) => team.id === savedTeam)
-      ? savedTeam
-      : undefined) ||
-    scopes.data?.teams[0]?.id ||
-    "";
+  const requestedTeam = teamOverride || savedTeam || "";
+  const teamId = scopes.data?.teams.some((team) => team.id === requestedTeam)
+    ? requestedTeam
+    : "";
   const scope: LinearScope | null = useMemo(
     () =>
       connected &&
@@ -316,52 +297,19 @@ export function LinearWorkspace({
       }),
     );
   };
-  const metadata = useQuery({
-    queryKey: ["linear-metadata", scope],
-    queryFn: () => host.call<LinearMetadata>("linear_metadata", { ...scope }),
-    enabled: canRead && !targetedInline && Boolean(scope),
-  });
+  const metadata = useLinearMetadata(
+    host,
+    scope,
+    canRead && !targetedInline && Boolean(scope),
+  );
   const pageScope = JSON.stringify([scope, query, filters]);
-  const issues = useInfiniteQuery<
-    LinearPage,
-    Error,
-    InfiniteData<LinearPage>,
-    readonly unknown[],
-    string | undefined
-  >({
-    queryKey: ["linear-issues", pageScope],
-    // Replaying a scrolled list grows with every loaded page. Refresh still
-    // updates the complete list when more than one page has been opened.
-    refetchInterval: (query) =>
-      canRead &&
-      mode === "fullscreen" &&
-      query.state.data?.pages.length === 1 &&
-      query.state.status !== "error"
-        ? 30_000
-        : false,
-    refetchOnWindowFocus: (query) =>
-      canRead &&
-      mode === "fullscreen" &&
-      query.state.data?.pages.length === 1 &&
-      query.state.status !== "error",
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) =>
-      host.call<LinearPage>(
-        "linear_list_issues",
-        {
-          ...scope,
-          query,
-          ...Object.fromEntries(
-            Object.entries(filters).filter(([, value]) => value),
-          ),
-          ...(pageParam ? { cursor: pageParam } : {}),
-        },
-        { signal },
-      ),
-    getNextPageParam: (last) =>
-      last.hasMore ? (last.cursor ?? undefined) : undefined,
+  const issues = useLinearIssueList(host, {
+    scope,
+    query,
+    filters,
     enabled:
       canRead && !targetedInline && Boolean(scope) && !settings.query.isPending,
+    autoRefresh: canRead && mode === "fullscreen",
   });
   const rows = useMemo(
     () => issues.data?.pages.flatMap((page) => page.issues) ?? [],
@@ -385,51 +333,31 @@ export function LinearWorkspace({
       ? selected
       : target
         ? null
-        : rows[0]
+        : scope && rows[0]
           ? linearRef(rows[0])
           : null
     : null;
-  const detail = useQuery({
-    queryKey: ["linear-issue", active],
-    refetchInterval:
-      canRead && (mode === "fullscreen" || !shared) ? 30_000 : false,
-    queryFn: ({ signal }) =>
-      host.call<LinearIssue>(
-        "linear_get_issue",
-        { ...active },
-        { signal, priority: "background" },
-      ),
-    enabled: canRead && !targetedInline && Boolean(active),
-  });
-  const sharedIssue = useQuery({
-    queryKey: ["linear-issue", shared],
-    refetchInterval:
-      canRead && matchesConnection(shared) && mode !== "fullscreen" && shared
-        ? 30_000
-        : false,
-    queryFn: ({ signal }) =>
-      host.call<LinearIssue>(
-        "linear_get_issue",
-        { ...shared },
-        { signal, priority: "background" },
-      ),
-    enabled:
-      canRead &&
-      !targetedInline &&
-      Boolean(shared) &&
-      matchesConnection(shared),
-  });
-  const targetIssue = useQuery({
-    queryKey: ["linear-issue", target ? linearRef(target) : null],
-    refetchInterval: 30_000,
-    queryFn: ({ signal }) =>
-      host.call<LinearIssue>(
-        "linear_get_issue",
-        { ...linearRef(target!) },
-        { signal, priority: "background" },
-      ),
-    enabled: canRead && targetedInline,
-  });
+  const detail = useLinearIssue(
+    host,
+    active,
+    canRead && !targetedInline && Boolean(active),
+    canRead && (mode === "fullscreen" || !shared),
+  );
+  const sharedIssue = useLinearIssue(
+    host,
+    shared,
+    canRead && !targetedInline && Boolean(shared) && matchesConnection(shared),
+    canRead &&
+      matchesConnection(shared) &&
+      mode !== "fullscreen" &&
+      Boolean(shared),
+  );
+  const targetIssue = useLinearIssue(
+    host,
+    target ? linearRef(target) : null,
+    canRead && targetedInline,
+    true,
+  );
   const retained = target
     ? targetIssue.data
     : shared
@@ -494,65 +422,33 @@ export function LinearWorkspace({
         : null,
     [metadataIssue],
   );
-  const detailMetadata = useQuery({
-    queryKey: ["linear-metadata", detailScope],
-    queryFn: () =>
-      host.call<LinearMetadata>("linear_metadata", { ...detailScope }),
-    enabled: canRead && Boolean(detailScope),
-  });
+  const detailMetadata = useLinearMetadata(
+    host,
+    detailScope,
+    canRead && Boolean(detailScope),
+  );
   useEffect(() => {
     if (canRead && !selected && rows[0]) setSelected(linearRef(rows[0]));
   }, [canRead, selected, rows, setSelected]);
-  useLayoutEffect(() => {
-    if (!issues.isSuccess || !list.current) {
-      restoredScope.current = null;
-      return;
-    }
-    const scopeKey = `${mode}:${pageScope}`;
-    if (restoredScope.current !== scopeKey) {
-      list.current.scrollTop = positions.current.get(pageScope) ?? 0;
-      restoredScope.current = scopeKey;
-    }
-  }, [pageScope, issues.isSuccess, mode, positions]);
-  useEffect(() => {
-    const keydown = (event: KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        (event.target instanceof HTMLElement &&
-          event.target.closest(
-            "input,textarea,select,[contenteditable=true],[role=dialog],[role=button]",
-          )) ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      )
-        return;
-      if (event.key === "/") {
-        event.preventDefault();
-        search.current?.focus();
-      }
-      if (event.key === "Escape") setShowDetail(false);
-      if (event.key === "j" || event.key === "k") {
-        event.preventDefault();
-        const index = rows.findIndex(
-          (issue) => issue.issueId === active?.issueId,
-        );
-        const next =
-          rows[
-            Math.max(
-              0,
-              Math.min(rows.length - 1, index + (event.key === "j" ? 1 : -1)),
-            )
-          ];
-        if (next) {
-          setSelected(linearRef(next));
-          setShowDetail(true);
-        }
-      }
-    };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
-  }, [rows, active, setSelected, setShowDetail]);
+  const rememberListScroll = useListScroll({
+    host,
+    sessionKey: "linear:positions",
+    listRef: list,
+    scope: pageScope,
+    mode,
+    ready: issues.isSuccess,
+  });
+  useListKeyboard({
+    rows,
+    activeKey: active?.issueId ?? null,
+    keyForRow: (issue) => issue.issueId,
+    onSelect: (issue) => {
+      setSelected(linearRef(issue));
+      setShowDetail(true);
+    },
+    onClose: () => setShowDetail(false),
+    searchRef: search,
+  });
   async function run<T>(
     name: string,
     args: Record<string, unknown>,
@@ -587,27 +483,9 @@ export function LinearWorkspace({
         "issueId" in result
       ) {
         const issue = result as unknown as LinearIssue;
-        cache.setQueryData(["linear-issue", linearRef(issue)], issue);
-        if (issue.changedComment || issue.deletedCommentId)
-          cache.setQueryData<LinearCommentChanges>(
-            linearCommentChangesKey(issue),
-            (current = {}) => ({
-              ...current,
-              ...(issue.changedComment
-                ? { [issue.changedComment.id]: issue.changedComment }
-                : {}),
-              ...(issue.deletedCommentId
-                ? { [issue.deletedCommentId]: null }
-                : {}),
-            }),
-          );
+        issueCache.remember(issue);
       }
-      await Promise.all([
-        cache.invalidateQueries({ queryKey: ["linear-issue"] }),
-        cache.invalidateQueries({ queryKey: ["linear-comments"] }),
-        cache.invalidateQueries({ queryKey: ["linear-issues"] }),
-        cache.invalidateQueries({ queryKey: ["linear-metadata"] }),
-      ]);
+      await issueCache.refresh(true);
       setNotice(
         connection.data?.mode === "fixture"
           ? "Updated and refetched Linear fixture."
@@ -616,11 +494,7 @@ export function LinearWorkspace({
       return result;
     } catch (error) {
       setNotice(message(error), "error");
-      await Promise.all([
-        cache.invalidateQueries({ queryKey: ["linear-issue"] }),
-        cache.invalidateQueries({ queryKey: ["linear-issues"] }),
-        cache.invalidateQueries({ queryKey: ["linear-metadata"] }),
-      ]);
+      await issueCache.refresh();
       return undefined;
     } finally {
       lock.current = false;
@@ -716,14 +590,7 @@ export function LinearWorkspace({
     }
     void changeMode("fullscreen");
   };
-  const capturePosition = () => {
-    if (
-      list.current &&
-      issues.isSuccess &&
-      restoredScope.current === `${mode}:${pageScope}`
-    )
-      positions.current.set(pageScope, list.current.scrollTop);
-  };
+  const capturePosition = rememberListScroll;
   const openIssueUrl = async (value: string) => {
     const request = ++urlRequest.current;
     setUrlBusy(true);
@@ -1031,7 +898,7 @@ export function LinearWorkspace({
               Retry
             </Button>
           </div>
-        ) : !scope ? (
+        ) : !scopes.data?.teams.length ? (
           <div className="list-message">
             <strong>No Linear teams available</strong>
             <p>Arco could not find an accessible team in this workspace.</p>
@@ -1067,10 +934,13 @@ export function LinearWorkspace({
                 label="Linear Team"
                 value={teamId}
                 disabled={busy}
-                options={(scopes.data?.teams ?? []).map((team) => ({
-                  value: team.id,
-                  label: `${team.name} · ${team.key}`,
-                }))}
+                options={[
+                  { value: "", label: "Choose a team", disabled: true },
+                  ...(scopes.data?.teams ?? []).map((team) => ({
+                    value: team.id,
+                    label: `${team.name} · ${team.key}`,
+                  })),
+                ]}
                 onChange={(value) => {
                   urlRequest.current += 1;
                   setUrlBusy(false);
@@ -1079,7 +949,15 @@ export function LinearWorkspace({
                   capturePosition();
                   if (selected && scope)
                     selectionByScope.current.set(scopeId, selected);
-                  const nextScope = scope ? { ...scope, teamId: value } : null;
+                  const nextScope =
+                    scopes.data &&
+                    connection.data?.workspace?.id === scopes.data.workspace.id
+                      ? {
+                          connectionId: connection.data.connectionId,
+                          workspaceId: scopes.data.workspace.id,
+                          teamId: value,
+                        }
+                      : null;
                   setTeamOverride(value);
                   setSelected(
                     nextScope
@@ -1100,266 +978,291 @@ export function LinearWorkspace({
                 }}
               />
             </label>
-            <div className="search-control" aria-busy={urlBusy}>
-              <MagnifyingGlassSearch aria-hidden="true" />
-              <input
-                ref={search}
-                aria-label="Search Linear Issues"
-                value={searchEntry ?? query}
-                aria-describedby={
-                  searchError ? "linear-search-error" : undefined
-                }
-                onChange={(event) => {
-                  urlRequest.current += 1;
-                  setUrlBusy(false);
-                  setSearchError("");
-                  capturePosition();
-                  const value = event.target.value;
-                  if (isIssueUrlInput(value)) setSearchEntry(value);
-                  else {
-                    setSearchEntry(null);
-                    setQuery(value);
-                  }
-                }}
-                onPaste={(event) => {
-                  const value = event.clipboardData.getData("text").trim();
-                  if (isIssueUrlInput(value)) {
-                    event.preventDefault();
-                    setSearchEntry(value);
-                    void openIssueUrl(value);
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === "Enter" &&
-                    !event.nativeEvent.isComposing &&
-                    isIssueUrlInput(event.currentTarget.value)
-                  ) {
-                    event.preventDefault();
-                    void openIssueUrl(event.currentTarget.value.trim());
-                  }
-                }}
-                placeholder="Search or paste issue URL…"
-              />
-              <kbd>/</kbd>
-            </div>
-            {searchError && (
-              <p id="linear-search-error" className="inline-error" role="alert">
-                {searchError}
-              </p>
-            )}
-            <div className="list-filter">
-              <label className="state-select">
-                <span className="sr-only">Workflow state</span>
-                <SingleSelect
-                  label="Linear workflow state"
-                  value={filters.stateId}
-                  options={[
-                    { value: "", label: "All workflow states" },
-                    ...(metadata.data?.states ?? []).map((state) => ({
-                      value: state.id,
-                      label: state.name,
-                    })),
-                  ]}
-                  onChange={(value) => {
-                    capturePosition();
-                    setFilters((previous) => ({
-                      ...previous,
-                      stateId: value,
-                    }));
-                  }}
-                />
-              </label>
-              <button
-                className="icon-button"
-                aria-label="Refresh Linear"
-                title="Refresh issues"
-                disabled={issues.isFetching}
-                onClick={() =>
-                  void cache.invalidateQueries({
-                    predicate: (entry) =>
-                      String(entry.queryKey[0]).startsWith("linear-"),
-                  })
-                }
+            {!teamId && scopes.isSuccess && (
+              <p
+                className="list-message"
+                role={requestedTeam ? "alert" : "status"}
               >
-                <ArrowRotateCw aria-hidden="true" />
-              </button>
-            </div>
-            <details className="linear-filters sidebar-filters">
-              <DisclosureSummary>
-                <Filter aria-hidden="true" />
-                Filters
-              </DisclosureSummary>
-              {(["assigneeId", "labelId", "projectId"] as const).map((key) => (
-                <label key={key}>
-                  {
-                    {
-                      assigneeId: "Assignee",
-                      labelId: "Labels",
-                      projectId: "Project",
-                    }[key]
-                  }
-                  <SingleSelect
-                    label={
-                      {
-                        assigneeId: "Assignee",
-                        labelId: "Labels",
-                        projectId: "Project",
-                      }[key]
-                    }
-                    value={filters[key]}
-                    options={[
-                      { value: "", label: "All" },
-                      ...(
-                        (key === "assigneeId"
-                          ? metadata.data?.members
-                          : key === "labelId"
-                            ? metadata.data?.labels.filter(
-                                (label) => !label.isGroup,
-                              )
-                            : metadata.data?.projects) ?? []
-                      ).map((item) => ({ value: item.id, label: item.name })),
-                    ]}
-                    onChange={(value) => {
-                      capturePosition();
-                      setFilters((previous) => ({
-                        ...previous,
-                        [key]: value,
-                      }));
-                    }}
-                  />
-                </label>
-              ))}
-              <label>
-                Sort
-                <SingleSelect
-                  label="Sort"
-                  value={filters.order}
-                  options={[
-                    { value: "updatedAt", label: "Recently updated" },
-                    { value: "createdAt", label: "Recently created" },
-                  ]}
-                  onChange={(value) => {
-                    capturePosition();
-                    setFilters((previous) => ({
-                      ...previous,
-                      order: value === "createdAt" ? "createdAt" : "updatedAt",
-                    }));
-                  }}
-                />
-              </label>
-              <p>
-                Search within the selected team. Workflow states and properties
-                come from Linear.
+                {requestedTeam
+                  ? "The selected Linear team is unavailable. Choose a team to continue."
+                  : "Choose a Linear team to load its issues."}
               </p>
-            </details>
-            <div className="list-caption">
-              <span>
-                {issues.isFetching
-                  ? "Loading…"
-                  : `${rows.length}${issues.hasNextPage ? "+" : ""} Issues`}
-              </span>
-            </div>
-            {bulk.length > 0 && scope && (
-              <LinearBulkActions
-                host={host}
-                key={JSON.stringify(scope)}
-                scope={scope}
-                ids={bulk}
-                metadata={metadata.data}
-                hasDuplicate={bulk.some(
-                  (id) =>
-                    (rows.find((issue) => issue.issueId === id)?.state.type ??
-                      selectedStateTypes.current.get(id)) === "duplicate",
-                )}
-                busy={busy}
-                run={run}
-                onClear={() => setBulk([])}
-              />
             )}
-            <div
-              className="issue-list"
-              ref={list}
-              aria-busy={issues.isFetching}
-              onScroll={() => {
-                if (issues.isSuccess) capturePosition();
-              }}
-            >
-              {issues.isPending && <IssueListSkeleton />}
-              {rows.map((issue) => (
-                <div className="linear-list-row" key={issue.issueId}>
+            {scope && (
+              <>
+                <div className="search-control" aria-busy={urlBusy}>
+                  <MagnifyingGlassSearch aria-hidden="true" />
                   <input
-                    type="checkbox"
-                    aria-label={`${issue.identifier} — select for bulk actions`}
-                    checked={bulk.includes(issue.issueId)}
-                    disabled={busy}
+                    ref={search}
+                    aria-label="Search Linear Issues"
+                    value={searchEntry ?? query}
+                    aria-describedby={
+                      searchError ? "linear-search-error" : undefined
+                    }
                     onChange={(event) => {
-                      selectedStateTypes.current.set(
-                        issue.issueId,
-                        issue.state.type,
-                      );
-                      setBulk((previous) =>
-                        event.target.checked
-                          ? [...previous, issue.issueId]
-                          : previous.filter((id) => id !== issue.issueId),
-                      );
+                      urlRequest.current += 1;
+                      setUrlBusy(false);
+                      setSearchError("");
+                      capturePosition();
+                      const value = event.target.value;
+                      if (isIssueUrlInput(value)) setSearchEntry(value);
+                      else {
+                        setSearchEntry(null);
+                        setQuery(value);
+                      }
                     }}
-                  />
-                  <button
-                    className={`issue-row ${active?.issueId === issue.issueId ? "selected" : ""}`}
-                    data-arco-issue={selectionIssueData(issue)}
-                    onClick={(event) => {
+                    onPaste={(event) => {
+                      const value = event.clipboardData.getData("text").trim();
+                      if (isIssueUrlInput(value)) {
+                        event.preventDefault();
+                        setSearchEntry(value);
+                        void openIssueUrl(value);
+                      }
+                    }}
+                    onKeyDown={(event) => {
                       if (
-                        event.detail > 0 &&
-                        isTextSelectionClick(event.currentTarget)
-                      )
-                        return;
-                      setSelected(linearRef(issue));
-                      setShowDetail(true);
+                        event.key === "Enter" &&
+                        !event.nativeEvent.isComposing &&
+                        isIssueUrlInput(event.currentTarget.value)
+                      ) {
+                        event.preventDefault();
+                        void openIssueUrl(event.currentTarget.value.trim());
+                      }
                     }}
+                    placeholder="Search or paste issue URL…"
+                  />
+                  <kbd>/</kbd>
+                </div>
+                {searchError && (
+                  <p
+                    id="linear-search-error"
+                    className="inline-error"
+                    role="alert"
                   >
-                    <span style={{ color: issue.state.color }}>◉</span>
-                    <span className="row-content">
-                      <span className="row-title">{issue.title}</span>
-                      <span className="row-meta">
-                        {issue.identifier} · {issue.state.name}
-                      </span>
-                    </span>
+                    {searchError}
+                  </p>
+                )}
+                <div className="list-filter">
+                  <label className="state-select">
+                    <span className="sr-only">Workflow state</span>
+                    <SingleSelect
+                      label="Linear workflow state"
+                      value={filters.stateId}
+                      options={[
+                        { value: "", label: "All workflow states" },
+                        ...(metadata.data?.states ?? []).map((state) => ({
+                          value: state.id,
+                          label: state.name,
+                        })),
+                      ]}
+                      onChange={(value) => {
+                        capturePosition();
+                        setFilters((previous) => ({
+                          ...previous,
+                          stateId: value,
+                        }));
+                      }}
+                    />
+                  </label>
+                  <button
+                    className="icon-button"
+                    aria-label="Refresh Linear"
+                    title="Refresh issues"
+                    disabled={issues.isFetching}
+                    onClick={() =>
+                      void cache.invalidateQueries({
+                        predicate: (entry) =>
+                          String(entry.queryKey[0]).startsWith("linear-"),
+                      })
+                    }
+                  >
+                    <ArrowRotateCw aria-hidden="true" />
                   </button>
                 </div>
-              ))}
-              {issues.isError && !issues.isFetchNextPageError && (
-                <AsyncState kind="error" className="list-message">
-                  <p className="inline-error">{message(issues.error)}</p>
-                  <button
-                    className="text-button"
-                    disabled={issues.isFetching}
-                    onClick={() => void issues.refetch()}
-                  >
-                    Retry
-                  </button>
-                </AsyncState>
-              )}
-              {issues.isSuccess && !rows.length && (
-                <AsyncState as="p" kind="empty" className="list-message">
-                  No matching Issues.
-                </AsyncState>
-              )}
-              {issues.isFetchNextPageError && (
-                <p className="list-message inline-error" role="alert">
-                  Could not load more issues: {message(issues.error)}
-                </p>
-              )}
-              {issues.hasNextPage && (
-                <button
-                  className="load-more"
-                  disabled={issues.isFetching}
-                  onClick={loadMoreIssues}
+                <details className="linear-filters sidebar-filters">
+                  <DisclosureSummary>
+                    <Filter aria-hidden="true" />
+                    Filters
+                  </DisclosureSummary>
+                  {(["assigneeId", "labelId", "projectId"] as const).map(
+                    (key) => (
+                      <label key={key}>
+                        {
+                          {
+                            assigneeId: "Assignee",
+                            labelId: "Labels",
+                            projectId: "Project",
+                          }[key]
+                        }
+                        <SingleSelect
+                          label={
+                            {
+                              assigneeId: "Assignee",
+                              labelId: "Labels",
+                              projectId: "Project",
+                            }[key]
+                          }
+                          value={filters[key]}
+                          options={[
+                            { value: "", label: "All" },
+                            ...(
+                              (key === "assigneeId"
+                                ? metadata.data?.members
+                                : key === "labelId"
+                                  ? metadata.data?.labels.filter(
+                                      (label) => !label.isGroup,
+                                    )
+                                  : metadata.data?.projects) ?? []
+                            ).map((item) => ({
+                              value: item.id,
+                              label: item.name,
+                            })),
+                          ]}
+                          onChange={(value) => {
+                            capturePosition();
+                            setFilters((previous) => ({
+                              ...previous,
+                              [key]: value,
+                            }));
+                          }}
+                        />
+                      </label>
+                    ),
+                  )}
+                  <label>
+                    Sort
+                    <SingleSelect
+                      label="Sort"
+                      value={filters.order}
+                      options={[
+                        { value: "updatedAt", label: "Recently updated" },
+                        { value: "createdAt", label: "Recently created" },
+                      ]}
+                      onChange={(value) => {
+                        capturePosition();
+                        setFilters((previous) => ({
+                          ...previous,
+                          order:
+                            value === "createdAt" ? "createdAt" : "updatedAt",
+                        }));
+                      }}
+                    />
+                  </label>
+                  <p>
+                    Search within the selected team. Workflow states and
+                    properties come from Linear.
+                  </p>
+                </details>
+                <div className="list-caption">
+                  <span>
+                    {issues.isFetching
+                      ? "Loading…"
+                      : `${rows.length}${issues.hasNextPage ? "+" : ""} Issues`}
+                  </span>
+                </div>
+                {bulk.length > 0 && scope && (
+                  <LinearBulkActions
+                    host={host}
+                    key={JSON.stringify(scope)}
+                    scope={scope}
+                    ids={bulk}
+                    metadata={metadata.data}
+                    hasDuplicate={bulk.some(
+                      (id) =>
+                        (rows.find((issue) => issue.issueId === id)?.state
+                          .type ?? selectedStateTypes.current.get(id)) ===
+                        "duplicate",
+                    )}
+                    busy={busy}
+                    run={run}
+                    onClear={() => setBulk([])}
+                  />
+                )}
+                <div
+                  className="issue-list"
+                  ref={list}
+                  aria-busy={issues.isFetching}
+                  onScroll={() => {
+                    if (issues.isSuccess) capturePosition();
+                  }}
                 >
-                  {issues.isFetchingNextPage ? "Loading…" : "Load more"}
-                </button>
-              )}
-            </div>
+                  {issues.isPending && <IssueListSkeleton />}
+                  {rows.map((issue) => (
+                    <div className="linear-list-row" key={issue.issueId}>
+                      <input
+                        type="checkbox"
+                        aria-label={`${issue.identifier} — select for bulk actions`}
+                        checked={bulk.includes(issue.issueId)}
+                        disabled={busy}
+                        onChange={(event) => {
+                          selectedStateTypes.current.set(
+                            issue.issueId,
+                            issue.state.type,
+                          );
+                          setBulk((previous) =>
+                            event.target.checked
+                              ? [...previous, issue.issueId]
+                              : previous.filter((id) => id !== issue.issueId),
+                          );
+                        }}
+                      />
+                      <button
+                        className={`issue-row ${active?.issueId === issue.issueId ? "selected" : ""}`}
+                        data-arco-issue={selectionIssueData(issue)}
+                        onClick={(event) => {
+                          if (
+                            event.detail > 0 &&
+                            isTextSelectionClick(event.currentTarget)
+                          )
+                            return;
+                          setSelected(linearRef(issue));
+                          setShowDetail(true);
+                        }}
+                      >
+                        <span style={{ color: issue.state.color }}>◉</span>
+                        <span className="row-content">
+                          <span className="row-title">{issue.title}</span>
+                          <span className="row-meta">
+                            {issue.identifier} · {issue.state.name}
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                  ))}
+                  {issues.isError && !issues.isFetchNextPageError && (
+                    <AsyncState kind="error" className="list-message">
+                      <p className="inline-error">{message(issues.error)}</p>
+                      <button
+                        className="text-button"
+                        disabled={issues.isFetching}
+                        onClick={() => void issues.refetch()}
+                      >
+                        Retry
+                      </button>
+                    </AsyncState>
+                  )}
+                  {issues.isSuccess && !rows.length && (
+                    <AsyncState as="p" kind="empty" className="list-message">
+                      No matching Issues.
+                    </AsyncState>
+                  )}
+                  {issues.isFetchNextPageError && (
+                    <p className="list-message inline-error" role="alert">
+                      Could not load more issues: {message(issues.error)}
+                    </p>
+                  )}
+                  {issues.hasNextPage && (
+                    <button
+                      className="load-more"
+                      disabled={issues.isFetching}
+                      onClick={loadMoreIssues}
+                    >
+                      {issues.isFetchingNextPage ? "Loading…" : "Load more"}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </>
         )}
         {(settings.query.isError || settings.error) && (

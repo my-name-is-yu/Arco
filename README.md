@@ -58,7 +58,7 @@ See the [development guide](docs/development.md), [architecture](docs/technical-
 - [Documentation index](docs/index.md): user guides, architecture, and dated validation records.
 - [Installation](docs/installation.md): build, install, connect, update, and remove.
 - [Security and privacy](docs/security-and-privacy.md): data flow, credentials, and shared context.
-- [Local data](docs/local-data-boundary.md): settings, drafts, retention, and recovery.
+- [Local data](docs/local-data-boundary.md): settings, drafts, retention, and invalid-data handling.
 - [Implementation status](docs/implementation-status.md): implemented behavior and remaining validation.
 - [Design and accessibility checks](design-qa.md): interaction and presentation guidance.
 

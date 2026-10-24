@@ -5,6 +5,8 @@ import {
   type LaunchContext,
 } from "../src/shared/launch";
 import { connectHost } from "../src/ui/host";
+import { ToolCallError } from "../src/shared/errors";
+import { toolFailure } from "./tool-failure";
 
 const fixture = vi.hoisted(() => ({
   context: {} as Record<string, unknown>,
@@ -18,6 +20,9 @@ const fixture = vi.hoisted(() => ({
     | undefined,
   connecting: undefined as (() => void) | undefined,
   display: vi.fn<(params: { mode: string }) => Promise<{ mode: string }>>(),
+  call: vi.fn<
+    (params: Record<string, unknown>) => Promise<Record<string, unknown>>
+  >(),
   update:
     vi.fn<
       (params: Record<string, unknown>) => Promise<Record<string, unknown>>
@@ -42,6 +47,7 @@ vi.mock("@modelcontextprotocol/ext-apps", () => ({
     }
     connect = async () => fixture.connecting?.();
     requestDisplayMode = fixture.display;
+    callServerTool = fixture.call;
     setNotificationHandler = () => undefined;
     updateModelContext(params: Record<string, unknown>) {
       return fixture.update(params);
@@ -114,6 +120,7 @@ beforeEach(() => {
   fixture.display.mockReset();
   fixture.display.mockImplementation(async (params) => params);
   fixture.update.mockReset();
+  fixture.call.mockReset();
 });
 
 describe("host launch context", () => {
@@ -361,9 +368,7 @@ describe("host launch context", () => {
     };
     fixture.toolResult!({ isError: true, structuredContent: { launch } });
     expect(host.launch?.()).toBeNull();
-    expect(host.launchError?.()).toBe(
-      "Arco could not be opened. Retry the request in the conversation.",
-    );
+    expect(host.launchError?.()).toContain("invalid error response");
     fixture.toolResult!({
       structuredContent: {
         launch: {
@@ -386,19 +391,103 @@ describe("host launch context", () => {
   });
 });
 
+describe("host operation failures", () => {
+  it.each([
+    ["auth", "Reconnect the source account"],
+    ["forbidden", "Check your access"],
+    ["rate-limited", "Wait for the source's API limit"],
+    ["uncertain", "Check the result in the source"],
+  ] as const)(
+    "preserves %s and its next action without retrying the operation",
+    async (kind, action) => {
+      fixture.call.mockResolvedValue(toolFailure("A safe source error.", kind));
+      const host = await connectHost();
+      await expect(
+        host.call("arco_comment", { requestId: "unchanged-id" }),
+      ).rejects.toMatchObject({
+        name: "ToolCallError",
+        kind,
+        detail: "A safe source error.",
+        message: expect.stringContaining(action),
+      });
+      expect(fixture.call).toHaveBeenCalledExactlyOnceWith({
+        name: "arco_comment",
+        arguments: { requestId: "unchanged-id" },
+      });
+    },
+  );
+
+  it("rejects a text-only server error instead of accepting an obsolete or malformed result", async () => {
+    fixture.call.mockResolvedValue({
+      isError: true,
+      content: [{ type: "text", text: "untrusted server error secret-token" }],
+    });
+    const host = await connectHost();
+    const error = await host
+      .call("arco_get_issue", {})
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(ToolCallError);
+    expect(error).toMatchObject({ kind: "invalid-response" });
+    expect((error as Error).message).not.toContain("secret-token");
+    expect(fixture.call).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["arco_get_issue", {}, "unavailable", "Check the connection and refresh"],
+    [
+      "arco_comment",
+      { requestId: "same-id" },
+      "uncertain",
+      "Check the result in the source",
+    ],
+  ] as const)(
+    "classifies a rejected %s transport without exposing it or resending",
+    async (name, args, kind, action) => {
+      fixture.call.mockRejectedValue(
+        new Error("private subprocess output secret-token"),
+      );
+      const host = await connectHost();
+      const error = await host
+        .call(name, args)
+        .catch((error: unknown) => error);
+      expect(error).toMatchObject({ kind });
+      expect((error as Error).message).toContain(action);
+      expect((error as Error).message).not.toContain("secret-token");
+      expect(fixture.call).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("uses the same source failure contract for image requests", async () => {
+    fixture.call.mockResolvedValue(
+      toolFailure("Image permission denied.", "forbidden"),
+    );
+    const host = await connectHost();
+    await expect(
+      host.readImage(
+        { source: "github", repo: "yu/Arco", number: 42 } as Parameters<
+          typeof host.readImage
+        >[0],
+        "https://example.com/source.png",
+      ),
+    ).rejects.toMatchObject({
+      kind: "forbidden",
+      message: expect.stringContaining("Check your access"),
+    });
+    expect(fixture.call).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("host attachment context lifecycle", () => {
-  it("uses standard model context updates when the optional extension is not advertised", async () => {
+  it("refuses sharing without synchronized model context support and leaves the attachment unchanged", async () => {
     fixture.modelContextSupported = false;
     fixture.update.mockResolvedValue({});
     const host = await connectHost();
-    await host.shareAnnotations([annotationFor(1)]);
-    expect(fixture.update).toHaveBeenCalledOnce();
-    expect(host.sharedAnnotations?.()).toEqual([annotationFor(1)]);
-    expect(host.sharedIssue?.()).toEqual({
-      source: "github",
-      repo: "yu/Arco",
-      number: 1,
-    });
+    await expect(host.shareAnnotations([annotationFor(1)])).rejects.toThrow(
+      "does not support synchronized context attachments",
+    );
+    expect(fixture.update).not.toHaveBeenCalled();
+    expect(host.sharedAnnotations()).toBeNull();
+    expect(host.sharedIssue()).toBeNull();
   });
 
   it("applies the native attachment as one snapshot and ignores unsupported selection-only context", async () => {
@@ -471,57 +560,51 @@ describe("host attachment context lifecycle", () => {
     ).rejects.toThrow();
     expect(fixture.update).toHaveBeenCalledTimes(1);
   });
-  it.each([
-    { label: "with an update ID", result: acknowledged("own-update") },
-    { label: "without ACK metadata", result: {} },
-  ])(
-    "removes acknowledged context $label without requiring an echo and ignores presentation changes",
-    async ({ result }) => {
-      fixture.update.mockResolvedValue(result);
-      const host = await connectHost();
-      const events: string[] = [];
-      host.subscribe((event) => events.push(event));
-      await host.shareAnnotations([annotationFor(1)]);
-      expect(host.sharedIssue?.()).toEqual({
-        source: "github",
-        repo: "yu/Arco",
-        number: 1,
-      });
-      expect(host.sharedAnnotations?.()).toEqual([annotationFor(1)]);
-      changed({ theme: "dark", containerDimensions: { width: 390 } });
-      expect(host.sharedIssue?.()?.source).toBe("github");
-      expect(events).toEqual(["context"]);
-      changed({ "openai/modelContext": null });
-      expect(host.sharedIssue?.()).toBeNull();
-      expect(host.sharedAnnotations?.()).toBeNull();
-      expect(events).toEqual(["context", "context"]);
+  it("removes acknowledged context without requiring an echo and ignores presentation changes", async () => {
+    fixture.update.mockResolvedValue(acknowledged("own-update"));
+    const host = await connectHost();
+    const events: string[] = [];
+    host.subscribe((event) => events.push(event));
+    await host.shareAnnotations([annotationFor(1)]);
+    expect(host.sharedIssue?.()).toEqual({
+      source: "github",
+      repo: "yu/Arco",
+      number: 1,
+    });
+    expect(host.sharedAnnotations?.()).toEqual([annotationFor(1)]);
+    changed({ theme: "dark", containerDimensions: { width: 390 } });
+    expect(host.sharedIssue?.()?.source).toBe("github");
+    expect(events).toEqual(["context"]);
+    changed({ "openai/modelContext": null });
+    expect(host.sharedIssue?.()).toBeNull();
+    expect(host.sharedAnnotations?.()).toBeNull();
+    expect(events).toEqual(["context", "context"]);
 
-      const params = fixture.update.mock.calls[0]![0];
-      expect(params.structuredContent).toMatchObject({
-        source: "github",
-        number: 1,
-        selection: { text: "Selected words 1", origin: "ui" },
-        arcoSharedIssue: 1,
-        annotations: [annotationFor(1)],
-      });
-      expect(params.structuredContent).not.toHaveProperty("body");
-      expect(params.content).toEqual([
-        {
-          type: "text",
-          text: "1. yu/Arco #1\nSelected words 1",
-          _meta: {
-            "openai/title": "#1 Selected words 1",
-            "openai/group": { title: "1 annotation" },
-          },
+    const params = fixture.update.mock.calls[0]![0];
+    expect(params.structuredContent).toMatchObject({
+      source: "github",
+      number: 1,
+      selection: { text: "Selected words 1", origin: "ui" },
+      arcoSharedIssue: 1,
+      annotations: [annotationFor(1)],
+    });
+    expect(params.structuredContent).not.toHaveProperty("body");
+    expect(params.content).toEqual([
+      {
+        type: "text",
+        text: "1. yu/Arco #1\nSelected words 1",
+        _meta: {
+          "openai/title": "#1 Selected words 1",
+          "openai/group": { title: "1 annotation" },
         },
-        expect.objectContaining({
-          type: "text",
-          annotations: { audience: ["assistant"] },
-          _meta: { "openai/group": { title: "1 annotation" } },
-        }),
-      ]);
-    },
-  );
+      },
+      expect.objectContaining({
+        type: "text",
+        annotations: { audience: ["assistant"] },
+        _meta: { "openai/group": { title: "1 annotation" } },
+      }),
+    ]);
+  });
 
   it("groups separate numbered GitHub and Linear items and edits one note without replacing the other annotation", async () => {
     fixture.update.mockResolvedValue(acknowledged("collection"));
@@ -765,23 +848,23 @@ describe("host attachment context lifecycle", () => {
     });
   });
 
-  it("clears a generic selection without ACK metadata even though it has no native Issue ref", async () => {
+  it("reports an unconfirmed attachment instead of applying a local success without ACK metadata", async () => {
     fixture.update.mockResolvedValue({});
     const host = await connectHost();
     const events: string[] = [];
     host.subscribe((event) => events.push(event));
-    await host.shareAnnotations([
-      { number: 1, selection: { text: "Arco", origin: "ui" } },
-    ]);
+    await expect(
+      host.shareAnnotations([
+        { number: 1, selection: { text: "Arco", origin: "ui" } },
+      ]),
+    ).rejects.toThrow("did not confirm the context attachment");
     expect(host.sharedIssue?.()).toBeNull();
-    expect(host.sharedAnnotations?.()).toEqual([
-      { number: 1, selection: { text: "Arco", origin: "ui" } },
-    ]);
+    expect(host.sharedAnnotations()).toBeNull();
     changed({ "openai/modelContext": null });
     expect(host.sharedAnnotations?.()).toBeNull();
-    expect(events).toEqual(["context", "context"]);
+    expect(events).toEqual([]);
     changed({ theme: "dark", "openai/modelContext": null });
-    expect(events).toEqual(["context", "context"]);
+    expect(events).toEqual([]);
   });
 
   it.each([

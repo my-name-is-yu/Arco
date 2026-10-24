@@ -13,6 +13,10 @@ import type {
   IssueDetail,
   IssueRef,
 } from "../shared/contracts";
+import {
+  pageContinuationError,
+  requirePageContinuation,
+} from "./page-continuation";
 const issueKey = (issue: IssueRef) =>
   ["issue", issue.repo, issue.number] as const;
 export const commentsKey = (issue: IssueRef) =>
@@ -22,7 +26,7 @@ export const commentPostsKey = (issue: IssueRef) =>
 const firstCommentPage = (issue: IssueDetail): CommentPage => ({
   comments: issue.comments,
   hasMore: issue.commentsHasMore,
-  nextPage: issue.commentsNextPage ?? (issue.commentsHasMore ? 2 : undefined),
+  nextPage: issue.commentsNextPage,
 });
 
 export function mergeCommentPages(
@@ -46,10 +50,16 @@ export function mergeCommentPages(
 
 export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
   const client = useQueryClient();
+  const firstPage = firstCommentPage(issue);
+  const firstPageError = pageContinuationError(
+    firstPage.hasMore,
+    firstPage.nextPage,
+    "GitHub comments",
+  );
   const comments = useInfiniteQuery({
     queryKey: commentsKey(issue),
     initialPageParam: 1,
-    initialData: { pages: [firstCommentPage(issue)], pageParams: [1] },
+    initialData: { pages: [firstPage], pageParams: [1] },
     structuralSharing: (previous, incoming) => {
       const pages = incoming as InfiniteData<CommentPage, number>;
       const current = client.getQueryData<IssueDetail>(issueKey(issue));
@@ -66,14 +76,16 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
     },
     staleTime: Infinity,
     refetchInterval: 30_000,
-    queryFn: ({ pageParam, signal }) => {
+    queryFn: async ({ pageParam, signal }) => {
       // The detail query refreshes the first page. Only explicitly loaded
       // continuation pages need additional provider reads during refresh.
-      if (pageParam === 1)
-        return firstCommentPage(
+      if (pageParam === 1) {
+        const page = firstCommentPage(
           client.getQueryData<IssueDetail>(issueKey(issue)) ?? issue,
         );
-      return host.call<CommentPage>(
+        return requirePageContinuation(page, page.nextPage, "GitHub comments");
+      }
+      const page = await host.call<CommentPage>(
         "arco_comments",
         {
           repo: issue.repo,
@@ -82,6 +94,7 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
         },
         { signal, priority: "background" },
       );
+      return requirePageContinuation(page, page.nextPage, "GitHub comments");
     },
     getNextPageParam: (page) => (page.hasMore ? page.nextPage : undefined),
   });
@@ -125,5 +138,13 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
     );
   }, [client, comments.data, issue]);
   const visibleComments = mergeCommentPages(comments.data.pages, posted.data);
-  return { ...comments, comments: visibleComments };
+  return {
+    comments: visibleComments,
+    error: firstPageError ?? comments.error,
+    isError: firstPageError !== null || comments.isError,
+    hasNextPage: firstPageError === null && comments.hasNextPage,
+    isFetching: comments.isFetching,
+    isFetchingNextPage: comments.isFetchingNextPage,
+    fetchNextPage: comments.fetchNextPage,
+  };
 }

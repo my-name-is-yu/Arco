@@ -6,6 +6,7 @@ import { LinearWorkspace } from "./LinearWorkspace";
 import { SelectionShare } from "./SelectionShare";
 import { HostProvider, useHostView } from "./HostProvider";
 import { WorkspaceSkeleton } from "./LoadingSkeleton";
+import { AsyncState } from "./AsyncState";
 import { sessionValue, useSessionState } from "./session-state";
 import { useSettings } from "./useSettings";
 function Workspace({
@@ -21,21 +22,35 @@ function Workspace({
     host,
     "active-source",
     () => {
-      const restore = launch?.view !== "project" || mode === "inline";
+      const restore = launch.view !== "project" || mode === "inline";
       return (
         launch.target?.source ??
         launch.source ??
         (restore ? sharedIssue?.source : null) ??
-        (launch?.view === "project" ? "github" : null)
+        (launch.view === "project" ? "github" : null)
       );
     },
   );
   if (settings.query.isPending) return <WorkspaceSkeleton mode={mode} />;
+  if (settings.query.isError)
+    return (
+      <main className="arco empty-state">
+        <AsyncState kind="error">
+          <h1>Could not load local settings</h1>
+          <p>{settings.query.error.message}</p>
+          <button
+            className="text-button"
+            onClick={() => void settings.query.refetch()}
+          >
+            Retry loading settings
+          </button>
+        </AsyncState>
+      </main>
+    );
   const source =
     (mode === "inline" ? launch.target?.source : undefined) ??
     override ??
-    settings.query.data?.settings.activeSource ??
-    "github";
+    settings.query.data.settings.activeSource;
   const changeSource = (next: "github" | "linear") => {
     setOverride(next);
     if (launch.view !== "project")
@@ -57,7 +72,7 @@ function Workspace({
 }
 function LaunchWorkspace({ host }: { host: ArcoHost }) {
   const { launch, mode } = useHostView();
-  const error = host.launchError?.();
+  const error = host.launchError();
   return launch ? (
     <Workspace host={host} launch={launch} />
   ) : error ? (

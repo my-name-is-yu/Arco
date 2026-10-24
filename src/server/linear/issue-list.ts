@@ -1,3 +1,4 @@
+import { LinearServiceError, linearFailure } from "./errors";
 import { PaginationOrderBy } from "@linear/sdk";
 import { z } from "zod";
 import { linearIssueUrl } from "../../shared/issue-url";
@@ -106,19 +107,20 @@ export function createLinearIssueReader({
             : PaginationOrderBy.UpdatedAt,
         ...(searching ? { term: input.query } : {}),
       });
-    } catch {
+    } catch (error) {
       // SDK errors can include the request, search text, and source response.
-      throw new Error(
-        "Unable to load Linear issues. Check access and refresh.",
-      );
+      throw linearFailure(error, {
+        message: "Unable to load Linear issues. Check access and refresh.",
+      });
     }
     const parsed = responseSchema.safeParse(raw);
     if (
       !parsed.success ||
       (typeof raw === "object" && raw !== null && "errors" in raw)
     )
-      throw new Error(
+      throw new LinearServiceError(
         "Linear returned an incomplete issue list. Refresh and try again.",
+        "invalid-response",
       );
     const { organization, team, issuePage } = parsed.data;
     if (
@@ -126,8 +128,9 @@ export function createLinearIssueReader({
       team.id !== input.teamId ||
       team.organization.id !== input.workspaceId
     )
-      throw new Error(
+      throw new LinearServiceError(
         "The selected Linear workspace or team does not match this connection.",
+        "invalid-input",
       );
     const ids = new Set<string>();
     for (const issue of issuePage.nodes) {
@@ -135,7 +138,10 @@ export function createLinearIssueReader({
       try {
         canonical = linearIssueUrl(issue.url);
       } catch {
-        throw new Error("Linear returned an invalid issue identity.");
+        throw new LinearServiceError(
+          "Linear returned an invalid issue identity.",
+          "invalid-response",
+        );
       }
       if (
         ids.has(issue.id) ||
@@ -144,8 +150,9 @@ export function createLinearIssueReader({
         canonical.identifier !== issue.identifier.toUpperCase() ||
         (input.stateId && issue.state.id !== input.stateId)
       )
-        throw new Error(
+        throw new LinearServiceError(
           "Linear returned a mismatched issue identity or scope.",
+          "invalid-response",
         );
       ids.add(issue.id);
     }
@@ -154,8 +161,9 @@ export function createLinearIssueReader({
       hasNextPage &&
       (!issuePage.nodes.length || !endCursor || endCursor === input.cursor)
     )
-      throw new Error(
+      throw new LinearServiceError(
         "Linear issue pagination did not advance. Refresh and try again.",
+        "invalid-response",
       );
     return {
       issues: issuePage.nodes.map((issue) => ({
