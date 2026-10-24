@@ -372,6 +372,75 @@ describe("write safety across the service boundary", () => {
     expect(writes).toBe(1);
   });
 
+  it.each(["auth", "unavailable"])(
+    "retries the same request after a preflight %s failure recovers",
+    async (code) => {
+      const base = stubRun();
+      let available = false;
+      const run = vi.fn<GhRunner>(async (args, input) => {
+        if (!available && args[3]?.endsWith("/issues/42"))
+          throw new GitHubError("Preflight failed", code);
+        return base(args, input);
+      });
+      const service = createGitHubService({ run });
+      const input = {
+        ...ref,
+        requestId: `recover-preflight-${code}`,
+        patch: { title: "Retry after reconnecting" },
+      };
+      await expect(service.update(input)).rejects.toMatchObject({ code });
+      available = true;
+      await expect(service.update(input)).resolves.toMatchObject(ref);
+      expect(
+        run.mock.calls.filter(([args]) => args.includes("PATCH")),
+      ).toHaveLength(1);
+    },
+  );
+
+  it("retries a definitively rejected write after permissions recover", async () => {
+    const base = stubRun();
+    let allowed = false;
+    const run = vi.fn<GhRunner>(async (args, input) => {
+      if (!allowed && args.includes("PATCH"))
+        throw new GitHubError("Permission denied", "forbidden");
+      return base(args, input);
+    });
+    const service = createGitHubService({ run });
+    const input = {
+      ...ref,
+      requestId: "recover-rejected-write",
+      patch: { title: "Retry after granting permission" },
+    };
+    await expect(service.update(input)).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    allowed = true;
+    await expect(service.update(input)).resolves.toMatchObject(ref);
+    expect(
+      run.mock.calls.filter(([args]) => args.includes("PATCH")),
+    ).toHaveLength(2);
+  });
+
+  it("retains an accepted comment with an unreadable response without posting it again", async () => {
+    const run = stubRun({ write: async () => ({}) });
+    const service = createGitHubService({ run });
+    const input = {
+      ...ref,
+      requestId: "saved-unreadable-comment",
+      body: "Only one comment",
+    };
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(service.comment(input)).rejects.toMatchObject({
+        code: "refresh",
+        message: expect.stringContaining("saved to GitHub"),
+      });
+    expect(
+      run.mock.calls.filter(
+        ([args]) => args.includes("POST") && args[3]?.endsWith("/comments"),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("retains a created Issue identifier and URL when its detail refresh fails", async () => {
     const base = stubRun();
     const run = vi.fn<GhRunner>(async (args, input) => {

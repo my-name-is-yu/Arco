@@ -17,6 +17,7 @@ import { SingleSelect } from "./SingleSelect";
 import { MultiSelect } from "./MultiSelect";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { requirePageContinuation } from "./page-continuation";
+import { useSessionState } from "./session-state";
 
 type Memberships = {
   memberships: {
@@ -35,29 +36,38 @@ const showValue = (value: FieldValue) =>
       : String(value);
 
 export function FieldEditor({
+  host,
+  draftScope,
   field,
   kind,
   busy,
   onSave,
   saveLabel = "Save",
 }: {
+  host: ArcoHost;
+  draftScope: readonly (string | number)[];
   field: IssueField | ProjectField;
   kind: "issue" | "project";
   busy: boolean;
   onSave: (value: FieldValue) => Promise<boolean>;
   saveLabel?: string;
 }) {
-  const [edited, setEdited] = useState(false);
-  const [value, setValue] = useState<FieldValue>(field.value);
-  const [base, setBase] = useState(field.value);
+  const [draft, setDraft] = useSessionState(
+    host,
+    `github:field-draft:${JSON.stringify(draftScope)}`,
+    {
+      edited: false,
+      value: field.value,
+      base: field.value,
+    },
+  );
+  const { edited, value, base } = draft;
   const current = edited ? value : field.value;
   const type = field.type.toLowerCase().replace(/[_ -]/g, "");
   const changedElsewhere =
     edited && JSON.stringify(base) !== JSON.stringify(field.value);
   const set = (next: FieldValue) => {
-    if (!edited) setBase(field.value);
-    setValue(next);
-    setEdited(true);
+    setDraft({ edited: true, value: next, base: edited ? base : field.value });
   };
   const choices = field.options.map((option) => ({
     value: kind === "issue" ? option.name : String(option.id),
@@ -68,7 +78,8 @@ export function FieldEditor({
   const valid =
     type !== "number" || numberValue === null || Number.isFinite(numberValue);
   const save = async (next: FieldValue) => {
-    if (await onSave(next)) setEdited(false);
+    if (await onSave(next))
+      setDraft({ edited: false, value: next, base: next });
   };
   return (
     <section className="field-editor">
@@ -134,7 +145,7 @@ export function FieldEditor({
               The source value changed to “{showValue(field.value)}”.
               <button
                 className="text-button"
-                onClick={() => setBase(field.value)}
+                onClick={() => setDraft({ ...draft, base: field.value })}
               >
                 Keep draft after reviewing the latest value
               </button>
@@ -288,6 +299,8 @@ function IssueFields({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
       {query.data?.fields.map((field) => (
         <FieldEditor
           key={field.id}
+          host={host}
+          draftScope={[issue.repo, issue.number, "issue", field.id]}
           field={field}
           kind="issue"
           busy={action.busy}
@@ -357,6 +370,15 @@ function ProjectFields({
       {query.data?.fields.map((field) => (
         <FieldEditor
           key={field.id}
+          host={host}
+          draftScope={[
+            issue.repo,
+            issue.number,
+            "project",
+            projectId,
+            itemId,
+            field.id,
+          ]}
           field={field}
           kind="project"
           busy={action.busy}

@@ -688,11 +688,19 @@ export function createLinearFixtureService(): LinearService {
           if (input.patch) patchIssue(issue, input.patch);
           labels(issue, input.addLabels ?? [], input.removeLabels ?? []);
           issues.set(issueId, issue);
-          results.push({ issueId, success: true, issue: touch(issue) });
+          results.push({
+            issueId,
+            success: true,
+            saved: true,
+            retryable: false,
+            issue: touch(issue),
+          });
         } catch (error) {
           results.push({
             issueId,
             success: false,
+            saved: false,
+            retryable: true,
             error:
               error instanceof Error
                 ? error.message

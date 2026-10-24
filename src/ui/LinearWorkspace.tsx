@@ -56,6 +56,7 @@ import { isIssueUrlInput, linearIssueUrl } from "../shared/issue-url";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { useListScroll, useListKeyboard } from "./useListInteraction";
 import { useIssueListContinuation } from "./useIssueListContinuation";
+import { useDebouncedSearch } from "./useDebouncedSearch";
 import {
   linearRef,
   useLinearIssueList,
@@ -271,6 +272,7 @@ export function LinearWorkspace({
     settings.query.data?.settings.linearFilters[scopeId] ??
     defaultLinearFilter;
   const { query, ...filters } = currentFilter;
+  const searchQuery = useDebouncedSearch(query, scopeId);
   const updateFilter = (patch: Partial<LinearFilter>) => {
     const next = {
       ...(filtersRef.current[scopeId] ?? currentFilter),
@@ -302,10 +304,10 @@ export function LinearWorkspace({
     scope,
     canRead && !targetedInline && Boolean(scope),
   );
-  const pageScope = JSON.stringify([scope, query, filters]);
+  const pageScope = JSON.stringify([scope, searchQuery.query, filters]);
   const issues = useLinearIssueList(host, {
     scope,
-    query,
+    query: searchQuery.query,
     filters,
     enabled:
       canRead && !targetedInline && Boolean(scope) && !settings.query.isPending,
@@ -986,6 +988,8 @@ export function LinearWorkspace({
                   <input
                     ref={search}
                     aria-label="Search Linear Issues"
+                    onCompositionStart={searchQuery.onCompositionStart}
+                    onCompositionEnd={searchQuery.onCompositionEnd}
                     value={searchEntry ?? query}
                     aria-describedby={
                       searchError ? "linear-search-error" : undefined
@@ -1260,6 +1264,13 @@ export function LinearWorkspace({
           <p className="inline-error settings-error" role="alert">
             Could not save Linear display settings:{" "}
             {settings.error || settings.query.error?.message}
+            <button
+              className="text-button"
+              disabled={settings.pending}
+              onClick={settings.retry}
+            >
+              Retry save
+            </button>
           </p>
         )}
         <footer className="sidebar-footer sidebar-account">

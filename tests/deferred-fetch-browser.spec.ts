@@ -182,22 +182,22 @@ test("leaving an issue discards its queued image and reaction reads", async ({
         (_, index) => `Loading Queued preview ${index + 1}…`,
       ),
     );
-    await expect.poll(() => oldReads().length).toBe(2);
+    await expect.poll(() => oldReads().length).toBe(1);
     const reactions = ui.getByLabel("Issue reactions", { exact: true });
     await expect(reactions).toContainText("Reactions not loaded");
     await reactions.scrollIntoViewIfNeeded();
     await expect(reactions).toContainText("Loading reactions");
     await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
-    // The old observers must unmount while both started reads remain in flight.
+    // Navigation uses the reserved slot while the old preview remains in flight.
     await expect(ui.locator(".source-image-placeholder")).toHaveCount(0);
-    releaseImages();
     await expect(
       ui.getByRole("heading", { name: secondTitle, exact: true }),
     ).toBeVisible();
+    releaseImages();
     await expect(
       ui.getByLabel("Issue reactions", { exact: true }),
     ).not.toContainText("Loading reactions");
-    expect(oldReads()).toHaveLength(2);
+    expect(oldReads()).toHaveLength(1);
     expect(oldReads().every((call) => call.name === "arco_read_image")).toBe(
       true,
     );

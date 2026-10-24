@@ -73,6 +73,7 @@ import {
 } from "./github-queries";
 import { useListScroll, useListKeyboard } from "./useListInteraction";
 import { useIssueListContinuation } from "./useIssueListContinuation";
+import { useDebouncedSearch } from "./useDebouncedSearch";
 
 const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
 const errorText = (error: unknown) =>
@@ -306,6 +307,7 @@ export function GitHubWorkspace({
       order: "desc" as const,
     };
   const { query, state, sort, order } = filter;
+  const search = useDebouncedSearch(query, filterKey);
   const updateFilter = (patch: Partial<Settings["githubFilters"][string]>) => {
     const current = filtersRef.current[filterKey] ?? filter;
     const next = { ...current, ...patch };
@@ -361,12 +363,12 @@ export function GitHubWorkspace({
     setSelected(previous ? { repo: nextRepo, number: previous } : null);
     setShowDetail(false);
   };
-  const listScope = `${connectionIdentity}|${repo || `@account:${accountView}`}|${query}|${state}|${sort}|${order}`;
+  const listScope = `${connectionIdentity}|${repo || `@account:${accountView}`}|${search.query}|${state}|${sort}|${order}`;
   const issues = useGitHubIssueList(host, {
     connection: connection.data,
     repo,
     accountView,
-    query,
+    query: search.query,
     state,
     sort,
     order,
@@ -1031,11 +1033,8 @@ export function GitHubWorkspace({
             {settings.error || settings.query.error?.message}
             <button
               className="text-button"
-              onClick={() =>
-                repo
-                  ? settings.register(repo, registeredRepos)
-                  : settings.setAccountScope()
-              }
+              disabled={settings.pending}
+              onClick={settings.retry}
             >
               Retry save
             </button>
@@ -1049,6 +1048,8 @@ export function GitHubWorkspace({
               aria-label="Search issues"
               value={searchEntry ?? (repo ? query : "")}
               disabled={!connection.data?.connected}
+              onCompositionStart={search.onCompositionStart}
+              onCompositionEnd={search.onCompositionEnd}
               aria-describedby={searchError ? "github-search-error" : undefined}
               onChange={(event) => {
                 urlRequest.current += 1;

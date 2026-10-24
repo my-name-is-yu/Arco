@@ -1212,6 +1212,9 @@ test(
     });
     expect(scrollTop).toBeGreaterThan(0);
     await app.getByRole("textbox", { name: "Search issues" }).fill("shared");
+    // Wait for the debounced result before selecting, so this exercises
+    // restoration from a filtered list rather than clicking the previous list.
+    await expect(app.locator(".issue-row")).toHaveCount(1);
     await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
     await expect(
       app.getByRole("heading", { name: secondTitle, exact: true }),
@@ -1220,6 +1223,7 @@ test(
       app.getByRole("textbox", { name: "Search issues" }),
     ).toHaveValue("shared");
     await app.getByRole("textbox", { name: "Search issues" }).fill("");
+    await expect(app.locator(".issue-row")).toHaveCount(3);
     await expect
       .poll(() => list.evaluate((element) => element.scrollTop))
       .toBe(scrollTop);

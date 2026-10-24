@@ -206,14 +206,14 @@ describe("leading presentation images", () => {
     const stop = options.map((option) =>
       new QueryObserver(client, option).subscribe(() => {}),
     );
-    expect(start).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(1);
     stop.forEach((unsubscribe) => unsubscribe());
     for (const finish of finishes) finish();
     await vi.waitFor(() => {
       for (const option of options)
         expect(client.getQueryState(option.queryKey)?.fetchStatus).toBe("idle");
     });
-    expect(start).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(1);
     for (const option of options)
       expect(client.getQueryState(option.queryKey)?.error).toBeNull();
     queue.close();

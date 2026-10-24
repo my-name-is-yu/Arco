@@ -13,20 +13,28 @@ export type ToolRequestOptions = {
 export function createToolQueue() {
   const waiting: WaitingRequest[] = [];
   let active = 0;
+  let backgroundActive = 0;
   let closed = false;
   const closedError = () =>
     new Error("Arco is closed. This request was not started.");
 
   const drain = () => {
     while (!closed && active < 2 && waiting.length) {
+      // Reserve one RPC slot for explicit actions even while previews are slow.
+      const index = waiting.findIndex(
+        (request) => request.priority === "interactive" || backgroundActive < 1,
+      );
+      if (index < 0) break;
       active += 1;
-      const request = waiting.shift()!;
+      const [request] = waiting.splice(index, 1);
+      if (request.priority === "background") backgroundActive += 1;
       request.cleanup();
       request.start();
     }
   };
-  const complete = () => {
+  const complete = (priority: WaitingRequest["priority"]) => {
     active -= 1;
+    if (priority === "background") backgroundActive -= 1;
     drain();
   };
 
@@ -65,11 +73,11 @@ export function createToolQueue() {
             void result.then(
               (value) => {
                 resolve(value);
-                complete();
+                complete(priority);
               },
               (error: unknown) => {
                 reject(error);
-                complete();
+                complete(priority);
               },
             );
           },

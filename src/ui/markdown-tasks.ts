@@ -3,14 +3,13 @@ export interface MarkdownTask {
   text: string;
 }
 
-export function markdownTaskAtLine(
+export function markdownTasks(
   markdown: string,
-  line: number,
-): MarkdownTask | null {
-  if (!Number.isSafeInteger(line) || line < 1) return null;
+): ReadonlyMap<number, MarkdownTask> {
+  const tasks = new Map<number, MarkdownTask>();
   const lines = markdown.split(/\r\n|\n|\r/);
   let fence: { marker: string; length: number } | null = null;
-  for (let index = 0; index < Math.min(line, lines.length); index++) {
+  for (let index = 0; index < lines.length; index++) {
     const match = /^\s*(`{3,}|~{3,})(.*)$/.exec(lines[index]);
     if (match) {
       if (fence) {
@@ -21,18 +20,27 @@ export function markdownTaskAtLine(
         )
           fence = null;
       } else fence = { marker: match[1][0], length: match[1].length };
-      if (index === line - 1) return null;
+      continue;
     }
-    if (index !== line - 1) continue;
-    if (fence) return null;
+    if (fence) continue;
     const task = /^\s*(?:[-+*]|\d+[.)])\s+\[([ xX])\](?:\s+|$)(.*)$/.exec(
       lines[index],
     );
-    return task
-      ? { checked: task[1].toLowerCase() === "x", text: task[2] }
-      : null;
+    if (task)
+      tasks.set(index + 1, {
+        checked: task[1].toLowerCase() === "x",
+        text: task[2],
+      });
   }
-  return null;
+  return tasks;
+}
+
+export function markdownTaskAtLine(
+  markdown: string,
+  line: number,
+): MarkdownTask | null {
+  if (!Number.isSafeInteger(line) || line < 1) return null;
+  return markdownTasks(markdown).get(line) ?? null;
 }
 
 export function toggleMarkdownTask(

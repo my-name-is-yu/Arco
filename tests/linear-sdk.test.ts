@@ -84,6 +84,10 @@ async function source() {
     relations: false,
     failAfterCreate: "" as "" | "issue" | "comment",
     failIssueRead: false,
+    failAfterUpdate: false,
+    failProjects: false,
+    rejectUpdate: false,
+    mutationSuccess: true as unknown,
     commentCount: 0,
     commentIssueId: "issue",
   };
@@ -115,6 +119,12 @@ async function source() {
         bearer: request.headers.authorization === "Bearer fake-sdk-token",
         query: input.query,
       });
+      if (operation === "updateIssue" && controls.rejectUpdate) {
+        response.statusCode = 403;
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({ errors: [{ message: "Forbidden" }] }));
+        return;
+      }
       const organization = {
         id: "workspace",
         urlKey: "fixture",
@@ -186,6 +196,22 @@ async function source() {
         case "comment":
           data = { comment: sourceComment(String(input.variables.id)) };
           break;
+        case "user":
+          data = { user: { id: "user", name: "Test user" } };
+          break;
+        case "workflowState":
+          data = {
+            workflowState: {
+              id: "state",
+              name: "In progress",
+              type: "started",
+              color: "#ffcc00",
+            },
+          };
+          break;
+        case "issue_labels":
+          data = { issue: { labels: connection(issue.labelIds.map(label)) } };
+          break;
         case "issue_comments": {
           const start = input.variables.after
             ? Number(String(input.variables.after).replace("comment-", "")) + 1
@@ -256,11 +282,23 @@ async function source() {
         case "createComment":
           data = {
             commentCreate: {
-              success: true,
+              success: controls.mutationSuccess,
               comment: { id: "created-comment" },
             },
           };
           controls.failIssueRead = controls.failAfterCreate === "comment";
+          break;
+        case "fileUpload":
+          data = {
+            fileUpload: {
+              success: true,
+              uploadFile: {
+                uploadUrl: "http://uploads.invalid/test",
+                assetUrl: "https://uploads.invalid/test",
+                headers: [],
+              },
+            },
+          };
           break;
         case "organization_labels":
           data = {
@@ -298,6 +336,8 @@ async function source() {
           };
           break;
         case "team_projects":
+          if (controls.failProjects)
+            throw new Error("Simulated project catalog failure");
           data = { team: { projects: connection([]) } };
           break;
         case "team_cycles":
@@ -346,6 +386,7 @@ async function source() {
             ).toISOString();
           }
           data = { issueUpdate: { success: true, issue: { id: issue.id } } };
+          if (controls.failAfterUpdate) controls.failIssueRead = true;
           break;
         }
         default: {
@@ -653,17 +694,21 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
       "existing",
       "added",
     ]);
-    for (const operation of [
-      "team",
-      "team_projects",
-      "team_states",
-      "issue_comments",
-      "issue_children",
-    ])
+    for (const operation of ["team", "issue_comments", "issue_children"])
       expect(
         calls.filter((call) => call.operation === operation),
         operation,
       ).toHaveLength(1);
+    expect(
+      calls.some((call) =>
+        [
+          "team_projects",
+          "team_states",
+          "team_cycles",
+          "team_members",
+        ].includes(call.operation),
+      ),
+    ).toBe(false);
     expect(
       calls.filter((call) => call.operation === "updateIssue"),
     ).toHaveLength(2);
@@ -701,11 +746,214 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
       results: { success: boolean; error: string; issue: LinearIssue }[];
     };
     expect(result.results[0].success).toBe(false);
+    expect(result.results[0]).toMatchObject({ saved: true, retryable: false });
     expect(result.results[0].error).toContain("Properties were saved");
     expect(result.results[0].issue.priority).toBe(1);
     expect(result.results[0].issue.labels.map((label) => label.id)).toEqual([
       "existing",
     ]);
+  });
+  it("reads an issue and edits its title without unrelated field catalogs", async () => {
+    const { service, calls, issue, controls } = await source();
+    controls.failProjects = true;
+    const detail = (await service.call("linear_get_issue", ref)) as LinearIssue;
+    expect(detail.title).toBe("Source title");
+    const detailRequests = calls.length;
+    const updated = (await service.call("linear_update_issue", {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "A narrow title change" },
+    })) as LinearIssue;
+    expect(updated.title).toBe("A narrow title change");
+    expect(
+      calls.some((call) =>
+        /^(?:team_(?:projects|states|members|cycles|labels)|organization_labels|project_projectMilestones)$/.test(
+          call.operation,
+        ),
+      ),
+    ).toBe(false);
+    expect(detailRequests).toBeLessThan(15);
+    expect(calls.length - detailRequests).toBeLessThan(17);
+  });
+  it("retries the same request after a read fails before any mutation", async () => {
+    const { service, calls, issue, controls } = await source();
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "Recovered title" },
+    };
+    controls.failIssueRead = true;
+    await expect(
+      service.call("linear_update_issue", input),
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(calls.some((call) => call.operation === "updateIssue")).toBe(false);
+    controls.failIssueRead = false;
+    await expect(
+      service.call("linear_update_issue", input),
+    ).resolves.toMatchObject({ title: "Recovered title" });
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(1);
+  });
+  it("keeps an acknowledged bulk save successful when only readback fails", async () => {
+    const { service, calls, controls } = await source();
+    controls.failAfterUpdate = true;
+    const input = {
+      ...scope,
+      requestId: randomUUID(),
+      issueIds: ["issue"],
+      patch: { priority: 1 },
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = (await service.call("linear_bulk", input)) as {
+        results: object[];
+      };
+      expect(result.results).toEqual([
+        expect.objectContaining({
+          issueId: "issue",
+          success: true,
+          saved: true,
+          retryable: false,
+          refreshError: expect.any(String),
+        }),
+      ]);
+    }
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(1);
+  });
+  it("allows the same request after a mutation was definitively rejected", async () => {
+    const { service, controls, issue, calls } = await source();
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "Allowed after access recovery" },
+    };
+    controls.rejectUpdate = true;
+    await expect(
+      service.call("linear_update_issue", input),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    controls.rejectUpdate = false;
+    await expect(
+      service.call("linear_update_issue", input),
+    ).resolves.toMatchObject({ title: "Allowed after access recovery" });
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(2);
+  });
+  it("distinguishes retryable bulk preflight failures from ambiguous mutations", async () => {
+    const { service, controls } = await source();
+    const input = { ...scope, issueIds: ["issue"], patch: { priority: 1 } };
+    controls.failIssueRead = true;
+    const beforeWrite = (await service.call("linear_bulk", {
+      ...input,
+      requestId: randomUUID(),
+    })) as { results: object[] };
+    expect(beforeWrite.results[0]).toMatchObject({
+      success: false,
+      saved: false,
+      retryable: true,
+    });
+    controls.failIssueRead = false;
+    controls.partialError = true;
+    const uncertain = (await service.call("linear_bulk", {
+      ...input,
+      requestId: randomUUID(),
+    })) as { results: object[] };
+    expect(uncertain.results[0]).toMatchObject({
+      success: false,
+      saved: false,
+      retryable: false,
+    });
+  });
+  it("returns a saved receipt for an update whose readback fails", async () => {
+    const { service, controls, issue, calls } = await source();
+    controls.failAfterUpdate = true;
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "Acknowledged update" },
+    };
+    await expect(
+      service.call("linear_update_issue", input),
+    ).resolves.toMatchObject({
+      kind: "linear_saved_receipt",
+      operation: "update_issue",
+      saved: true,
+    });
+    await expect(
+      service.call("linear_update_issue", input),
+    ).resolves.toMatchObject({ kind: "linear_saved_receipt", saved: true });
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(1);
+  });
+  it.each([undefined, "yes", 1])(
+    "does not replay a mutation with an invalid success acknowledgement %s",
+    async (success) => {
+      const { service, controls, calls } = await source();
+      controls.mutationSuccess = success;
+      const input = {
+        ...ref,
+        requestId: randomUUID(),
+        action: "create",
+        body: "Post once",
+      };
+      await expect(service.call("linear_comment", input)).rejects.toMatchObject(
+        { code: "uncertain" },
+      );
+      controls.mutationSuccess = true;
+      await expect(service.call("linear_comment", input)).rejects.toMatchObject(
+        { code: "uncertain" },
+      );
+      expect(
+        calls.filter((call) => call.operation === "createComment"),
+      ).toHaveLength(1);
+    },
+  );
+  it("retries after the SDK explicitly reports mutation success false", async () => {
+    const { service, controls, calls } = await source();
+    controls.mutationSuccess = false;
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      action: "create",
+      body: "Post after rejection",
+    };
+    await expect(service.call("linear_comment", input)).rejects.toMatchObject({
+      code: "invalid-input",
+    });
+    controls.mutationSuccess = true;
+    await expect(service.call("linear_comment", input)).resolves.toMatchObject({
+      source: "linear",
+      issueId: "issue",
+    });
+    expect(
+      calls.filter((call) => call.operation === "createComment"),
+    ).toHaveLength(2);
+  });
+  it("preserves a completed preparatory step when a later upload step fails", async () => {
+    const { service, calls } = await source();
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      filename: "sample.bin",
+      contentType: "application/octet-stream",
+      base64: "AAAA",
+    };
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(service.call("linear_upload", input)).rejects.toMatchObject({
+        code: "uncertain",
+        message: expect.stringContaining("An earlier step completed in Linear"),
+      });
+    expect(
+      calls.filter((call) => call.operation === "fileUpload"),
+    ).toHaveLength(1);
+    expect(calls.some((call) => call.operation === "updateIssue")).toBe(false);
   });
   it("preserves incoming and outgoing dependency meaning with original relation IDs", async () => {
     const { service, controls } = await source();

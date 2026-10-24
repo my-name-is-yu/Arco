@@ -19,21 +19,10 @@ const connection = (nodes: unknown[]) =>
     fetchNext: async () => undefined,
   });
 function linearDetail(relation: Record<string, unknown>) {
-  const organization = { id: "workspace", labels: () => connection([]) };
+  const organization = { id: "workspace" };
   const team = {
     id: "team",
     organization,
-    states: () =>
-      connection([
-        { id: "state", name: "Started", type: "started", color: "#cccccc" },
-      ]),
-    members: () => connection([{ id: "user", name: "User" }]),
-    labels: () => connection([]),
-    projects: () => connection([]),
-    cycles: () => connection([]),
-    issueEstimationType: "linear",
-    issueEstimationAllowZero: false,
-    issueEstimationExtended: false,
   };
   const issue = {
     id: "issue",
@@ -43,8 +32,16 @@ function linearDetail(relation: Record<string, unknown>) {
     description: "Body",
     url: "https://linear.app/test/issue/TST-1",
     stateId: "state",
+    state: Promise.resolve({
+      id: "state",
+      name: "Started",
+      type: "started",
+      color: "#cccccc",
+    }),
     creatorId: "user",
+    creator: Promise.resolve({ id: "user", name: "User" }),
     labelIds: [],
+    labels: () => connection([]),
     priority: 2,
     updatedAt: new Date("2026-10-24T00:00:00Z"),
     reactions: [],

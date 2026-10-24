@@ -12,6 +12,40 @@ function deferred<T>() {
 }
 
 describe("UI tool request queue", () => {
+  it("reserves a slot for an explicit action while a background read is stalled", async () => {
+    const queue = createToolQueue();
+    const image = deferred<void>();
+    const obsolete = new AbortController();
+    const started: string[] = [];
+    const preview = queue.run(
+      () => {
+        started.push("first image");
+        return image.promise;
+      },
+      { priority: "background" },
+    );
+    const queued = queue.run(
+      async () => {
+        started.push("obsolete image");
+      },
+      { priority: "background", signal: obsolete.signal },
+    );
+    const cancelled = expect(queued).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    const save = queue.run(async () => {
+      started.push("save");
+      return "saved";
+    });
+    await expect(save).resolves.toBe("saved");
+    expect(started).toEqual(["first image", "save"]);
+    obsolete.abort();
+    await cancelled;
+    image.resolve();
+    await preview;
+    expect(started).toEqual(["first image", "save"]);
+  });
+
   it("discards obsolete queued reads, preserving interactive order ahead of previews", async () => {
     const queue = createToolQueue();
     const first = deferred<void>();

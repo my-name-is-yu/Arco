@@ -75,12 +75,12 @@ export function useGitHubIssueList(
         ? host.call<IssuePage>(
             "arco_list_issues",
             { repo, query, state, sort, order, ...pageParam },
-            { signal },
+            { signal, priority: "background" },
           )
         : host.call<AccountIssuePage>(
             "arco_account_issues",
             { filter: accountView, state, sort, order, page: pageParam.page },
-            { signal },
+            { signal, priority: "background" },
           ));
       if (repo && result.hasMore && !result.nextCursor)
         throw new Error(
@@ -105,14 +105,19 @@ export function useGitHubIssue(
   issue: IssueRef | null,
   enabled: boolean,
 ) {
+  const client = useQueryClient();
+  const key = issue ? githubIssueKey(issue) : ["issue", "none"];
   return useQuery({
-    queryKey: issue ? githubIssueKey(issue) : ["issue", "none"],
+    queryKey: key,
     refetchInterval: 30_000,
     queryFn: ({ signal }) =>
       host.call<IssueDetail>(
         "arco_get_issue",
         { repo: issue!.repo, number: issue!.number },
-        { signal, priority: "background" },
+        {
+          signal,
+          priority: client.getQueryData(key) ? "background" : "interactive",
+        },
       ),
     enabled,
   });
@@ -125,7 +130,12 @@ export function useGitHubMetadata(
 ) {
   return useQuery({
     queryKey: ["metadata", repo],
-    queryFn: () => host.call<RepoMetadata>("arco_repo_metadata", { repo }),
+    queryFn: ({ signal }) =>
+      host.call<RepoMetadata>(
+        "arco_repo_metadata",
+        { repo },
+        { signal, priority: "background" },
+      ),
     enabled,
   });
 }

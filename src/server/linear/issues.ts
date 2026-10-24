@@ -4,7 +4,7 @@ import { type LinearRef } from "../../shared/linear";
 import type { IssueUpdateInput } from "./operation";
 
 import {
-  assertSuccess,
+  linearMutation,
   type Args,
   type LinearHandlers,
   type LinearOperation,
@@ -18,7 +18,15 @@ export function createIssuesHandlers(operation: LinearOperation) {
     current: Issue,
     patch: Args<"linear_update_issue">["patch"],
   ): Promise<IssueUpdateInput> {
-    const meta = await metadata(scope);
+    const fields: Parameters<typeof metadata>[1] = [
+      ...(patch.stateId != null ? ["states" as const] : []),
+      ...(patch.assigneeId != null ? ["members" as const] : []),
+      ...(patch.projectId != null ? ["projects" as const] : []),
+      ...(patch.cycleId != null ? ["cycles" as const] : []),
+      ...(patch.estimate != null ? ["estimateValues" as const] : []),
+      ...(patch.projectMilestoneId != null ? ["milestones" as const] : []),
+    ];
+    const meta = await metadata(scope, fields);
     const includes = (
       values: { id: string }[],
       id: string | null | undefined,
@@ -80,7 +88,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
   async function applyLabels(input: Args<"linear_change_labels">) {
     const { client } = await context(input);
     const current = await checkedIssue(client, input);
-    const meta = await metadata(input);
+    const meta = await metadata(input, ["labels"]);
     const additions = input.add.map((id) =>
       meta.labels.find((value) => value.id === id),
     );
@@ -115,8 +123,8 @@ export function createIssuesHandlers(operation: LinearOperation) {
             );
         }
       }
-    assertSuccess(
-      await client.updateIssue(current.id, {
+    await linearMutation(() =>
+      client.updateIssue(current.id, {
         addedLabelIds: input.add,
         removedLabelIds: input.remove,
       }),
@@ -125,7 +133,9 @@ export function createIssuesHandlers(operation: LinearOperation) {
   }
   async function changeLabels(input: Args<"linear_change_labels">) {
     const issueId = await applyLabels(input);
-    return refreshAfterWrite({ ...input, issueId });
+    return refreshAfterWrite({ ...input, issueId }, undefined, {
+      operation: "change_labels",
+    });
   }
   const handlers = {
     linear_create_issue: async (input) => {
@@ -147,18 +157,19 @@ export function createIssuesHandlers(operation: LinearOperation) {
             "The parent issue belongs to another workspace.",
           );
       }
-      const created = await client.createIssue({
-        teamId: input.teamId,
-        title: input.title,
-        ...(input.body !== undefined
-          ? { description: input.body }
-          : input.templateId
-            ? {}
-            : { description: "" }),
-        ...(input.parentId ? { parentId: input.parentId } : {}),
-        ...(input.templateId ? { templateId: input.templateId } : {}),
-      });
-      assertSuccess(created);
+      const created = await linearMutation(() =>
+        client.createIssue({
+          teamId: input.teamId,
+          title: input.title,
+          ...(input.body !== undefined
+            ? { description: input.body }
+            : input.templateId
+              ? {}
+              : { description: "" }),
+          ...(input.parentId ? { parentId: input.parentId } : {}),
+          ...(input.templateId ? { templateId: input.templateId } : {}),
+        }),
+      );
       if (!created.issueId)
         throw new LinearServiceError(
           "The created Linear issue ID could not be loaded. Check Linear before creating another issue.",
@@ -178,13 +189,11 @@ export function createIssuesHandlers(operation: LinearOperation) {
           "This Linear issue changed elsewhere. Keep your draft and refresh.",
           "conflict",
         );
-      assertSuccess(
-        await client.updateIssue(
-          current.id,
-          await validatePatch(input, current, input.patch),
-        ),
-      );
-      return refreshAfterWrite({ ...input, issueId: current.id });
+      const patch = await validatePatch(input, current, input.patch);
+      await linearMutation(() => client.updateIssue(current.id, patch));
+      return refreshAfterWrite({ ...input, issueId: current.id }, undefined, {
+        operation: "update_issue",
+      });
     },
     linear_change_labels: async (input) => {
       return changeLabels(input);
@@ -193,9 +202,10 @@ export function createIssuesHandlers(operation: LinearOperation) {
       const { client } = await context(input);
       if (input.action === "create") {
         if (!input.name) throw new LinearServiceError("Enter a label name.");
-        assertSuccess(
-          await client.createIssueLabel({
-            name: input.name,
+        const name = input.name;
+        await linearMutation(() =>
+          client.createIssueLabel({
+            name,
             color: input.color,
             description: input.description,
             ...(input.scope === "team" ? { teamId: input.teamId } : {}),
@@ -217,10 +227,10 @@ export function createIssuesHandlers(operation: LinearOperation) {
             "Manage label groups in Linear.",
             "unsupported",
           );
-        assertSuccess(
+        await linearMutation<{ success: boolean }>(() =>
           input.action === "delete"
-            ? await client.deleteIssueLabel(current.id)
-            : await client.updateIssueLabel(current.id, {
+            ? client.deleteIssueLabel(current.id)
+            : client.updateIssueLabel(current.id, {
                 name: input.name,
                 color: input.color,
                 description: input.description,

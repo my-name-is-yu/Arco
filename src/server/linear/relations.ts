@@ -2,7 +2,7 @@ import { LinearServiceError } from "./errors";
 import { IssueRelationType } from "@linear/sdk";
 
 import {
-  assertSuccess,
+  linearMutation,
   type LinearHandlers,
   type LinearOperation,
 } from "./operation";
@@ -24,8 +24,8 @@ export function createRelationsHandlers(operation: LinearOperation) {
           throw new LinearServiceError(
             "Choose a different issue in the same workspace.",
           );
-        assertSuccess(
-          await client.createIssueRelation({
+        await linearMutation(() =>
+          client.createIssueRelation({
             issueId: input.kind === "blocked-by" ? other.id : issue.id,
             relatedIssueId: input.kind === "blocked-by" ? issue.id : other.id,
             type:
@@ -46,9 +46,9 @@ export function createRelationsHandlers(operation: LinearOperation) {
           throw new LinearServiceError(
             "Only supported relations on this issue can be removed.",
           );
-        assertSuccess(await client.deleteIssueRelation(relation.id));
+        await linearMutation(() => client.deleteIssueRelation(relation.id));
       }
-      return refreshAfterWrite(input);
+      return refreshAfterWrite(input, undefined, { operation: "relation" });
     },
   } satisfies Pick<LinearHandlers, "linear_relation">;
   return handlers;

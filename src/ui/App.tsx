@@ -60,7 +60,7 @@ function Workspace({
   const changeSource = (next: "github" | "linear") => {
     setOverride(next);
     if (launch.view !== "project")
-      settings.update(() => ({ activeSource: next }));
+      settings.update("source", () => ({ activeSource: next }));
   };
   return source === "github" ? (
     <GitHubWorkspace

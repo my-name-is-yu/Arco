@@ -143,7 +143,16 @@ export type LinearRef = z.infer<typeof linearRefSchema>;
 export interface LinearSavedReceipt extends LinearRef {
   kind: "linear_saved_receipt";
   saved: true;
-  operation: "create_issue" | "create_comment";
+  operation:
+    | "create_issue"
+    | "create_comment"
+    | "update_issue"
+    | "change_labels"
+    | "relation"
+    | "reaction"
+    | "update_comment"
+    | "delete_comment"
+    | "upload";
   commentId?: string;
   message: string;
 }
@@ -234,6 +243,15 @@ export interface LinearPage {
   issues: LinearIssueSummary[];
   hasMore: boolean;
   cursor: string | null;
+}
+export interface LinearBulkMemberResult {
+  issueId: string;
+  success: boolean;
+  saved: boolean;
+  retryable: boolean;
+  issue?: LinearIssue;
+  error?: string;
+  refreshError?: string;
 }
 export interface LinearConnection {
   connected: boolean;

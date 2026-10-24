@@ -2,11 +2,17 @@ import type { ArcoHost } from "../shared/contracts";
 import { useSessionState } from "./session-state";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { SingleSelect } from "./SingleSelect";
-import type { LinearMetadata, LinearScope } from "../shared/linear";
+import type {
+  LinearBulkMemberResult,
+  LinearIssue,
+  LinearMetadata,
+  LinearScope,
+} from "../shared/linear";
 
 import { isSavedReceipt, type LinearRun } from "./linear-run";
 import { DisclosureSummary } from "./DisclosureSummary";
-type Result = { issueId: string; success: boolean; error?: string };
+import { useLinearIssueCache } from "./linear-queries";
+type Result = LinearBulkMemberResult;
 type Action =
   | "state"
   | "assignee"
@@ -51,7 +57,59 @@ export function LinearBulkActions({
     `${sessionKey}:results`,
     [],
   );
+  const [refreshing, setRefreshing] = useSessionState(
+    host,
+    `${sessionKey}:refreshing`,
+    false,
+  );
+  const issueCache = useLinearIssueCache();
   const failures = results.filter((result) => !result.success);
+  const retryableFailures = failures.filter(
+    (result) => result.retryable === true,
+  );
+  const refreshFailures = results.filter((result) => result.refreshError);
+  const changeValue = (next: string) => {
+    setValue(next);
+    setResults([]);
+  };
+  const refreshSaved = async () => {
+    if (refreshing || busy) return;
+    setRefreshing(true);
+    try {
+      const refreshed = await Promise.all(
+        refreshFailures.map(async (result) => {
+          try {
+            const issue = await host.call<LinearIssue>(
+              "linear_get_issue",
+              { ...scope, issueId: result.issueId },
+              { priority: "background" },
+            );
+            issueCache.remember(issue);
+            return { ...result, issue, refreshError: undefined };
+          } catch (error) {
+            return {
+              ...result,
+              refreshError:
+                error instanceof Error
+                  ? error.message
+                  : "Could not refresh this saved issue.",
+            };
+          }
+        }),
+      );
+      setResults((previous) =>
+        previous !== results
+          ? previous
+          : previous.map(
+              (result) =>
+                refreshed.find((next) => next.issueId === result.issueId) ??
+                result,
+            ),
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const labels = metadata?.labels.filter((label) => !label.isGroup) ?? [];
   const duplicate =
     metadata?.states.find((state) => state.id === value)?.type === "duplicate";
@@ -63,10 +121,16 @@ export function LinearBulkActions({
       : value !== "") &&
     !(action === "state" && (duplicate || hasDuplicate));
   const execute = async (failedOnly = false) => {
-    if (!valid || busy) return;
+    if (
+      !valid ||
+      busy ||
+      refreshing ||
+      (!failedOnly && (failures.length || refreshFailures.length))
+    )
+      return;
     const targets = failedOnly
       ? ids.filter((id) =>
-          results.some((result) => result.issueId === id && !result.success),
+          retryableFailures.some((result) => result.issueId === id),
         )
       : ids;
     if (!targets.length) return;
@@ -92,7 +156,16 @@ export function LinearBulkActions({
       issueIds: targets,
       ...change,
     });
-    if (result && !isSavedReceipt(result)) setResults(result.results);
+    if (result && !isSavedReceipt(result))
+      setResults((previous) =>
+        failedOnly
+          ? previous.map(
+              (old) =>
+                result.results.find((next) => next.issueId === old.issueId) ??
+                old,
+            )
+          : result.results,
+      );
   };
   return (
     <section className="linear-bulk" aria-label="Bulk Linear actions">
@@ -148,7 +221,7 @@ export function LinearBulkActions({
                 disabled: state.type === "duplicate",
               })),
             ]}
-            onChange={setValue}
+            onChange={changeValue}
           />
         </label>
       )}
@@ -173,7 +246,7 @@ export function LinearBulkActions({
                 label: member.name,
               })),
             ]}
-            onChange={setValue}
+            onChange={changeValue}
           />
         </label>
       )}
@@ -191,7 +264,7 @@ export function LinearBulkActions({
                 label: `${label.name}${label.teamId ? " · Team" : " · Workspace"}`,
               })),
             ]}
-            onChange={setValue}
+            onChange={changeValue}
           />
         </label>
       )}
@@ -208,7 +281,7 @@ export function LinearBulkActions({
                 (label, priority) => ({ value: String(priority), label }),
               ),
             ]}
-            onChange={setValue}
+            onChange={changeValue}
           />
         </label>
       )}
@@ -227,7 +300,7 @@ export function LinearBulkActions({
                 label: String(estimate),
               })),
             ]}
-            onChange={setValue}
+            onChange={changeValue}
           />
         </label>
       )}
@@ -239,14 +312,17 @@ export function LinearBulkActions({
             type="date"
             value={value}
             disabled={busy || clearDate}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => changeValue(event.target.value)}
           />
           <span className="checkbox-label">
             <input
               type="checkbox"
               checked={clearDate}
               disabled={busy}
-              onChange={(event) => setClearDate(event.target.checked)}
+              onChange={(event) => {
+                setClearDate(event.target.checked);
+                setResults([]);
+              }}
             />
             Clear due date
           </span>
@@ -262,12 +338,40 @@ export function LinearBulkActions({
         variant="outline"
         size="sm"
         block
-        disabled={busy || !valid}
+        disabled={
+          busy ||
+          refreshing ||
+          !valid ||
+          failures.length > 0 ||
+          refreshFailures.length > 0
+        }
         loading={busy}
         onClick={() => void execute()}
       >
         Apply to {ids.length} issues
       </Button>
+      {refreshFailures.length > 0 && (
+        <div>
+          <ul
+            className="bulk-refresh-results"
+            aria-label="Saved issues requiring refresh"
+            aria-live="polite"
+          >
+            {refreshFailures.map((result) => (
+              <li key={result.issueId}>
+                {result.issueId}: {result.refreshError}
+              </li>
+            ))}
+          </ul>
+          <button
+            className="text-button"
+            disabled={busy || refreshing}
+            onClick={() => void refreshSaved()}
+          >
+            Refresh saved issues
+          </button>
+        </div>
+      )}
       {failures.length > 0 && (
         <ul
           className="bulk-results"
@@ -281,10 +385,10 @@ export function LinearBulkActions({
           ))}
         </ul>
       )}
-      {failures.length > 0 && (
+      {retryableFailures.length > 0 && (
         <button
           className="text-button"
-          disabled={busy}
+          disabled={busy || refreshing}
           onClick={() => void execute(true)}
         >
           Retry failed issues only

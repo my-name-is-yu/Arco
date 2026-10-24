@@ -2,7 +2,7 @@ import { LinearServiceError } from "./errors";
 import { decodeLinearUpload } from "./upload";
 
 import {
-  assertSuccess,
+  linearMutation,
   type LinearHandlers,
   type LinearOperation,
 } from "./operation";
@@ -14,12 +14,9 @@ export function createAttachmentsHandlers(operation: LinearOperation) {
       const { client } = await context(input);
       const issue = await checkedIssue(client, input);
       const bytes = decodeLinearUpload(input.base64);
-      const prepared = await client.fileUpload(
-        input.contentType,
-        input.filename,
-        bytes.length,
+      const prepared = await linearMutation(() =>
+        client.fileUpload(input.contentType, input.filename, bytes.length),
       );
-      assertSuccess(prepared);
       const file = prepared.uploadFile;
       if (
         !file ||
@@ -59,12 +56,12 @@ export function createAttachmentsHandlers(operation: LinearOperation) {
         issueId: issue.id,
       });
       const title = input.filename.replace(/[[\]\\\r\n]/g, "_");
-      assertSuccess(
-        await client.updateIssue(issue.id, {
+      await linearMutation(() =>
+        client.updateIssue(issue.id, {
           description: `${latest.description ?? ""}\n\n[${title}](${file.assetUrl})`,
         }),
       );
-      return refreshAfterWrite(input);
+      return refreshAfterWrite(input, undefined, { operation: "upload" });
     },
   } satisfies Pick<LinearHandlers, "linear_upload">;
   return handlers;

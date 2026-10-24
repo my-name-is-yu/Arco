@@ -1,11 +1,11 @@
-import { LinearServiceError } from "./errors";
+import { LinearServiceError, linearFailure } from "./errors";
+import { trackWrite } from "../write-guard";
 import {
   LinearClient,
   PaginationOrderBy,
   type Comment,
   type Issue,
   type IssueLabel,
-  type IssueSearchResult,
   type Reaction,
   type Team,
   type Template,
@@ -77,11 +77,33 @@ export const reaction = (value: Reaction) => ({
 });
 
 export function assertSuccess(value: { success: boolean }) {
-  if (!value.success)
+  if (value?.success === false)
     throw new LinearServiceError(
       "Linear did not accept this change. It has not been marked as saved.",
       "invalid-input",
     );
+  if (value?.success !== true)
+    throw new LinearServiceError(
+      "Linear did not confirm whether this change was saved. Check Linear and refresh before retrying.",
+      "uncertain",
+    );
+}
+
+export function linearMutation<T extends { success: boolean }>(
+  write: () => PromiseLike<T>,
+): Promise<T> {
+  return trackWrite(
+    async () => {
+      try {
+        const result = await write();
+        assertSuccess(result);
+        return result;
+      } catch (error) {
+        throw linearFailure(error, { write: true });
+      }
+    },
+    (error) => linearFailure(error, { write: true }).code !== "uncertain",
+  );
 }
 
 export function estimateValues(
@@ -185,11 +207,22 @@ export function createLinearOperation(options: {
     }
     return pending;
   }
-  function metadata(scope: LinearScope) {
-    const key = scopeKey(scope);
+  function metadata(
+    scope: LinearScope,
+    fields: readonly (keyof LinearMetadata)[] = [
+      "states",
+      "members",
+      "labels",
+      "projects",
+      "cycles",
+      "milestones",
+      "estimateValues",
+    ],
+  ) {
+    const key = JSON.stringify([scopeKey(scope), [...fields].sort()]);
     let pending = metadataValues.get(key);
     if (!pending) {
-      pending = loadMetadata(scope);
+      pending = loadMetadata(scope, fields);
       metadataValues.set(key, pending);
       void pending.catch(() => metadataValues.delete(key));
     }
@@ -223,10 +256,17 @@ export function createLinearOperation(options: {
     return issue;
   }
 
-  async function loadMetadata(scope: LinearScope): Promise<LinearMetadata> {
+  async function loadMetadata(
+    scope: LinearScope,
+    fields: readonly (keyof LinearMetadata)[],
+  ): Promise<LinearMetadata> {
     const { organization, team } = await context(scope);
+    const wants = (field: keyof LinearMetadata) => fields.includes(field);
     const chain = [team];
-    while (chain.at(-1)?.parent) {
+    while (
+      (wants("states") || wants("labels") || wants("estimateValues")) &&
+      chain.at(-1)?.parent
+    ) {
       const parent = await chain.at(-1)!.parent;
       if (!parent || chain.some((item) => item.id === parent.id)) break;
       chain.push(parent);
@@ -241,15 +281,19 @@ export function createLinearOperation(options: {
     )!;
     const [states, members, workspaceLabels, labelsByTeam, projects, cycles] =
       await Promise.all([
-        all(stateTeam.states({ first: 100 })),
-        all(team.members({ first: 100 })),
-        all(organization.labels({ first: 100 })),
-        Promise.all(chain.map((item) => all(item.labels({ first: 100 })))),
-        all(team.projects({ first: 100 })),
-        all(team.cycles({ first: 100 })),
+        wants("states") ? all(stateTeam.states({ first: 100 })) : [],
+        wants("members") ? all(team.members({ first: 100 })) : [],
+        wants("labels") ? all(organization.labels({ first: 100 })) : [],
+        wants("labels")
+          ? Promise.all(chain.map((item) => all(item.labels({ first: 100 }))))
+          : [],
+        wants("projects") || wants("milestones")
+          ? all(team.projects({ first: 100 }))
+          : [],
+        wants("cycles") ? all(team.cycles({ first: 100 })) : [],
       ]);
     const milestones = await Promise.all(
-      projects.map(async (project) =>
+      (wants("milestones") ? projects : []).map(async (project) =>
         (await all(project.projectMilestones({ first: 100 }))).map(
           (milestone) => ({
             id: milestone.id,
@@ -281,14 +325,15 @@ export function createLinearOperation(options: {
         name: item.name ?? `Cycle ${item.number}`,
       })),
       milestones: milestones.flat(),
-      estimateValues: estimateValues(estimateTeam),
+      estimateValues: wants("estimateValues")
+        ? estimateValues(estimateTeam)
+        : [],
     };
   }
 
   async function summary(
     scope: LinearScope,
-    issue: Issue | IssueSearchResult,
-    meta: LinearMetadata,
+    issue: Issue,
   ): Promise<
     Omit<
       LinearIssue,
@@ -304,33 +349,23 @@ export function createLinearOperation(options: {
       | "reactions"
     >
   > {
-    const state =
-      meta.states.find((value) => value.id === issue.stateId) ??
-      (await issue.state);
+    const creatorRead = issue.creator;
+    const [state, creator, assignee, project, milestone, cycle, labels] =
+      await Promise.all([
+        issue.state,
+        creatorRead,
+        issue.assigneeId === issue.creatorId ? creatorRead : issue.assignee,
+        issue.project,
+        issue.projectMilestone,
+        issue.cycle,
+        issue.labelIds.length ? all(issue.labels({ first: 100 })) : [],
+      ]);
     if (!state)
       throw new LinearServiceError(
         "The Linear workflow state could not be loaded.",
         "invalid-response",
       );
-    const creator =
-      meta.members.find((value) => value.id === issue.creatorId) ??
-      (await issue.creator);
-    const assignee =
-      meta.members.find((value) => value.id === issue.assigneeId) ??
-      (await issue.assignee);
-    const project =
-      meta.projects.find((value) => value.id === issue.projectId) ??
-      (await issue.project);
-    const milestone =
-      meta.milestones.find((value) => value.id === issue.projectMilestoneId) ??
-      (await issue.projectMilestone);
-    const cycle =
-      meta.cycles.find((value) => value.id === issue.cycleId) ??
-      (await issue.cycle);
-    const labels = issue.labelIds.map((id) =>
-      meta.labels.find((value) => value.id === id),
-    );
-    if (labels.some((value) => !value))
+    if (issue.labelIds.some((id) => !labels.some((value) => value.id === id)))
       throw new LinearServiceError(
         "The issue label definitions could not be loaded completely. Refresh and try again.",
         "invalid-response",
@@ -354,7 +389,7 @@ export function createLinearOperation(options: {
         color: state.color,
       },
       assignee: named(assignee),
-      labels: labels.filter((value): value is LinearLabel => Boolean(value)),
+      labels: labels.map(label),
       priority: issue.priority,
       estimate: issue.estimate ?? null,
       dueDate: issue.dueDate ?? null,
@@ -403,10 +438,9 @@ export function createLinearOperation(options: {
   async function detail(scope: LinearRef): Promise<LinearIssue> {
     const { client } = await context(scope);
     const issue = await checkedIssue(client, scope);
-    const meta = await metadata(scope);
     const [base, parent, children, comments, attachments, outward, inward] =
       await Promise.all([
-        summary(scope, issue, meta),
+        summary(scope, issue),
         issue.parent,
         all(issue.children({ first: 100 })),
         commentsPage(issue),

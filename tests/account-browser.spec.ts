@@ -238,6 +238,13 @@ test(
     await expect(
       ui.getByRole("heading", { name: assignedTitle, exact: true }),
     ).toBeVisible();
+    // Lazy previews and reactions may still be queued while the host is idle.
+    await expect(
+      ui.getByRole("img", { name: "Fixture selection preview", exact: true }),
+    ).toBeVisible();
+    await expect(
+      ui.getByText(/^(Loading reactions…|Reactions not loaded)$/),
+    ).toHaveCount(0);
     await expect.poll(active).toBe(0);
     const before = (await log()).filter(
       (event) => event.type === "tool",

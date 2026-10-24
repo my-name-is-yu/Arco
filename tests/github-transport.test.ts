@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createGitHubTransport,
+  createGitHubWriteGuard,
   commandError,
   GitHubError,
   type GhRunner,
@@ -152,6 +153,33 @@ describe("GitHub transport contracts", () => {
     await expect(
       transport.mutate("mutation Write { save }", {}),
     ).rejects.toMatchObject({ code: "uncertain" });
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  it("allows retry after a GraphQL rate rejection but retains an ambiguous partial mutation", async () => {
+    const run = vi.fn<GhRunner>(async () => ({
+      errors: [{ type: "RATE_LIMITED" }],
+    }));
+    const transport = createGitHubTransport({ run, policy: "extended" });
+    const once = createGitHubWriteGuard<unknown>();
+    const write = () => transport.mutate("mutation Save { save }", {});
+    await expect(once("rate-rejected", {}, write)).rejects.toMatchObject({
+      code: "rate-limited",
+    });
+    run.mockResolvedValueOnce({ data: { save: { id: "saved" } } });
+    await expect(once("rate-rejected", {}, write)).resolves.toEqual({
+      data: { save: { id: "saved" } },
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+
+    run.mockResolvedValueOnce({
+      data: { save: { id: "saved" } },
+      errors: [{ type: "RATE_LIMITED" }],
+    });
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(once("partial-mutation", {}, write)).rejects.toMatchObject({
+        code: "uncertain",
+      });
     expect(run).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,6 +1,6 @@
 import { LinearServiceError } from "./errors";
 import {
-  assertSuccess,
+  linearMutation,
   type LinearHandlers,
   type LinearOperation,
 } from "./operation";
@@ -21,12 +21,13 @@ export function createCommentsHandlers(operation: LinearOperation) {
           throw new LinearServiceError(
             "The reply target does not belong to this issue.",
           );
-        const created = await client.createComment({
-          issueId: issue.id,
-          body: input.body,
-          parentId: input.parentId,
-        });
-        assertSuccess(created);
+        const created = await linearMutation(() =>
+          client.createComment({
+            issueId: issue.id,
+            body: input.body,
+            parentId: input.parentId,
+          }),
+        );
         return refreshAfterWrite(
           input,
           `Comment ${created.commentId ?? "(source ID unavailable)"} was posted to Linear issue ${issue.id}. Do not post it again.`,
@@ -54,16 +55,19 @@ export function createCommentsHandlers(operation: LinearOperation) {
           );
         if (input.action === "update" && !input.body)
           throw new LinearServiceError("Enter a comment body.");
-        assertSuccess(
+        await linearMutation<{ success: boolean }>(() =>
           input.action === "delete"
-            ? await client.deleteComment(comment.id)
-            : await client.updateComment(comment.id, { body: input.body }),
+            ? client.deleteComment(comment.id)
+            : client.updateComment(comment.id, { body: input.body }),
         );
       }
       return refreshAfterWrite(
         input,
         undefined,
-        undefined,
+        {
+          operation:
+            input.action === "delete" ? "delete_comment" : "update_comment",
+        },
         input.action === "delete"
           ? { deletedCommentId: input.commentId }
           : { commentId: input.commentId },
@@ -80,8 +84,8 @@ export function createCommentsHandlers(operation: LinearOperation) {
           "The comment does not belong to this issue.",
         );
       if (input.action === "add")
-        assertSuccess(
-          await client.createReaction({
+        await linearMutation(() =>
+          client.createReaction({
             emoji: input.emoji,
             ...(comment ? { commentId: comment.id } : { issueId: issue.id }),
           }),
@@ -97,12 +101,12 @@ export function createCommentsHandlers(operation: LinearOperation) {
             "You can only remove your own matching reaction.",
             "forbidden",
           );
-        assertSuccess(await client.deleteReaction(existing.id));
+        await linearMutation(() => client.deleteReaction(existing.id));
       }
       return refreshAfterWrite(
         input,
         undefined,
-        undefined,
+        { operation: "reaction" },
         input.commentId ? { commentId: input.commentId } : undefined,
       );
     },

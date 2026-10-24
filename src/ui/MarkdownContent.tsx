@@ -3,13 +3,14 @@ import {
   createContext,
   isValidElement,
   useContext,
+  useMemo,
   type ComponentProps,
 } from "react";
 import { Markdown } from "@openai/apps-sdk-ui/components/Markdown";
 import { useQuery } from "@tanstack/react-query";
 import rehypeSanitize from "rehype-sanitize";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
-import { markdownTaskAtLine } from "./markdown-tasks";
+import { markdownTasks, type MarkdownTask } from "./markdown-tasks";
 import { useNearViewport } from "./useNearViewport";
 import {
   safeMarkdownUrl,
@@ -123,7 +124,12 @@ type MarkdownContextValue = {
   busy?: boolean;
   image?: ImageContext;
 };
-const MarkdownContext = createContext<MarkdownContextValue | null>(null);
+const MarkdownContext = createContext<
+  | (MarkdownContextValue & {
+      tasks: ReadonlyMap<number, MarkdownTask>;
+    })
+  | null
+>(null);
 
 // Renderer identities must stay stable: remounting an image aborts its query.
 const markdownComponents: NonNullable<
@@ -155,9 +161,9 @@ const markdownComponents: NonNullable<
     );
   },
   li: function MarkdownListItem({ node, children, className }) {
-    const { body, busy, onToggleTask } = useContext(MarkdownContext)!;
+    const { tasks, busy, onToggleTask } = useContext(MarkdownContext)!;
     const line = linePosition(node);
-    const task = line ? markdownTaskAtLine(body, line) : null;
+    const task = line ? tasks.get(line) : null;
     if (!task || !line || !onToggleTask)
       return <li className={className}>{children}</li>;
     return (
@@ -184,8 +190,9 @@ export function IssueMarkdown({
   busy = false,
   image,
 }: MarkdownContextValue) {
+  const tasks = useMemo(() => markdownTasks(body), [body]);
   return (
-    <MarkdownContext value={{ body, onOpen, onToggleTask, busy, image }}>
+    <MarkdownContext value={{ body, onOpen, onToggleTask, busy, image, tasks }}>
       <Markdown
         className="issue-markdown"
         includeMath={false}

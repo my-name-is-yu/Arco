@@ -1785,8 +1785,12 @@ test("Linear source switches retain browsing and list position while using the l
   page,
 }) => {
   const ui = app(page);
+  const completedSearches: string[] = [];
   await page.route("**/tool", async (route) => {
-    const input = route.request().postDataJSON() as { name: string };
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: { query?: string };
+    };
     if (input.name !== "linear_list_issues") {
       await route.continue();
       return;
@@ -1802,6 +1806,7 @@ test("Linear source switches retain browsing and list position while using the l
         title: `Additional fixture list row ${i}`,
       });
     await route.fulfill({ response, json: result });
+    completedSearches.push(input.arguments.query ?? "");
   });
   await ui.getByRole("button", { name: "Refresh Linear", exact: true }).click();
   await expect(ui.locator(".issue-row")).toHaveCount(18);
@@ -1812,6 +1817,9 @@ test("Linear source switches retain browsing and list position while using the l
   await ui
     .getByRole("textbox", { name: "Search Linear Issues", exact: true })
     .fill("Linear");
+  // Both searches return 18 rows, so the row count alone cannot await debounce.
+  await expect.poll(() => completedSearches).toContain("Linear");
+  await expect(ui.locator(".issue-list")).toHaveAttribute("aria-busy", "false");
   await expect(ui.locator(".issue-row")).toHaveCount(18);
   const position = await ui.locator(".issue-list").evaluate((element) => {
     element.scrollTop = 150;
@@ -2497,6 +2505,8 @@ test("Linear mixed bulk outcomes show only failed issues and retry only those fa
     result.structuredContent.results.push({
       issueId: "fixture-linear-43",
       success: false,
+      saved: false,
+      retryable: true,
       error: "Fixture permission denied for YU-43",
     });
     return route.fulfill({ response, json: result });

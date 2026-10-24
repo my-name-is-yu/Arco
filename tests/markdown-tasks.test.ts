@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
   markdownTaskAtLine,
+  markdownTasks,
   toggleMarkdownTask,
 } from "../src/ui/markdown-tasks";
 
 describe("source-preserving Markdown task edits", () => {
+  it("indexes tasks throughout a long document without exposing fenced examples", () => {
+    const body =
+      Array.from({ length: 4000 }, (_, index) => `- [ ] Task ${index}`).join(
+        "\n",
+      ) + "\n```\n- [ ] Example\n```\n- [X] Last task";
+    const tasks = markdownTasks(body);
+    expect(tasks.size).toBe(4001);
+    expect(tasks.get(1)).toEqual({ checked: false, text: "Task 0" });
+    expect(tasks.has(4002)).toBe(false);
+    expect(tasks.get(4004)).toEqual({ checked: true, text: "Last task" });
+  });
+
   it("changes only the selected task marker, retaining nested lists, syntax and CRLF", () => {
     const original =
       "## Tasks\r\n\r\n- [ ] Parent **task**\r\n  - [X] Nested task\r\n\r\nUntouched [ ] text\r\n";

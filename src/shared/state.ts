@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { accountIssueFilterSchema, repoSchema } from "./contracts";
 
+export const SETTINGS_HISTORY_LIMIT = 100;
+
 export const githubAccountFilterSchema = z
   .object({
     filter: accountIssueFilterSchema,
@@ -17,11 +19,11 @@ const defaultGithubAccountFilter = {
 };
 export const settingsSchema = z
   .object({
-    githubRepos: z.array(repoSchema).max(100),
+    githubRepos: z.array(repoSchema).max(SETTINGS_HISTORY_LIMIT),
     activeGithubRepo: repoSchema.nullable(),
     projectGithubRepos: z
       .record(z.string().regex(/^[a-f0-9]{64}$/), repoSchema)
-      .refine((value) => Object.keys(value).length <= 100),
+      .refine((value) => Object.keys(value).length <= SETTINGS_HISTORY_LIMIT),
     githubAccountFilter: githubAccountFilterSchema,
     activeSource: z.enum(["github", "linear"]),
     linearTeams: z
@@ -32,7 +34,7 @@ export const settingsSchema = z
           name: z.string().min(1),
         }),
       )
-      .max(100),
+      .max(SETTINGS_HISTORY_LIMIT),
     activeLinearTeam: z.string().nullable(),
     githubFilters: z
       .record(
@@ -46,7 +48,7 @@ export const settingsSchema = z
           })
           .strict(),
       )
-      .refine((value) => Object.keys(value).length <= 100),
+      .refine((value) => Object.keys(value).length <= SETTINGS_HISTORY_LIMIT),
     linearFilters: z
       .record(
         z.string().min(1).max(600),
@@ -61,7 +63,7 @@ export const settingsSchema = z
           })
           .strict(),
       )
-      .refine((value) => Object.keys(value).length <= 100),
+      .refine((value) => Object.keys(value).length <= SETTINGS_HISTORY_LIMIT),
   })
   .strict();
 export const settingsRecordSchema = z

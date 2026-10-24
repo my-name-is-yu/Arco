@@ -5,7 +5,7 @@ import {
   type LinearService,
   type LinearToolName,
 } from "../../shared/linear";
-import { createWriteGuard } from "../write-guard";
+import { createWriteGuard, getWriteProgress } from "../write-guard";
 import { createAttachmentsHandlers } from "./attachments";
 import { createLinearAuth, type LinearAuth } from "./auth";
 import { createBulkHandlers } from "./bulk";
@@ -19,7 +19,7 @@ import {
 } from "./operation";
 import { createQueriesHandlers } from "./queries";
 import { createRelationsHandlers } from "./relations";
-import { linearFailure } from "./errors";
+import { LinearServiceError, linearFailure } from "./errors";
 export { describeTemplate, estimateValues } from "./operation";
 export function createLinearService(
   options: {
@@ -56,7 +56,16 @@ export function createLinearService(
     try {
       return await handlers[name](input);
     } catch (error) {
-      throw linearFailure(error, { write: "requestId" in input });
+      const progress = getWriteProgress();
+      const failure = linearFailure(error, {
+        write: progress.confirmed || progress.uncertain,
+      });
+      if (progress.confirmed && failure.code !== "uncertain")
+        throw new LinearServiceError(
+          `An earlier step completed in Linear. ${failure.message} Check Linear and refresh before retrying.`,
+          "uncertain",
+        );
+      throw failure;
     }
   }
   return {

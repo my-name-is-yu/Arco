@@ -124,7 +124,8 @@ export function useLinearComments(host: ArcoHost, issue: LinearIssue) {
           ...key[1],
           ...(pageParam ? { cursor: pageParam } : {}),
         },
-        { signal, priority: "background" },
+        // Explicit continuation reads must not occupy the first-page refresh slot.
+        { signal, priority: "interactive" },
       );
       return requirePageContinuation(page, page.cursor, "Linear comments");
     },

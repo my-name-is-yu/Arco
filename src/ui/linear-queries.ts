@@ -71,7 +71,7 @@ export function useLinearIssueList(
           ),
           ...(pageParam ? { cursor: pageParam } : {}),
         },
-        { signal },
+        { signal, priority: "background" },
       );
       if (result.hasMore && !result.cursor)
         throw new Error(
@@ -93,14 +93,19 @@ export function useLinearIssue(
   enabled: boolean,
   poll: boolean,
 ) {
+  const client = useQueryClient();
+  const key = ["linear-issue", issue];
   return useQuery({
-    queryKey: ["linear-issue", issue],
+    queryKey: key,
     refetchInterval: poll ? 30_000 : false,
     queryFn: ({ signal }) =>
       host.call<LinearIssue>(
         "linear_get_issue",
         { ...issue },
-        { signal, priority: "background" },
+        {
+          signal,
+          priority: client.getQueryData(key) ? "background" : "interactive",
+        },
       ),
     enabled,
   });
@@ -113,7 +118,12 @@ export function useLinearMetadata(
 ) {
   return useQuery({
     queryKey: ["linear-metadata", scope],
-    queryFn: () => host.call<LinearMetadata>("linear_metadata", { ...scope }),
+    queryFn: ({ signal }) =>
+      host.call<LinearMetadata>(
+        "linear_metadata",
+        { ...scope },
+        { signal, priority: "background" },
+      ),
     enabled,
   });
 }

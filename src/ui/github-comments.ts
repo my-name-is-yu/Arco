@@ -92,7 +92,9 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
           number: issue.number,
           page: pageParam,
         },
-        { signal, priority: "background" },
+        // These pages were explicitly opened. Keep the background slot free
+        // for the first-page refresh while a continuation is still pending.
+        { signal, priority: "interactive" },
       );
       return requirePageContinuation(page, page.nextPage, "GitHub comments");
     },

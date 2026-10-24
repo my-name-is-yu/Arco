@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
-import { createWriteGuard } from "../write-guard";
+import { createWriteGuard, getWriteProgress, trackWrite } from "../write-guard";
 import { OperationError } from "../../shared/errors";
 
 export type GhRunner = (args: string[], input?: string) => Promise<unknown>;
@@ -129,6 +129,26 @@ export const runGh: GhRunner = (args, input) =>
       // gh's --jq attempts to parse the empty 304 body and exits 1. The HTTP
       // status and empty body are still authoritative for this explicit read.
       if (code !== 0 && !emptyNotModified) {
+        // gh exits nonzero for GraphQL errors even when a mutation returned
+        // partial data. Preserve it so the transport can avoid replaying a
+        // potentially applied write based only on the stderr error category.
+        if (args[0] === "api" && args[3] === "graphql") {
+          try {
+            const value: unknown = JSON.parse(stdout);
+            if (
+              value &&
+              typeof value === "object" &&
+              "errors" in value &&
+              "data" in value &&
+              value.data != null
+            ) {
+              resolve(value);
+              return;
+            }
+          } catch {
+            // The normal CLI failure below remains authoritative otherwise.
+          }
+        }
         reject(commandError(stderr));
         return;
       }
@@ -159,9 +179,46 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 }
 
 export function createGitHubWriteGuard<T>() {
-  return createWriteGuard<T>(
+  const once = createWriteGuard<T>(
     256,
     (message, code) => new GitHubError(message, code),
+  );
+  return (requestId: string, payload: unknown, write: () => Promise<T>) =>
+    once(requestId, payload, async () => {
+      try {
+        return await write();
+      } catch (error) {
+        const progress = getWriteProgress();
+        if (
+          (!progress.confirmed && !progress.uncertain) ||
+          (error instanceof GitHubError &&
+            ["refresh", "partial", "not-applied", "uncertain"].includes(
+              error.code,
+            ))
+        )
+          throw error;
+        throw new GitHubError(
+          progress.uncertain
+            ? "Unable to confirm all GitHub changes. Check GitHub and refresh before retrying."
+            : "The change was saved to GitHub, but its result could not be verified. Check GitHub and refresh without repeating the update.",
+          progress.uncertain ? "uncertain" : "refresh",
+        );
+      }
+    });
+}
+
+function rejectedWrite(error: unknown) {
+  return (
+    error instanceof GitHubError &&
+    [
+      "auth",
+      "missing-cli",
+      "forbidden",
+      "not-found",
+      "rate-limited",
+      "conflict",
+      "invalid-input",
+    ].includes(error.code)
   );
 }
 
@@ -203,28 +260,47 @@ export function createGitHubTransport(options: {
     if (paginate) args.push("--paginate", "--slurp");
     if (projection !== undefined) args.push("--jq", projection);
     if (body !== undefined) args.push("--input", "-");
-    let value: unknown;
-    try {
-      value = await run(
+    const execute = async () => {
+      const value = await run(
         args,
         body === undefined ? undefined : JSON.stringify(body),
       );
-    } catch (error) {
-      if (
-        access === "write" &&
-        !(
-          error instanceof GitHubError &&
-          [
-            "auth",
-            "missing-cli",
-            "forbidden",
-            "not-found",
-            "rate-limited",
-            "conflict",
-            "invalid-input",
-          ].includes(error.code)
+      if (value && typeof value === "object" && "errors" in value) {
+        const errors = (value as { errors: unknown }).errors;
+        const types = Array.isArray(errors)
+          ? errors.map((error: unknown) =>
+              error && typeof error === "object" && "type" in error
+                ? error.type
+                : null,
+            )
+          : [];
+        const hasPartialData = "data" in value && value.data != null;
+        if (
+          (!hasPartialData || access === "read") &&
+          types.length &&
+          types.every((type) => type === "RATE_LIMITED")
         )
-      )
+          throw new GitHubError(
+            "GitHub's API request limit was reached.",
+            "rate-limited",
+          );
+        throw new GitHubError(
+          extended
+            ? "Unable to verify the GitHub Projects permissions, target, or response."
+            : access === "write"
+              ? "Unable to confirm the Projects update. Refresh to check the result."
+              : "Unable to load Projects. Check the read:project permission in GitHub CLI.",
+          access === "write" ? "uncertain" : "forbidden",
+        );
+      }
+      return value;
+    };
+    try {
+      return await (access === "write"
+        ? trackWrite(execute, rejectedWrite)
+        : execute());
+    } catch (error) {
+      if (access === "write" && !rejectedWrite(error))
         throw new GitHubError(
           extended
             ? "Unable to confirm the update. Check GitHub and refresh before retrying."
@@ -239,35 +315,6 @@ export function createGitHubTransport(options: {
               : "Unable to reach GitHub.",
           );
     }
-    if (value && typeof value === "object" && "errors" in value) {
-      const errors = (value as { errors: unknown }).errors;
-      const types = Array.isArray(errors)
-        ? errors.map((error: unknown) =>
-            error && typeof error === "object" && "type" in error
-              ? error.type
-              : null,
-          )
-        : [];
-      const hasPartialData = "data" in value && value.data != null;
-      if (
-        (!hasPartialData || access === "read") &&
-        types.length &&
-        types.every((type) => type === "RATE_LIMITED")
-      )
-        throw new GitHubError(
-          "GitHub's API request limit was reached.",
-          "rate-limited",
-        );
-      throw new GitHubError(
-        extended
-          ? "Unable to verify the GitHub Projects permissions, target, or response."
-          : access === "write"
-            ? "Unable to confirm the Projects update. Refresh to check the result."
-            : "Unable to load Projects. Check the read:project permission in GitHub CLI.",
-        access === "write" ? "uncertain" : "forbidden",
-      );
-    }
-    return value;
   }
   const request = (
     access: Access,

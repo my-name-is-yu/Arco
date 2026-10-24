@@ -13,25 +13,41 @@ import {
 import { enqueueSettingsWrite } from "./settings-queue";
 import { sessionValue } from "./session-state";
 type Patch = (latest: Settings) => Partial<Settings>;
-function settingsController(host: ArcoHost, client: QueryClient) {
+export function settingsController(host: ArcoHost, client: QueryClient) {
   return sessionValue(host, "settings-controller", () => {
     let state: { error: string | null; pending: boolean } = {
       error: null,
       pending: false,
     };
     let writes = 0;
+    const failed = new Map<string, { build: Patch; error: string }>();
+    const versions = new Map<string, number>();
     const listeners = new Set<() => void>();
     const timers = new Map<
       string,
-      { timer: ReturnType<typeof setTimeout>; build: Patch }
+      { timer: ReturnType<typeof setTimeout>; build: Patch; version: number }
     >();
     const publish = (patch: Partial<typeof state>) => {
       state = { ...state, ...patch };
       listeners.forEach((listener) => listener());
     };
-    const update = (build: Patch) => {
+    const publishStatus = () =>
+      publish({
+        pending: writes > 0 || timers.size > 0,
+        error: [...failed.values()].at(-1)?.error ?? null,
+      });
+    const advance = (key: string) => {
+      const scheduled = timers.get(key);
+      if (scheduled) clearTimeout(scheduled.timer);
+      timers.delete(key);
+      failed.delete(key);
+      const version = (versions.get(key) ?? 0) + 1;
+      versions.set(key, version);
+      return version;
+    };
+    const write = (key: string, build: Patch, version: number) => {
       writes += 1;
-      publish({ pending: true, error: null });
+      publishStatus();
       void enqueueSettingsWrite(host, async () => {
         try {
           const latest = settingsRecordSchema.parse(
@@ -53,21 +69,26 @@ function settingsController(host: ArcoHost, client: QueryClient) {
               );
           client.setQueryData(["settings"], saved);
         } catch (failure) {
-          publish({
-            error: failure instanceof Error ? failure.message : String(failure),
-          });
+          if (versions.get(key) === version)
+            failed.set(key, {
+              build,
+              error:
+                failure instanceof Error ? failure.message : String(failure),
+            });
           await client.invalidateQueries({ queryKey: ["settings"] });
         } finally {
           writes -= 1;
-          publish({ pending: writes > 0 });
+          publishStatus();
         }
       });
     };
+    const update = (key: string, build: Patch) =>
+      write(key, build, advance(key));
     const flush = () => {
       for (const [key, entry] of timers) {
         clearTimeout(entry.timer);
         timers.delete(key);
-        update(entry.build);
+        write(key, entry.build, entry.version);
       }
     };
     return {
@@ -79,14 +100,17 @@ function settingsController(host: ArcoHost, client: QueryClient) {
         };
       },
       update,
+      retry() {
+        for (const [key, entry] of [...failed]) update(key, entry.build);
+      },
       schedule(key: string, build: Patch) {
-        const previous = timers.get(key);
-        if (previous) clearTimeout(previous.timer);
+        const version = advance(key);
         const timer = setTimeout(() => {
           timers.delete(key);
-          update(build);
+          write(key, build, version);
         }, 300);
-        timers.set(key, { timer, build });
+        timers.set(key, { timer, build, version });
+        publishStatus();
       },
       flush,
     };
@@ -112,5 +136,6 @@ export function useSettings(host: ArcoHost) {
     ...status,
     update: controller.update,
     schedule: controller.schedule,
+    retry: controller.retry,
   };
 }

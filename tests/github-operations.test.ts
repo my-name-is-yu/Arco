@@ -308,6 +308,49 @@ describe("explicit additional GitHub operations", () => {
     ).rejects.toMatchObject({ code: "conflict" });
   });
 
+  it("retains a saved label when its response cannot be parsed", async () => {
+    const { operations, run } = setup();
+    run.mockResolvedValueOnce({});
+    const input = {
+      repo: FIXTURE_REPO,
+      requestId: "saved-label-unreadable",
+      name: "new-label",
+      color: "aabbcc",
+      description: "Saved before the response failed validation",
+    };
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(operations.createLabel(input)).rejects.toMatchObject({
+        code: "refresh",
+        message: expect.stringContaining("saved to GitHub"),
+      });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("reports saved attributes when their verification read fails and does not repeat the PATCH", async () => {
+    const { run: base, service } = setup();
+    let saved = false;
+    const run = vi.fn<GhRunner>(async (args, input) => {
+      if (args.includes("PATCH")) saved = true;
+      else if (saved && args[3]?.endsWith("/issues/42"))
+        throw new GitHubError("Verification unavailable", "unavailable");
+      return base(args, input);
+    });
+    const operations = createGitHubOperations({ service, run });
+    const input = {
+      ...ref,
+      requestId: "saved-attributes-read-failed",
+      patch: { milestoneNumber: 1 },
+    };
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(operations.issueAttributes(input)).rejects.toMatchObject({
+        code: "refresh",
+        message: expect.stringContaining("saved to GitHub"),
+      });
+    expect(
+      run.mock.calls.filter(([args]) => args.includes("PATCH")),
+    ).toHaveLength(1);
+  });
+
   it("rejects a comment that belongs to another Issue before editing or deleting", async () => {
     const { operations, writes } = setup({ commentIssue: 43 });
     await expect(
@@ -888,6 +931,27 @@ describe("explicit additional GitHub operations", () => {
       }),
     ).rejects.toMatchObject({ code: "invalid" });
     expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses the last bulk mutation's detail result without fetching it again", async () => {
+    const service = createFixtureService();
+    const original = await service.get(ref);
+    const afterState = { ...original, state: "closed" as const };
+    const afterLabels = { ...afterState, labels: [] };
+    const get = vi.spyOn(service, "get");
+    vi.spyOn(service, "update").mockResolvedValue(afterState);
+    vi.spyOn(service, "labels").mockResolvedValue(afterLabels);
+    const { operations } = setup({ service });
+    const result = await operations.bulkUpdate({
+      requestId: "bulk-reuse-latest-detail",
+      issues: [ref],
+      patch: { state: "closed" },
+      labels: { add: [], remove: ["bug"] },
+    });
+    expect(result).toEqual({
+      results: [{ ...ref, ok: true, issue: afterLabels }],
+    });
+    expect(get).not.toHaveBeenCalled();
   });
 
   it("validates tool boundaries before any command is launched", async () => {

@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import type { AccountIssuesInput, ArcoHost } from "../shared/contracts";
-import type { Settings } from "../shared/state";
+import { SETTINGS_HISTORY_LIMIT, type Settings } from "../shared/state";
 import { useSettings } from "./useSettings";
+import { rememberSetting } from "./settings-retention";
 
 export function useGitHubSettings(
   host: ArcoHost,
@@ -9,10 +10,10 @@ export function useGitHubSettings(
 ) {
   const projectView = project !== undefined;
   const projectKey = project?.key;
-  const { query, error, pending, update, schedule } = useSettings(host);
+  const { query, error, pending, update, schedule, retry } = useSettings(host);
   const register = useCallback(
     (repo: string, additional: string[] = []) =>
-      update((latest) => ({
+      update("github:scope", (latest) => ({
         githubRepos: [
           ...new Set(
             [...latest.githubRepos, ...additional].filter(
@@ -20,17 +21,14 @@ export function useGitHubSettings(
             ),
           ),
           repo,
-        ].slice(-100),
+        ].slice(-SETTINGS_HISTORY_LIMIT),
         ...(projectView
           ? projectKey
             ? {
-                projectGithubRepos: Object.fromEntries(
-                  [
-                    ...Object.entries(latest.projectGithubRepos).filter(
-                      ([key]) => key !== projectKey,
-                    ),
-                    [projectKey, repo],
-                  ].slice(-100),
+                projectGithubRepos: rememberSetting(
+                  latest.projectGithubRepos,
+                  projectKey,
+                  repo,
                 ),
               }
             : {}
@@ -39,29 +37,29 @@ export function useGitHubSettings(
     [update, projectView, projectKey],
   );
   const setSource = useCallback(
-    (source: "github" | "linear") => update(() => ({ activeSource: source })),
+    (source: "github" | "linear") =>
+      update("source", () => ({ activeSource: source })),
     [update],
   );
   const setAccountScope = useCallback(
-    (filter?: AccountIssuesInput["filter"]) =>
-      update((latest) => ({
-        activeGithubRepo: null,
-        githubAccountFilter: {
-          ...latest.githubAccountFilter,
-          ...(filter ? { filter } : {}),
-        },
-      })),
+    (filter?: AccountIssuesInput["filter"]) => {
+      update("github:scope", () => ({ activeGithubRepo: null }));
+      if (filter)
+        update("github:account-filter", (latest) => ({
+          githubAccountFilter: { ...latest.githubAccountFilter, filter },
+        }));
+    },
     [update],
   );
   const saveAccountFilter = useCallback(
     (filter: Settings["githubAccountFilter"]) =>
-      update(() => ({ githubAccountFilter: filter })),
+      update("github:account-filter", () => ({ githubAccountFilter: filter })),
     [update],
   );
   const saveFilter = useCallback(
     (repo: string, filter: Settings["githubFilters"][string]) =>
       schedule(`github:${repo}`, (latest) => ({
-        githubFilters: { ...latest.githubFilters, [repo]: filter },
+        githubFilters: rememberSetting(latest.githubFilters, repo, filter),
       })),
     [schedule],
   );
@@ -69,6 +67,7 @@ export function useGitHubSettings(
     query,
     error,
     pending,
+    retry,
     register,
     setSource,
     setAccountScope,

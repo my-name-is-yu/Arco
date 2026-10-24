@@ -458,6 +458,8 @@ export function BulkActions({
           {field && (
             <FieldEditor
               key={`${action}:${field.id}`}
+              host={host}
+              draftScope={[sessionKey, action, projectId, field.id]}
               field={{ ...field, value: fieldValue }}
               kind={action === "issue-field" ? "issue" : "project"}
               busy={busy}
