@@ -38,9 +38,9 @@ You need a Codex desktop environment with local plugin and interactive MCP UI su
 
 The prebuilt npm package targets **macOS on Apple Silicon**. Node.js and the GitHub CLI are separate prerequisites. Linear requires a working OS credential store; there is no plaintext credential fallback.
 
-### Prebuilt plugin — first release pending
+### Prebuilt plugin
 
-The first `arco-codex-plugin` npm release is pending. Until it is published, use the source installation below. After publication, install through Arco's marketplace:
+Install the prebuilt `arco-codex-plugin` through Arco's marketplace:
 
 ```sh
 codex plugin marketplace add my-name-is-yu/Arco

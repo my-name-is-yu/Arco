@@ -72,14 +72,9 @@ This builds and validates the production artifact, packs it into `dist/npm/`, an
 
 Keep the root package version, plugin manifest versions, and catalog's exact npm version aligned on a release branch. Complete the manual Quality run for the exact release commit before publishing. Keep the default branch's catalog on the already-published version until the matching new npm package is available.
 
-For the first publication, authenticate to npm with an account that can publish the package name, then publish the verified tarball. For version `0.1.0`:
+To bootstrap a new package name before trusted publishing is available, authenticate with `npm login` and publish its verified tarball from `dist/npm/` using `npm publish <tarball> --access public --ignore-scripts`. A published version cannot be reused.
 
-```sh
-npm login
-npm publish ./dist/npm/arco-codex-plugin-0.1.0.tgz --access public --ignore-scripts
-```
-
-The first publication is pending. Once the package exists, configure its npm trusted publisher for GitHub Actions repository `my-name-is-yu/Arco`, workflow `release.yml`, and environment `npm`. Enable direct `npm publish` under the publisher's **Allowed actions**. Set up that GitHub environment for the maintainers who may release. Store no npm token in the repository.
+Before using the Release workflow, configure the package's npm trusted publisher for GitHub Actions repository `my-name-is-yu/Arco`, workflow `release.yml`, and environment `npm`. Enable direct `npm publish` under the publisher's **Allowed actions**. Set up that GitHub environment for the maintainers who may release. Store no npm token in the repository.
 
 For later releases, prepare and validate the release branch, push the matching `v<version>` tag, and manually run the Release workflow on that tag. It requires a successful manual Quality run for the same commit, builds and validates the macOS arm64 package, then publishes the verified tarball using npm trusted publishing. Confirm that the exact version is available from npm before merging the catalog version change into the default branch. This order also applies to the first manual publication.
 
