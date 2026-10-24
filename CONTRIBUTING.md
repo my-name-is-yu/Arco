@@ -74,7 +74,15 @@ Keep the root package version, plugin manifest versions, and catalog's exact npm
 
 To bootstrap a new package name before trusted publishing is available, authenticate with `npm login` and publish its verified tarball from `dist/npm/` using `npm publish <tarball> --access public --ignore-scripts`. A published version cannot be reused.
 
-Before using the Release workflow, configure the package's npm trusted publisher for GitHub Actions repository `my-name-is-yu/Arco`, workflow `release.yml`, and environment `npm`. Enable direct `npm publish` under the publisher's **Allowed actions**. Set up that GitHub environment for the maintainers who may release. Store no npm token in the repository.
+Before using the Release workflow, create the GitHub `npm` environment with a selected-tag deployment rule matching `v*` and no branch deployment rule. Configure the package's npm trusted publisher using npm 11.15.0 or later, a package maintainer account, and account-level 2FA:
+
+```sh
+npm trust github arco-codex-plugin --repo my-name-is-yu/Arco --file release.yml --env npm --allow-publish
+```
+
+`--allow-publish` permits the workflow's direct `npm publish`. Confirm the repository, workflow filename, and environment with `npm trust list arco-codex-plugin`. Store no npm token in the repository.
+
+A new trusted publisher must complete its [first successful publication within two days](https://docs.npmjs.com/trusted-publishers/#trusted-publisher-configuration-expiry). Run the Quality and Release sequence below for a new version within that window; saving the configuration alone does not validate it. Confirm that the Release workflow published successfully. If the configuration expires, remove it, create a new one, and complete the first CI publication within two days.
 
 For later releases, prepare and validate the release branch, push the matching `v<version>` tag, and manually run the Release workflow on that tag. It requires a successful manual Quality run for the same commit, builds and validates the macOS arm64 package, then publishes the verified tarball using npm trusted publishing. Confirm that the exact version is available from npm before merging the catalog version change into the default branch. This order also applies to the first manual publication.
 
