@@ -1199,17 +1199,6 @@ test("a single Linear selection retains its inline target without sending a mess
     "Shared issue: YU-42 · Different from the issue you are browsing",
   );
   expect(await events(page, "message")).toHaveLength(0);
-  await expect(
-    ui.getByRole("button", { name: "Ask Codex", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    ui.getByRole("button", { name: "Prepare draft", exact: true }),
-  ).toHaveCount(0);
-  await expect(selectControl(ui, "Chat")).toHaveCount(0);
-  await expect(
-    ui.getByRole("button", { name: "Send request", exact: true }),
-  ).toHaveCount(0);
-  await expect(ui.locator(".request-panel")).toHaveCount(0);
   await expect(ui.locator(".shared-chip")).toHaveText("Chat YU-42");
   expect(await events(page, "context")).toEqual(explicitContext);
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();

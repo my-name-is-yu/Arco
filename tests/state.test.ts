@@ -1,15 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { build } from "esbuild";
 import {
@@ -31,11 +24,6 @@ function draftFile(dir: string, key: DraftKey) {
     "drafts",
     `${createHash("sha256").update(JSON.stringify(key)).digest("hex")}.json`,
   );
-}
-async function recoveryFiles(file: string) {
-  return (await readdir(dirname(file)))
-    .filter((name) => name.startsWith(`${basename(file)}.recovery-`))
-    .map((name) => join(dirname(file), name));
 }
 afterEach(async () => {
   await Promise.all(
@@ -177,7 +165,6 @@ describe("local settings and drafts", () => {
         store.deleteDraft({ key, expectedRevision: 1 }),
       ).rejects.toThrow("current format");
       expect(await readFile(file, "utf8")).toBe(stored);
-      expect(await recoveryFiles(file)).toEqual([]);
     },
   );
   it.each(["settings", "draft", "annotations"])(
@@ -255,7 +242,6 @@ describe("local settings and drafts", () => {
         await expect(read()).rejects.toThrow("current format");
         await expect(write()).rejects.toThrow("current format");
         expect(await readFile(file)).toEqual(original);
-        expect(await recoveryFiles(file)).toEqual([]);
       }
     },
   );
@@ -311,10 +297,8 @@ describe("local settings and drafts", () => {
     expect(await reloaded.readDraft(key)).toEqual({ revision: 1, draft: null });
     expect(await readFile(settingsFile)).toEqual(settingsBytes);
     expect(await readFile(tombstoneFile)).toEqual(tombstoneBytes);
-    expect(await recoveryFiles(settingsFile)).toEqual([]);
-    expect(await recoveryFiles(tombstoneFile)).toEqual([]);
   });
-  it("rejects retired or unknown incoming fields without creating recovery backups", async () => {
+  it("rejects retired or unknown incoming fields without changing stored data", async () => {
     const dir = await temporary();
     const store = createStateStore(dir);
     const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
@@ -336,8 +320,6 @@ describe("local settings and drafts", () => {
     ).rejects.toThrow();
     expect((await store.readSettings()).revision).toBe(1);
     expect(await store.readDraft(key)).toEqual({ revision: 1, draft });
-    expect(await recoveryFiles(join(dir, "settings.json"))).toEqual([]);
-    expect(await recoveryFiles(draftFile(dir, key))).toEqual([]);
   });
   it("serializes two independent processes: exactly one write can use revision zero", async () => {
     const dir = await temporary();

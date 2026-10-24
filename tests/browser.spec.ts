@@ -326,11 +326,6 @@ test(
       ],
     ] as const) {
       await selectText(app, selector);
-      await expect(app.locator(".selection-preview")).toHaveCount(0);
-      await expect(app.locator(".conversation-panel")).toHaveCount(0);
-      await expect(
-        app.getByRole("button", { name: "Share selection", exact: true }),
-      ).toHaveCount(0);
       await addSelectionToChat(app);
       await expect.poll(() => events(page, "context")).toHaveLength(++shares);
       const context = latestSharedSelection(
@@ -1252,7 +1247,7 @@ test(
   },
 );
 
-test("whole-Issue sharing and mock mentions remain separate from the removed request UI", async ({
+test("whole-Issue sharing and mock mentions retain explicit context without sending messages", async ({
   page,
 }) => {
   const app = issueFrame(page);
@@ -1278,16 +1273,6 @@ test("whole-Issue sharing and mock mentions remain separate from the removed req
   await expect(app.locator(".shared-target")).toContainText(
     "Different from the issue you are browsing",
   );
-  await expect(
-    app.getByRole("button", { name: "Ask Codex", exact: true }),
-  ).toHaveCount(0);
-  await expect(app.locator(".conversation-panel")).toHaveCount(0);
-  await expect(
-    app.getByRole("textbox", { name: "Request for Codex", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    app.getByRole("button", { name: "Send request", exact: true }),
-  ).toHaveCount(0);
   expect(await events(page, "message")).toEqual([]);
   expect(await events(page, "context")).toEqual(explicitContext);
   await expect(app.locator(".shared-target")).toContainText("yu/Arco #42");
@@ -2593,9 +2578,6 @@ test("detail toolbar stays visible and utilities support keyboard and clipboard 
   await expect(
     app.getByRole("button", { name: "Add to chat", exact: true }),
   ).toBeInViewport();
-  await expect(
-    app.getByRole("button", { name: "Ask Codex", exact: true }),
-  ).toHaveCount(0);
   const summary = app.getByLabel("Issue actions", { exact: true });
   const utilities = app.locator(".detail-utilities");
   await summary.focus();

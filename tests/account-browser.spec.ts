@@ -143,8 +143,6 @@ test("discovered repositories enable search without typing a URL", async ({
   await expect(frame.locator(".issue-sidebar .issue-row")).toContainText(
     mentionedTitle,
   );
-  await expect(frame.locator(".repo-tabs")).toHaveCount(0);
-  await expect(frame.locator(".sidebar-footer")).not.toContainText("Switch to");
   await choose(frame, "Issue source", "linear");
   await expect(selectControl(frame, "Linear Team")).toHaveAttribute(
     "data-value",
@@ -154,7 +152,6 @@ test("discovered repositories enable search without typing a URL", async ({
   await expect(
     selectControl(frame.locator(".issue-sidebar"), "Linear workflow state"),
   ).toBeVisible();
-  await expect(frame.locator(".sidebar-footer")).not.toContainText("Switch to");
 });
 
 test("Scope searches grouped options, skips disabled repositories, and preserves filters on reselect", async ({

@@ -90,86 +90,91 @@ async function addSelection(page: Page) {
   return latestSharedSelection((await events(page, "context"))[0]);
 }
 
-test("grouped issues reuse every loaded detail and prefetch leading images without duplicate reads", async ({
-  page,
-}) => {
-  const requests: ToolCall[] = [];
-  page.on("request", (request) => {
-    if (new URL(request.url()).pathname === "/tool")
-      requests.push(request.postDataJSON() as ToolCall);
-  });
-  await open(page, [github(42), github(43), linear(42), linear(43)]);
-  await expect(tabs(page).getByRole("tab")).toHaveCount(MAX_PRESENTED_ISSUES);
-  await expect(issueTab(page, "yu/Arco #42")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await expect(panel(page)).toContainText(
-    "Return to the same position when switching between issues.",
-  );
-  await expect(
-    panel(page).getByRole("heading", { name: titles.github43, exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    panel(page).getByRole("heading", { name: titles.linear42, exact: true }),
-  ).toHaveCount(0);
-  expect(await events(page, "display")).toEqual(["inline"]);
-  expect(await events(page, "display-request")).toEqual([]);
-  expect(
-    requests.filter((request) => request.name === "arco_show_issues"),
-  ).toHaveLength(1);
-  await expect
-    .poll(() =>
+test(
+  "grouped issues reuse every loaded detail and prefetch leading images without duplicate reads",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    const requests: ToolCall[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/tool")
+        requests.push(request.postDataJSON() as ToolCall);
+    });
+    await open(page, [github(42), github(43), linear(42), linear(43)]);
+    await expect(tabs(page).getByRole("tab")).toHaveCount(MAX_PRESENTED_ISSUES);
+    await expect(issueTab(page, "yu/Arco #42")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(panel(page)).toContainText(
+      "Return to the same position when switching between issues.",
+    );
+    await expect(
+      panel(page).getByRole("heading", { name: titles.github43, exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      panel(page).getByRole("heading", { name: titles.linear42, exact: true }),
+    ).toHaveCount(0);
+    expect(await events(page, "display")).toEqual(["inline"]);
+    expect(await events(page, "display-request")).toEqual([]);
+    expect(
+      requests.filter((request) => request.name === "arco_show_issues"),
+    ).toHaveLength(1);
+    await expect
+      .poll(() =>
+        requests.filter(
+          (request) =>
+            request.name === "linear_read_image" &&
+            request.arguments.issueId === "fixture-linear-42",
+        ),
+      )
+      .toHaveLength(1);
+    await selectIssue(page, "yu/Arco #43", titles.github43);
+    await expect(panel(page)).toContainText(
+      "Selecting an issue never sends a message.",
+    );
+    await selectIssue(page, "YU-42", titles.linear42);
+    await expect(
+      selectControl(panel(page), "Linear Workflow state"),
+    ).toHaveAttribute("data-value", "linear-state-progress");
+    await expect(
+      panel(page).getByRole("img", {
+        name: "Fixture illustration",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await selectIssue(page, "YU-43", titles.linear43);
+    await expect(
+      selectControl(panel(page), "Linear Workflow state"),
+    ).toHaveAttribute("data-value", "linear-state-todo");
+    await selectIssue(page, "yu/Arco #42", titles.github42);
+    expect(
+      requests.filter((request) => request.name === "arco_show_issues"),
+    ).toHaveLength(1);
+    expect(
+      requests.filter((request) =>
+        [
+          "linear_get_issue",
+          "arco_get_issue",
+          "arco_comments",
+          "linear_comments",
+        ].includes(request.name),
+      ),
+    ).toEqual([]);
+    expect(
+      requests.filter((request) =>
+        /(?:update|create|delete|comment$)/.test(request.name),
+      ),
+    ).toEqual([]);
+    expect(
       requests.filter(
         (request) =>
           request.name === "linear_read_image" &&
           request.arguments.issueId === "fixture-linear-42",
       ),
-    )
-    .toHaveLength(1);
-  await selectIssue(page, "yu/Arco #43", titles.github43);
-  await expect(panel(page)).toContainText(
-    "Selecting an issue never sends a message.",
-  );
-  await selectIssue(page, "YU-42", titles.linear42);
-  await expect(
-    selectControl(panel(page), "Linear Workflow state"),
-  ).toHaveAttribute("data-value", "linear-state-progress");
-  await expect(
-    panel(page).getByRole("img", { name: "Fixture illustration", exact: true }),
-  ).toBeVisible();
-  await selectIssue(page, "YU-43", titles.linear43);
-  await expect(
-    selectControl(panel(page), "Linear Workflow state"),
-  ).toHaveAttribute("data-value", "linear-state-todo");
-  await selectIssue(page, "yu/Arco #42", titles.github42);
-  expect(
-    requests.filter((request) => request.name === "arco_show_issues"),
-  ).toHaveLength(1);
-  expect(
-    requests.filter((request) =>
-      [
-        "linear_get_issue",
-        "arco_get_issue",
-        "arco_comments",
-        "linear_comments",
-      ].includes(request.name),
-    ),
-  ).toEqual([]);
-  expect(
-    requests.filter((request) =>
-      /(?:update|create|delete|comment$)/.test(request.name),
-    ),
-  ).toEqual([]);
-  expect(
-    requests.filter(
-      (request) =>
-        request.name === "linear_read_image" &&
-        request.arguments.issueId === "fixture-linear-42",
-    ),
-  ).toHaveLength(1);
-  await expectNoSharing(page);
-});
+    ).toHaveLength(1);
+    await expectNoSharing(page);
+  },
+);
 
 test("failed image prefetch leaves issue bodies, states, and other tabs usable", async ({
   page,

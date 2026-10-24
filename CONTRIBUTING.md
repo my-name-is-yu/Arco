@@ -49,7 +49,11 @@ npm run check
 npm run test:browser:smoke
 ```
 
-`check` runs static and documentation checks, unit/service tests, builds, MCP smoke checks, and production artifact validation. The browser smoke suite covers critical interactions. Both must pass. Run `npm run test:browser` as well for shared host, storage-contract, or dependency changes, and before a release. Documentation-only pushes and pull requests do not start CI: run `npm run check:docs` locally and verify any commands you changed. State exactly what you checked and disclose anything you could not verify.
+`check` runs static and documentation checks, unit/service tests, builds, MCP smoke checks, and production artifact validation. The browser smoke suite covers critical interactions. Both must pass. Run affected browser specs locally for behavior changes; use `npm run test:browser` when a full regression check is needed. Documentation-only pushes and pull requests do not start CI: run `npm run check:docs` locally and verify any commands you changed. State exactly what you checked and disclose anything you could not verify.
+
+Push and pull-request CI always runs `check` and the browser smoke suite, with a target duration of about three minutes and a five-minute job limit. A newer run cancels an older run of the same event type and branch or pull request. Full browser validation runs only through **Actions → Quality → Run workflow**, with a twenty-minute job limit; it has no nightly or release-publication trigger. Manual runs are separate from push and pull-request runs, so routine CI cannot cancel a full validation.
+
+Before publishing a release, manually run the Quality workflow on its intended branch or tag and confirm that the full suite passes for the exact commit being released. Repeat full validation if that commit changes.
 
 Use `npm run dev` to build and start the fictional fixture host for routine development. `npm run dev:fixture` starts an existing build; rebuild after source changes. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering. Native credential tests can skip when an OS credential store is unavailable; report skipped checks.
 
