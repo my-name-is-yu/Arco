@@ -49,6 +49,8 @@ npm run dev:fixture
 
 `check` runs static and documentation checks, unit tests, builds, MCP smoke checks, and artifact validation. `test:browser:smoke` runs the critical browser flows used by routine CI; `test:browser` runs the complete regression suite. Full browser checks also run nightly, manually, and for shared host, storage, or dependency changes. The fixture host uses fictional issues and does not fall back to live provider APIs. It is a browser preview, not proof of Codex desktop behavior.
 
+Documentation-only pushes and pull requests do not start CI. Run `npm run check:docs` locally for those changes; the [development guide](docs/development.md#continuous-integration) lists the documentation paths.
+
 The build produces `dist/plugin/` for installation and `dist/dev/` for fixture development. The plugin includes the project license, third-party notices, and the native keyring binding installed on the build machine.
 
 See the [development guide](docs/development.md), [architecture](docs/technical-stack.md), and [contribution guide](CONTRIBUTING.md). Repository documentation, comments, and authored examples are written in English; provider content is displayed in its original language.

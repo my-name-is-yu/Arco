@@ -85,20 +85,6 @@ function repository() {
 }
 
 describe("CI validation scope", () => {
-  it("runs documentation checks for a documentation-only push", () => {
-    const repo = repository();
-    repo.write("docs/guide.md", "# Updated\n");
-    repo.commit();
-    expect(repo.run("push", { before: repo.base })).toBe("docs");
-  });
-
-  it("handles deleted documentation without opening deleted files", () => {
-    const repo = repository();
-    rmSync(join(repo.root, "docs/guide.md"));
-    repo.commit();
-    expect(repo.run("push", { before: repo.base })).toBe("docs");
-  });
-
   it("keeps plugin skill Markdown on the code path", () => {
     const repo = repository();
     repo.write("plugin/skills/setup/SKILL.md", "# Shipped skill\n");

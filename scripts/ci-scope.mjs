@@ -33,14 +33,6 @@ const dependencyFields = [
   "workspaces",
   "type",
 ];
-const documentationPaths = new Set([
-  "README.md",
-  "CONTRIBUTING.md",
-  "SECURITY.md",
-  "design-qa.md",
-  "LICENSE",
-]);
-
 const git = (...args) =>
   execFileSync("git", args, {
     encoding: "utf8",
@@ -109,15 +101,6 @@ function selectMode(name, event, head) {
   )
     .split("\0")
     .filter(Boolean);
-  if (
-    paths.every(
-      (path) =>
-        path.startsWith("docs/") ||
-        documentationPaths.has(path) ||
-        (path.startsWith(".github/") && path.endsWith(".md")),
-    )
-  )
-    return "docs";
   if (
     paths.some(
       (path) => fullPaths.has(path) || path.startsWith("src/shared/"),

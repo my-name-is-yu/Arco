@@ -2,8 +2,24 @@ name: Quality
 
 on:
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "design-qa.md"
+      - "LICENSE"
+      - ".github/**/*.md"
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "design-qa.md"
+      - "LICENSE"
+      - ".github/**/*.md"
   schedule:
     - cron: "23 18 * * *" # 03:23 JST
   workflow_dispatch:
@@ -42,16 +58,10 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Check documentation
-        if: steps.scope.outputs.mode == 'docs'
-        run: npm run check:docs
-
       - name: Check source and build artifacts
-        if: steps.scope.outputs.mode != 'docs'
         run: npm run check
 
       - name: Install Chromium and system dependencies
-        if: steps.scope.outputs.mode != 'docs'
         run: npx --no-install playwright install --with-deps chromium
 
       - name: Test critical browser interactions

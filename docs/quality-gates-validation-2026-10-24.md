@@ -8,7 +8,7 @@ The initial gate and acceptance snapshot below precedes the tiered-CI follow-up 
 
 `.github/workflows/quality.yml` runs the locked Node version, `npm ci`, `npm run check`, and Chromium browser tests for pull requests and pushes to `main`. It uses read-only repository permissions, immutable official Action revisions, and retains failed browser traces/screenshots for seven days. Live provider write scripts are excluded.
 
-The workflow passed formatting and actionlint 1.7.12 validation. At local validation time, GitHub was inspected read-only: `main` had no branch protection and no repository rulesets, and the workflow had not yet been committed or pushed. This local record does not establish subsequent GitHub Actions execution or required-check enforcement. After its first remote run, require the stable `Quality checks` status as described in [development](development.md).
+The workflow passed formatting and actionlint 1.7.12 validation. At local validation time, GitHub was inspected read-only: `main` had no branch protection and no repository rulesets, and the workflow had not yet been committed or pushed. This local record does not establish subsequent GitHub Actions execution or required-check enforcement. The current workflow and status policy is described in [development](development.md).
 
 ## Error contract
 
@@ -58,12 +58,18 @@ Final candidate and installed-copy SHA-256:
 
 The [initial hosted run](https://github.com/my-name-is-yu/Arco/actions/runs/40072861309) on `9e957e9` passed in 14 minutes 13 seconds. Its complete browser suite took 12 minutes 18 seconds; all other source/build checks together took about 57 seconds, including roughly 16 seconds for 508 passing unit/service cases and one skipped native credential test.
 
-Routine pushes and pull requests now keep all inexpensive checks and select 20 existing browser cases with `@smoke`. The complete suite still lists 173 cases. The tag-only change preserved every test title and callback body, verified by an AST comparison with the preceding revision. Nightly/manual/release events and shared host/storage/dependency changes select full coverage. Documentation-only changes still complete the same job, with tracked Markdown formatting and local-link checks.
+The first tiered workflow kept all inexpensive checks on routine pushes and pull requests and selected 20 existing browser cases with `@smoke`. The complete suite still lists 173 cases. The tag-only change preserved every test title and callback body, verified by an AST comparison with the preceding revision. Nightly/manual/release events and shared host/storage/dependency changes selected full coverage. At this stage, documentation-only changes still completed the same job, with tracked Markdown formatting and local-link checks.
 
-The routing helper has 30 real Git/CLI regression cases, including renamed/deleted paths, invalid revisions, initial pushes, and script-only versus dependency changes. The documentation checker has 12 CLI regressions, including unstaged deletions, missing targets, code examples, and repository/symlink escapes. No new dependency or affected-test dependency graph was introduced.
+At that revision, the routing helper had 30 real Git/CLI regression cases, including renamed/deleted paths, invalid revisions, initial pushes, and script-only versus dependency changes. The documentation checker had 12 CLI regressions, including unstaged deletions, missing targets, code examples, and repository/symlink escapes. No new dependency or affected-test dependency graph was introduced.
 
 Local `npm run check` passed all 551 unit/service cases, production and fixture builds, 73-tool smoke, documentation checks, and artifact inspection. `npm run test:browser:smoke` passed all 20 cases without retries in 22.6 seconds locally. The full browser list remains 173 cases. The runtime HTML/server implementation is unchanged by this CI-policy change.
 
 The [routine hosted run](https://github.com/my-name-is-yu/Arco/actions/runs/40075284842) on `77f290a` selected `smoke` and passed in **3 minutes 9 seconds**, down from 14 minutes 13 seconds for the preceding all-browser workflow (about 78% less job time in this comparison). Source/build checks took 64 seconds, Chromium preparation 24 seconds, and the 20 critical browser cases 74 seconds. The full-browser step was skipped as intended. All 550 available unit/service cases passed, one native credential case was skipped, 52 Markdown files and 307 local links passed, and the 73-tool smoke/artifact checks passed. No retries were used.
 
-The follow-up commit containing this timing record changes documentation only and exercises the `docs` profile separately. The unchanged `Quality checks` job must finish documentation checks while skipping source/build checks, browser installation, and both browser suites. The hosted run attached to that commit is the evidence for this route; this record does not require another full E2E run for a documentation update.
+The [documentation-only hosted run](https://github.com/my-name-is-yu/Arco/actions/runs/40075591777) on `441e4bb` passed in **27 seconds** under that previous policy. It selected `docs`, checked Markdown, and skipped source/build checks, browser installation, and both browser suites.
+
+## Documentation-only CI follow-up
+
+The current policy skips the entire push or pull-request workflow when all changed paths are documentation. Native `paths-ignore` filters cover `docs/**`, `.github/**/*.md`, and the root files `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `design-qa.md`, and `LICENSE`. Mixed code/documentation changes and packaged plugin skills still run code checks. The obsolete `docs` mode is removed; local `npm run check:docs` remains available and remains part of code checks.
+
+Routine code changes retain the critical 20-case browser suite. Full coverage still runs for shared host/storage/dependency changes, nightly, manually, and on release publication. The hosted timings above document the preceding revisions; they do not establish execution or skipping for this follow-up.

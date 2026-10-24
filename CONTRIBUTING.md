@@ -47,7 +47,7 @@ npm run check
 npm run test:browser:smoke
 ```
 
-Both must pass. Run `npm run test:browser` as well for shared host, storage-contract, or dependency changes, and before a release. For documentation-only changes, run `npm run check:docs` and verify any commands you changed. See the [development guide](docs/development.md) for the full-suite triggers. State exactly what you checked and disclose anything you could not verify.
+Both must pass. Run `npm run test:browser` as well for shared host, storage-contract, or dependency changes, and before a release. Documentation-only pushes and pull requests do not start CI: run `npm run check:docs` locally and verify any commands you changed. See the [development guide](docs/development.md) for the documentation paths and full-suite triggers. State exactly what you checked and disclose anything you could not verify.
 
 Use the fictional fixture host for routine development. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering.
 

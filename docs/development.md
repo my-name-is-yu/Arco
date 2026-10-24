@@ -39,11 +39,10 @@ The [fallback policy](fallback-policy.md) fixes the allowed recovery paths. Rout
 
 ## Continuous integration
 
-The [Quality workflow](../.github/workflows/quality.yml) always reports the stable `Quality checks` job on pull requests and pushes to `main`. It uses Ubuntu 24.04, the Node.js version in `.node-version`, and `npm ci`. The [scope selector](../scripts/ci-scope.mjs) chooses one of three modes:
+The [Quality workflow](../.github/workflows/quality.yml) runs on pull requests and pushes to `main` that include changes outside the documentation paths below. Documentation-only changes do not start a workflow or report a `Quality checks` job. Code checks use Ubuntu 24.04, the Node.js version in `.node-version`, and `npm ci`. The [scope selector](../scripts/ci-scope.mjs) chooses one of two modes:
 
 | Mode    | When                                                                                     | Checks                                                      |
 | ------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `docs`  | Only documentation paths changed                                                         | `npm run check:docs`; no build or browser installation      |
 | `smoke` | Ordinary code, test, or workflow changes                                                 | Complete `npm run check`, then `npm run test:browser:smoke` |
 | `full`  | Shared host/storage contracts, dependency/toolchain changes, or an explicitly full event | Complete `npm run check`, then `npm run test:browser`       |
 
@@ -51,15 +50,17 @@ The critical browser suite contains 20 existing cases for both providers: readin
 
 All unit/service tests remain in every code check. The initial hosted run spent about 57 seconds on all non-browser checks, including roughly 16 seconds on unit/service tests; full browser coverage took 12 minutes 18 seconds. Reducing the routine browser scope retains those inexpensive checks.
 
-Full coverage runs nightly at 03:23 JST, on manual dispatch, and when a release or prerelease is published. Before publishing a release, manually run the workflow on the candidate revision and require its full result; the publication event is an additional verification, not a publication gate. Dependency sections and engines in `package.json` trigger full coverage, while script-only edits do not. The selector owns the exact documentation allowlist and shared-contract path list; unknown paths use code checks, and invalid comparison inputs fail visibly.
+Full coverage runs nightly at 03:23 JST, on manual dispatch, and when a release or prerelease is published, regardless of documentation path filters. Before publishing a release, manually run the workflow on the candidate revision and require its full result; the publication event is an additional verification, not a publication gate. Dependency sections and engines in `package.json` trigger full coverage, while script-only edits do not. The selector owns the shared-contract path list; unknown paths use code checks, and invalid comparison inputs fail visibly.
 
-Documentation-only changes still complete `Quality checks`; the workflow itself is never skipped with a path filter. Plugin skills are packaged product content, so changing their Markdown uses code checks. `check:docs` validates tracked Markdown formatting and local links, including images and reference links; it excludes code examples and external URLs and rejects paths outside the repository.
+The workflow's native `paths-ignore` filters skip pushes and pull requests when every changed path matches `docs/**`, `.github/**/*.md`, or one of the root files `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `design-qa.md`, and `LICENSE`. Mixed documentation and code changes run code checks. Plugin skills are packaged product content, so changing their Markdown also runs code checks.
+
+Run `npm run check:docs` locally for documentation-only changes. It also remains part of `npm run check` for code changes. It validates tracked Markdown formatting and local links, including images and reference links; it excludes code examples and external URLs and rejects paths outside the repository.
 
 New pull-request runs supersede earlier runs for the same PR. Push runs are keyed by commit, so a later documentation-only push cannot cancel full coverage for a preceding host or dependency change. Nightly and manual runs are isolated from routine push/PR runs.
 
 Failed browser runs retain Playwright traces and screenshots for seven days. The workflow uses read-only repository permissions and commit-pinned official actions; it does not receive provider credentials or run live-validation scripts.
 
-After the workflow is available on GitHub and has produced its first status, configure `Quality checks` as a required status check for `main` in the repository's branch protection or ruleset settings. The workflow file alone does not enable that requirement. Keep the check name stable when changing its implementation.
+The workflow file does not configure branch protection or required checks. Because documentation-only pushes and pull requests intentionally report no status, any future required-check policy must accommodate those skipped workflows. Keep the `Quality checks` name stable for runs that execute.
 
 The Linux runner may skip the isolated native credential rotation test when no unlocked Secret Service is available. This does not validate desktop credential storage, native Codex rendering, or another OS; those checks remain separate acceptance work.
 
