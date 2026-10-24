@@ -15,19 +15,21 @@ Use the fixture environment for ordinary UI and integration work. Real provider 
 
 ## Commands
 
-| Command                  | Purpose                                                                                            |
-| ------------------------ | -------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`      | TypeScript checking without emitting files.                                                        |
-| `npm run lint`           | ESLint for source, scripts, tests, and build configuration.                                        |
-| `npm run format:check`   | Formatting for the files covered by the package script.                                            |
-| `npm test`               | Unit and service tests; excludes browser specs. Native credential tests can skip when unavailable. |
-| `npm run build`          | Build the UI and production/fixture MCP servers.                                                   |
-| `npm run smoke`          | Exercise the built fixture MCP server and packaged metadata.                                       |
-| `npm run check:artifact` | Check the production bundle, embedded assets, license, and fixture separation.                     |
-| `npm run check`          | Run static checks, unit tests, build, smoke, and artifact checks.                                  |
-| `npm run test:browser`   | Playwright interaction tests against the fixture host. Requires an installed Chromium browser.     |
-| `npm run dev`            | Build and start the fixture host.                                                                  |
-| `npm run dev:fixture`    | Start the fixture host using an existing build.                                                    |
+| Command                      | Purpose                                                                                            |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`          | TypeScript checking without emitting files.                                                        |
+| `npm run lint`               | ESLint for source, scripts, tests, and build configuration.                                        |
+| `npm run format:check`       | Formatting for the files covered by the package script.                                            |
+| `npm run check:docs`         | Check tracked Markdown formatting and repository-local links without modifying files.              |
+| `npm test`                   | Unit and service tests; excludes browser specs. Native credential tests can skip when unavailable. |
+| `npm run build`              | Build the UI and production/fixture MCP servers.                                                   |
+| `npm run smoke`              | Exercise the built fixture MCP server and packaged metadata.                                       |
+| `npm run check:artifact`     | Check the production bundle, embedded assets, license, and fixture separation.                     |
+| `npm run check`              | Run static/documentation checks, unit tests, build, smoke, and artifact checks.                    |
+| `npm run test:browser`       | Playwright interaction tests against the fixture host. Requires an installed Chromium browser.     |
+| `npm run test:browser:smoke` | Run only the critical browser cases tagged `@smoke`. Requires a build and Chromium.                |
+| `npm run dev`                | Build and start the fixture host.                                                                  |
+| `npm run dev:fixture`        | Start the fixture host using an existing build.                                                    |
 
 For Markdown outside the package formatting script's scope, run `npx --no-install prettier --check '**/*.md'` from the repository root. If Chromium is missing, `npx --no-install playwright install chromium` downloads the browser required by the Playwright configuration.
 
@@ -37,7 +39,25 @@ The [fallback policy](fallback-policy.md) fixes the allowed recovery paths. Rout
 
 ## Continuous integration
 
-The [Quality workflow](../.github/workflows/quality.yml) runs on pull requests and pushes to `main`. Its `Quality checks` job uses Ubuntu 24.04, the Node.js version in `.node-version`, and `npm ci`. It runs `npm run check`, installs Chromium and its system dependencies, then runs `npm run test:browser` without retries. Failed browser runs retain Playwright traces and screenshots for seven days. The workflow uses read-only repository permissions and commit-pinned official actions; it does not receive provider credentials or run live-validation scripts.
+The [Quality workflow](../.github/workflows/quality.yml) always reports the stable `Quality checks` job on pull requests and pushes to `main`. It uses Ubuntu 24.04, the Node.js version in `.node-version`, and `npm ci`. The [scope selector](../scripts/ci-scope.mjs) chooses one of three modes:
+
+| Mode    | When                                                                                     | Checks                                                      |
+| ------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `docs`  | Only documentation paths changed                                                         | `npm run check:docs`; no build or browser installation      |
+| `smoke` | Ordinary code, test, or workflow changes                                                 | Complete `npm run check`, then `npm run test:browser:smoke` |
+| `full`  | Shared host/storage contracts, dependency/toolchain changes, or an explicitly full event | Complete `npm run check`, then `npm run test:browser`       |
+
+The critical browser suite contains 20 existing cases for both providers: reading/saving, exact targets and selections, annotation removal, drafts, conflict handling, uncertain-write protection, hostile Markdown, invalid settings/cursors, explicit scope, and request/operation limits. The full 173-case suite also covers the broad property, hover, theme/width, and real-time polling matrices. Tag metadata selects the critical cases; their titles and test logic remain the same in the full suite. No browser retries are enabled.
+
+All unit/service tests remain in every code check. The initial hosted run spent about 57 seconds on all non-browser checks, including roughly 16 seconds on unit/service tests; full browser coverage took 12 minutes 18 seconds. Reducing the routine browser scope retains those inexpensive checks.
+
+Full coverage runs nightly at 03:23 JST, on manual dispatch, and when a release or prerelease is published. Before publishing a release, manually run the workflow on the candidate revision and require its full result; the publication event is an additional verification, not a publication gate. Dependency sections and engines in `package.json` trigger full coverage, while script-only edits do not. The selector owns the exact documentation allowlist and shared-contract path list; unknown paths use code checks, and invalid comparison inputs fail visibly.
+
+Documentation-only changes still complete `Quality checks`; the workflow itself is never skipped with a path filter. Plugin skills are packaged product content, so changing their Markdown uses code checks. `check:docs` validates tracked Markdown formatting and local links, including images and reference links; it excludes code examples and external URLs and rejects paths outside the repository.
+
+New pull-request runs supersede earlier runs for the same PR. Push runs are keyed by commit, so a later documentation-only push cannot cancel full coverage for a preceding host or dependency change. Nightly and manual runs are isolated from routine push/PR runs.
+
+Failed browser runs retain Playwright traces and screenshots for seven days. The workflow uses read-only repository permissions and commit-pinned official actions; it does not receive provider credentials or run live-validation scripts.
 
 After the workflow is available on GitHub and has produced its first status, configure `Quality checks` as a required status check for `main` in the repository's branch protection or ruleset settings. The workflow file alone does not enable that requirement. Keep the check name stable when changing its implementation.
 

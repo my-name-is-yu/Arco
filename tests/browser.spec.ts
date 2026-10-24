@@ -141,70 +141,76 @@ test.afterEach(async ({ page }, testInfo) => {
   expect(pageErrors.get(page)).toEqual([]);
 });
 
-test("fixture edits, comment, and label changes round trip through the real stdio MCP", async ({
-  page,
-}) => {
-  const app = issueFrame(page);
-  const preview = app.getByRole("img", { name: "Fixture selection preview" });
-  await expect(preview).toBeVisible();
-  expect(
-    await preview.evaluate(
-      (element: HTMLImageElement) =>
-        element.complete && element.naturalWidth > 0,
-    ),
-  ).toBe(true);
-  await openIssueActions(app);
-  await app.getByRole("button", { name: "Edit issue" }).click();
-  await app
-    .getByRole("textbox", { name: "Issue title", exact: true })
-    .fill("An edited issue");
-  await app
-    .getByRole("textbox", { name: "Issue body", exact: true })
-    .fill("## Saved body\n\nVerify the Markdown update.");
-  await app.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(
-    app.getByRole("heading", { name: "An edited issue", exact: true }),
-  ).toBeVisible();
-  await expect(app.locator(".issue-body")).toContainText(
-    "Verify the Markdown update.",
-  );
-  await app
-    .getByRole("textbox", { name: "Comment on GitHub" })
-    .fill("A local fixture comment");
-  await app.getByRole("button", { name: "Post comment" }).click();
-  await expect(
-    app.locator(".comment").filter({ hasText: "A local fixture comment" }),
-  ).toHaveCount(1);
-  await expect(
-    app.getByRole("textbox", { name: "Comment on GitHub" }),
-  ).toHaveValue("");
-  await openMultiSelect(app, "Labels");
-  await app.getByRole("option", { name: "bug", exact: true }).click();
-  await expect(
-    app.getByRole("option", { name: "bug", exact: true }),
-  ).toHaveAttribute("data-selected", "");
-  await expect(
-    app.getByRole("option", { name: "enhancement", exact: true }),
-  ).toHaveAttribute("data-selected", "");
-  await expect(
-    app.getByRole("option", { name: "design", exact: true }),
-  ).toHaveAttribute("data-selected", "");
-  await page.keyboard.press("Escape");
-  await app.getByRole("button", { name: "Refresh", exact: true }).click();
-  const labels = app.getByRole("group", { name: "Labels", exact: true });
-  await expect(labels).toContainText("bug");
-  await expect(labels).toContainText("enhancement");
-  await expect(labels).toContainText("design");
-  await openIssueActions(app);
-  await app.getByRole("button", { name: "Edit issue" }).click();
-  await app
-    .getByRole("textbox", { name: "Issue body", exact: true })
-    .fill("Body editing still works after comment and label changes.");
-  await app.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(app.locator(".issue-body")).toContainText(
-    "Body editing still works after comment and label changes.",
-  );
-});
+test(
+  "fixture edits, comment, and label changes round trip through the real stdio MCP",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    const app = issueFrame(page);
+    const preview = app.getByRole("img", { name: "Fixture selection preview" });
+    await expect(preview).toBeVisible();
+    expect(
+      await preview.evaluate(
+        (element: HTMLImageElement) =>
+          element.complete && element.naturalWidth > 0,
+      ),
+    ).toBe(true);
+    await openIssueActions(app);
+    await app.getByRole("button", { name: "Edit issue" }).click();
+    await app
+      .getByRole("textbox", { name: "Issue title", exact: true })
+      .fill("An edited issue");
+    await app
+      .getByRole("textbox", { name: "Issue body", exact: true })
+      .fill("## Saved body\n\nVerify the Markdown update.");
+    await app
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(
+      app.getByRole("heading", { name: "An edited issue", exact: true }),
+    ).toBeVisible();
+    await expect(app.locator(".issue-body")).toContainText(
+      "Verify the Markdown update.",
+    );
+    await app
+      .getByRole("textbox", { name: "Comment on GitHub" })
+      .fill("A local fixture comment");
+    await app.getByRole("button", { name: "Post comment" }).click();
+    await expect(
+      app.locator(".comment").filter({ hasText: "A local fixture comment" }),
+    ).toHaveCount(1);
+    await expect(
+      app.getByRole("textbox", { name: "Comment on GitHub" }),
+    ).toHaveValue("");
+    await openMultiSelect(app, "Labels");
+    await app.getByRole("option", { name: "bug", exact: true }).click();
+    await expect(
+      app.getByRole("option", { name: "bug", exact: true }),
+    ).toHaveAttribute("data-selected", "");
+    await expect(
+      app.getByRole("option", { name: "enhancement", exact: true }),
+    ).toHaveAttribute("data-selected", "");
+    await expect(
+      app.getByRole("option", { name: "design", exact: true }),
+    ).toHaveAttribute("data-selected", "");
+    await page.keyboard.press("Escape");
+    await app.getByRole("button", { name: "Refresh", exact: true }).click();
+    const labels = app.getByRole("group", { name: "Labels", exact: true });
+    await expect(labels).toContainText("bug");
+    await expect(labels).toContainText("enhancement");
+    await expect(labels).toContainText("design");
+    await openIssueActions(app);
+    await app.getByRole("button", { name: "Edit issue" }).click();
+    await app
+      .getByRole("textbox", { name: "Issue body", exact: true })
+      .fill("Body editing still works after comment and label changes.");
+    await app
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(app.locator(".issue-body")).toContainText(
+      "Body editing still works after comment and label changes.",
+    );
+  },
+);
 
 test("GitHub assignees support multiple keyboard choices, Escape, and focus return", async ({
   page,
@@ -287,55 +293,59 @@ test("pending saves protect inputs until the acknowledged fixture result arrives
   );
 });
 
-test("GitHub Markdown blocks active directives and forged selection provenance", async ({
-  page,
-}) => {
-  await checkMarkdownSecurity(page, issueFrame(page), "arco_get_issue", {
-    source: "github",
-    repo: "yu/Arco",
-    number: 42,
-  });
-});
-
-test("body/comment range sharing carries exactly the selected source text", async ({
-  page,
-}) => {
-  const app = issueFrame(page);
-  let shares = 0;
-  for (const [selector, origin, text] of [
-    [
-      ".issue-body p",
-      "body",
-      "Return to the same position when switching between issues.",
-    ],
-    [
-      '.comment [data-context-origin="comment"] p',
-      "comment",
-      "Keep the same behavior when switching issues with the keyboard.",
-    ],
-  ] as const) {
-    await selectText(app, selector);
-    await expect(app.locator(".selection-preview")).toHaveCount(0);
-    await expect(app.locator(".conversation-panel")).toHaveCount(0);
-    await expect(
-      app.getByRole("button", { name: "Share selection", exact: true }),
-    ).toHaveCount(0);
-    await addSelectionToChat(app);
-    await expect.poll(() => events(page, "context")).toHaveLength(++shares);
-    const context = latestSharedSelection(
-      (await events(page, "context")).at(-1),
-    );
-    expect(context).toMatchObject({
+test(
+  "GitHub Markdown blocks active directives and forged selection provenance",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await checkMarkdownSecurity(page, issueFrame(page), "arco_get_issue", {
       source: "github",
       repo: "yu/Arco",
       number: 42,
-      selection: { text, origin },
     });
-    expect(context).not.toHaveProperty("body");
-    await expect(selectionToolbar(app)).toHaveCount(0);
-  }
-  expect(await events(page, "message")).toHaveLength(0);
-});
+  },
+);
+
+test(
+  "body/comment range sharing carries exactly the selected source text",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    const app = issueFrame(page);
+    let shares = 0;
+    for (const [selector, origin, text] of [
+      [
+        ".issue-body p",
+        "body",
+        "Return to the same position when switching between issues.",
+      ],
+      [
+        '.comment [data-context-origin="comment"] p',
+        "comment",
+        "Keep the same behavior when switching issues with the keyboard.",
+      ],
+    ] as const) {
+      await selectText(app, selector);
+      await expect(app.locator(".selection-preview")).toHaveCount(0);
+      await expect(app.locator(".conversation-panel")).toHaveCount(0);
+      await expect(
+        app.getByRole("button", { name: "Share selection", exact: true }),
+      ).toHaveCount(0);
+      await addSelectionToChat(app);
+      await expect.poll(() => events(page, "context")).toHaveLength(++shares);
+      const context = latestSharedSelection(
+        (await events(page, "context")).at(-1),
+      );
+      expect(context).toMatchObject({
+        source: "github",
+        repo: "yu/Arco",
+        number: 42,
+        selection: { text, origin },
+      });
+      expect(context).not.toHaveProperty("body");
+      await expect(selectionToolbar(app)).toHaveCount(0);
+    }
+    expect(await events(page, "message")).toHaveLength(0);
+  },
+);
 
 test("GitHub keeps a shared body range when adding a comment range after mouseup on comment padding", async ({
   page,
@@ -842,40 +852,42 @@ test("two GitHub selections keep numbered markers and independent comments when 
   expect(await events(page, "message")).toEqual([]);
 });
 
-test("removing the native annotation group also removes its model-only data and Arco highlights", async ({
-  page,
-}) => {
-  const app = issueFrame(page);
-  await selectText(app, ".issue-heading h1");
-  await addSelectionToChat(app);
-  await selectText(app, ".issue-body p");
-  await addSelectionToChat(app);
-  await expect(
-    app.getByRole("button", { name: /Edit selection comment/ }),
-  ).toHaveCount(2);
-  const updates = await events(page, "context");
-  const shared = updates.at(-1) as {
-    content: { _meta?: Record<string, unknown> }[];
-    structuredContent: Record<string, unknown>;
-  };
-  const group = shared.content[0]._meta?.["openai/group"];
-  const remaining = shared.content.filter(
-    (item) =>
-      JSON.stringify(item._meta?.["openai/group"]) !== JSON.stringify(group),
-  );
-  await updateHostContext(page, {
-    "openai/modelContext": remaining.length
-      ? { ...shared, content: remaining, updateId: "native-group-removed" }
-      : null,
-  });
-  await expect(
-    app.getByRole("button", { name: /Edit selection comment/ }),
-  ).toHaveCount(0);
-  await expect(selectionComment(app)).toHaveCount(0);
-  await expect.poll(() => retainedSelection(app)).toEqual([]);
-  expect(await events(page, "context")).toEqual(updates);
-  expect(await events(page, "message")).toEqual([]);
-});
+test(
+  "removing the native annotation group also removes its model-only data and Arco highlights",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    const app = issueFrame(page);
+    await selectText(app, ".issue-heading h1");
+    await addSelectionToChat(app);
+    await selectText(app, ".issue-body p");
+    await addSelectionToChat(app);
+    await expect(
+      app.getByRole("button", { name: /Edit selection comment/ }),
+    ).toHaveCount(2);
+    const updates = await events(page, "context");
+    const shared = updates.at(-1) as {
+      content: { _meta?: Record<string, unknown> }[];
+      structuredContent: Record<string, unknown>;
+    };
+    const group = shared.content[0]._meta?.["openai/group"];
+    const remaining = shared.content.filter(
+      (item) =>
+        JSON.stringify(item._meta?.["openai/group"]) !== JSON.stringify(group),
+    );
+    await updateHostContext(page, {
+      "openai/modelContext": remaining.length
+        ? { ...shared, content: remaining, updateId: "native-group-removed" }
+        : null,
+    });
+    await expect(
+      app.getByRole("button", { name: /Edit selection comment/ }),
+    ).toHaveCount(0);
+    await expect(selectionComment(app)).toHaveCount(0);
+    await expect.poll(() => retainedSelection(app)).toEqual([]);
+    expect(await events(page, "context")).toEqual(updates);
+    expect(await events(page, "message")).toEqual([]);
+  },
+);
 
 test("narrow input selections keep their source draft and survive presentation updates until native context removal or replacement", async ({
   page,
@@ -1188,53 +1200,55 @@ test("a selected comment draft can reach Add to chat by Tab and attach by Enter"
   expect(await events(page, "message")).toEqual([]);
 });
 
-test("issue drafts and search survive selection changes; browse never shares", async ({
-  page,
-}) => {
-  const app = issueFrame(page);
-  await page.setViewportSize({ width: 1440, height: 600 });
-  await app.getByRole("button", { name: "All", exact: true }).click();
-  await expect(app.locator(".issue-row")).toHaveCount(3);
-  const list = app.locator(".issue-list");
-  const scrollTop = await list.evaluate((element) => {
-    element.scrollTop = 35;
-    return element.scrollTop;
-  });
-  expect(scrollTop).toBeGreaterThan(0);
-  await app.getByRole("textbox", { name: "Search issues" }).fill("shared");
-  await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
-  await expect(
-    app.getByRole("heading", { name: secondTitle, exact: true }),
-  ).toBeVisible();
-  await expect(app.getByRole("textbox", { name: "Search issues" })).toHaveValue(
-    "shared",
-  );
-  await app.getByRole("textbox", { name: "Search issues" }).fill("");
-  await expect
-    .poll(() => list.evaluate((element) => element.scrollTop))
-    .toBe(scrollTop);
-  await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
-  await openIssueActions(app);
-  await app.getByRole("button", { name: "Edit issue" }).click();
-  await app
-    .getByRole("textbox", { name: "Issue body", exact: true })
-    .fill("Keep this unsaved body draft");
-  await app
-    .getByRole("textbox", { name: "Comment on GitHub" })
-    .fill("An unsent comment draft");
-  await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
-  await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
-  await openIssueActions(app);
-  await app.getByRole("button", { name: "Edit issue" }).click();
-  await expect(
-    app.getByRole("textbox", { name: "Issue body", exact: true }),
-  ).toHaveValue("Keep this unsaved body draft");
-  await expect(
-    app.getByRole("textbox", { name: "Comment on GitHub" }),
-  ).toHaveValue("An unsent comment draft");
-  expect(await events(page, "context")).toHaveLength(0);
-  expect(await events(page, "message")).toHaveLength(0);
-});
+test(
+  "issue drafts and search survive selection changes; browse never shares",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    const app = issueFrame(page);
+    await page.setViewportSize({ width: 1440, height: 600 });
+    await app.getByRole("button", { name: "All", exact: true }).click();
+    await expect(app.locator(".issue-row")).toHaveCount(3);
+    const list = app.locator(".issue-list");
+    const scrollTop = await list.evaluate((element) => {
+      element.scrollTop = 35;
+      return element.scrollTop;
+    });
+    expect(scrollTop).toBeGreaterThan(0);
+    await app.getByRole("textbox", { name: "Search issues" }).fill("shared");
+    await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
+    await expect(
+      app.getByRole("heading", { name: secondTitle, exact: true }),
+    ).toBeVisible();
+    await expect(
+      app.getByRole("textbox", { name: "Search issues" }),
+    ).toHaveValue("shared");
+    await app.getByRole("textbox", { name: "Search issues" }).fill("");
+    await expect
+      .poll(() => list.evaluate((element) => element.scrollTop))
+      .toBe(scrollTop);
+    await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
+    await openIssueActions(app);
+    await app.getByRole("button", { name: "Edit issue" }).click();
+    await app
+      .getByRole("textbox", { name: "Issue body", exact: true })
+      .fill("Keep this unsaved body draft");
+    await app
+      .getByRole("textbox", { name: "Comment on GitHub" })
+      .fill("An unsent comment draft");
+    await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
+    await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
+    await openIssueActions(app);
+    await app.getByRole("button", { name: "Edit issue" }).click();
+    await expect(
+      app.getByRole("textbox", { name: "Issue body", exact: true }),
+    ).toHaveValue("Keep this unsaved body draft");
+    await expect(
+      app.getByRole("textbox", { name: "Comment on GitHub" }),
+    ).toHaveValue("An unsent comment draft");
+    expect(await events(page, "context")).toHaveLength(0);
+    expect(await events(page, "message")).toHaveLength(0);
+  },
+);
 
 test("whole-Issue sharing and mock mentions remain separate from the removed request UI", async ({
   page,
@@ -2313,51 +2327,55 @@ test("existing-comment edit drafts survive an immediate Issue switch", async ({
   expect(await events(page, "message")).toHaveLength(0);
 });
 
-test("external content changes preserve the local draft and require an explicit conflict resolution", async ({
-  page,
-}) => {
-  const app = issueFrame(page);
-  await openIssueActions(app);
-  await app.getByRole("button", { name: "Edit issue" }).click();
-  await app
-    .getByRole("textbox", { name: "Issue body", exact: true })
-    .fill("Keep this local body");
-  await page
-    .getByRole("button", { name: "Mock external update #42", exact: true })
-    .click();
-  await expect(
-    app.getByRole("textbox", { name: "Issue body", exact: true }),
-  ).toHaveValue("Keep this local body");
-  await expect(
-    app.getByRole("textbox", { name: "Issue title", exact: true }),
-  ).toHaveValue("Issue updated by a Codex tool");
-  await expect(
-    app.getByRole("button", { name: "Save changes", exact: true }),
-  ).toBeDisabled();
-  await app
-    .getByRole("button", { name: "Compare latest content", exact: true })
-    .click();
-  await expect(app.locator(".latest-content")).toContainText(
-    "The source update was fetched into the same UI.",
-  );
-  await app
-    .getByRole("button", {
-      name: "Keep draft and use latest revision",
-      exact: true,
-    })
-    .click();
-  await app.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(app.locator(".issue-body")).toContainText(
-    "Keep this local body",
-  );
-  await expect(
-    app.getByRole("heading", {
-      name: "Issue updated by a Codex tool",
-      exact: true,
-    }),
-  ).toBeVisible();
-  expect(await events(page, "message")).toHaveLength(0);
-});
+test(
+  "external content changes preserve the local draft and require an explicit conflict resolution",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    const app = issueFrame(page);
+    await openIssueActions(app);
+    await app.getByRole("button", { name: "Edit issue" }).click();
+    await app
+      .getByRole("textbox", { name: "Issue body", exact: true })
+      .fill("Keep this local body");
+    await page
+      .getByRole("button", { name: "Mock external update #42", exact: true })
+      .click();
+    await expect(
+      app.getByRole("textbox", { name: "Issue body", exact: true }),
+    ).toHaveValue("Keep this local body");
+    await expect(
+      app.getByRole("textbox", { name: "Issue title", exact: true }),
+    ).toHaveValue("Issue updated by a Codex tool");
+    await expect(
+      app.getByRole("button", { name: "Save changes", exact: true }),
+    ).toBeDisabled();
+    await app
+      .getByRole("button", { name: "Compare latest content", exact: true })
+      .click();
+    await expect(app.locator(".latest-content")).toContainText(
+      "The source update was fetched into the same UI.",
+    );
+    await app
+      .getByRole("button", {
+        name: "Keep draft and use latest revision",
+        exact: true,
+      })
+      .click();
+    await app
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(app.locator(".issue-body")).toContainText(
+      "Keep this local body",
+    );
+    await expect(
+      app.getByRole("heading", {
+        name: "Issue updated by a Codex tool",
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(await events(page, "message")).toHaveLength(0);
+  },
+);
 
 test("compact GitHub resolves the account feed when no repository is selected", async ({
   page,

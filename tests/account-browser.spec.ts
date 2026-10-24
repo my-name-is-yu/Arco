@@ -214,66 +214,73 @@ test("Scope searches grouped options, skips disabled repositories, and preserves
   await expect(ui.locator("select")).toHaveCount(0);
 });
 
-test("a constrained host handles startup and presentation bursts without overflowing or missing source updates", async ({
-  page,
-}) => {
-  await page.route("**/tool", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await route.continue();
-  });
-  const log = async () =>
-    JSON.parse((await page.locator("#events").textContent()) ?? "[]") as {
-      type: string;
-      value: { active?: number; name?: string };
-    }[];
-  const active = async () =>
-    (await log()).findLast((event) => event.type === "tool-pressure")?.value
-      .active ?? 0;
-  const reads = async () =>
-    (await log()).filter(
-      (event) => event.type === "tool" && event.value.name === "arco_get_issue",
+test(
+  "a constrained host handles startup and presentation bursts without overflowing or missing source updates",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await page.route("**/tool", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await route.continue();
+    });
+    const log = async () =>
+      JSON.parse((await page.locator("#events").textContent()) ?? "[]") as {
+        type: string;
+        value: { active?: number; name?: string };
+      }[];
+    const active = async () =>
+      (await log()).findLast((event) => event.type === "tool-pressure")?.value
+        .active ?? 0;
+    const reads = async () =>
+      (await log()).filter(
+        (event) =>
+          event.type === "tool" && event.value.name === "arco_get_issue",
+      ).length;
+    await page.goto("/?toolLimit=2");
+    await expect(page.locator("#bridge-status")).toHaveText("ready");
+    const ui = app(page);
+    await expect(
+      ui.getByRole("heading", { name: assignedTitle, exact: true }),
+    ).toBeVisible();
+    await expect.poll(active).toBe(0);
+    const before = (await log()).filter(
+      (event) => event.type === "tool",
     ).length;
-  await page.goto("/?toolLimit=2");
-  await expect(page.locator("#bridge-status")).toHaveText("ready");
-  const ui = app(page);
-  await expect(
-    ui.getByRole("heading", { name: assignedTitle, exact: true }),
-  ).toBeVisible();
-  await expect.poll(active).toBe(0);
-  const before = (await log()).filter((event) => event.type === "tool").length;
-  await page.getByText("Mock host events", { exact: true }).click();
-  await page.getByRole("button", { name: "Mock presentation updates" }).click();
-  await page.getByText("Mock host events", { exact: true }).click();
-  // Observe beyond the data-notification coalescing window: layout/theme must stay quiet.
-  await page.waitForTimeout(350);
-  expect((await log()).filter((event) => event.type === "tool")).toHaveLength(
-    before,
-  );
-  const issueReads = await reads();
-  await page
-    .getByRole("button", { name: "Mock external update #42", exact: true })
-    .click();
-  await expect(
-    ui.getByRole("heading", {
-      name: "Issue updated by a Codex tool",
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect.poll(active).toBe(0);
-  expect(await reads()).toBe(issueReads + 1);
-  const recorded = await log();
-  expect(recorded.filter((event) => event.type === "tool-rejected")).toEqual(
-    [],
-  );
-  expect(
-    Math.max(
-      ...recorded
-        .filter((event) => event.type === "tool-pressure")
-        .map((event) => event.value.active ?? 0),
-    ),
-  ).toBeLessThanOrEqual(2);
-  await expect(ui.getByText(/request queue is full/)).toHaveCount(0);
-});
+    await page.getByText("Mock host events", { exact: true }).click();
+    await page
+      .getByRole("button", { name: "Mock presentation updates" })
+      .click();
+    await page.getByText("Mock host events", { exact: true }).click();
+    // Observe beyond the data-notification coalescing window: layout/theme must stay quiet.
+    await page.waitForTimeout(350);
+    expect((await log()).filter((event) => event.type === "tool")).toHaveLength(
+      before,
+    );
+    const issueReads = await reads();
+    await page
+      .getByRole("button", { name: "Mock external update #42", exact: true })
+      .click();
+    await expect(
+      ui.getByRole("heading", {
+        name: "Issue updated by a Codex tool",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect.poll(active).toBe(0);
+    expect(await reads()).toBe(issueReads + 1);
+    const recorded = await log();
+    expect(recorded.filter((event) => event.type === "tool-rejected")).toEqual(
+      [],
+    );
+    expect(
+      Math.max(
+        ...recorded
+          .filter((event) => event.type === "tool-pressure")
+          .map((event) => event.value.active ?? 0),
+      ),
+    ).toBeLessThanOrEqual(2);
+    await expect(ui.getByText(/request queue is full/)).toHaveCount(0);
+  },
+);
 
 test("compact personal feed resolves loading to empty without broadening scope", async ({
   page,

@@ -500,64 +500,72 @@ test("external issue results and host presentation changes preserve the project 
 });
 
 for (const source of ["github", "linear"] as const) {
-  test(`${source} show uses its inline metadata and keeps the exact issue across details and browsing`, async ({
-    page,
-  }) => {
-    const session = await sessionWithSettings(page, {
-      activeSource: source === "github" ? "linear" : "github",
-    });
-    const sharedSource = source === "github" ? "linear" : "github";
-    await page.goto(
-      `/?session=${session}&entry=issue&source=${source}&number=43&shared=${sharedSource}&sharedRepo=yu/Arco`,
-    );
-    await expect(page.locator("#bridge-status")).toHaveText("ready");
-    const ui = app(page);
-    const card = ui.locator(".inline-issue-card");
-    await expect(
-      card.getByRole("heading", { name: issueTitles[source][43], exact: true }),
-    ).toBeVisible();
-    expect(await hostEvents(page, "presentation")).toEqual([
-      {
-        tool: "arco_show_issue",
-        resourceUri: "ui://arco/issue-card",
-        preferredMode: "inline",
-        availableDisplayModes: ["inline", "fullscreen"],
-      },
-    ]);
-    expect(await hostEvents(page, "display")).toEqual(["inline"]);
-    expect(await hostEvents(page, "display-request")).toEqual([]);
-    expect((await hostEvents(page, "launch")).at(-1)).toMatchObject({
-      target: nativeTarget(source, 43),
-    });
-    expect(await calls(page, "arco_update_settings")).toEqual([]);
+  test(
+    `${source} show uses its inline metadata and keeps the exact issue across details and browsing`,
+    { tag: "@smoke" },
+    async ({ page }) => {
+      const session = await sessionWithSettings(page, {
+        activeSource: source === "github" ? "linear" : "github",
+      });
+      const sharedSource = source === "github" ? "linear" : "github";
+      await page.goto(
+        `/?session=${session}&entry=issue&source=${source}&number=43&shared=${sharedSource}&sharedRepo=yu/Arco`,
+      );
+      await expect(page.locator("#bridge-status")).toHaveText("ready");
+      const ui = app(page);
+      const card = ui.locator(".inline-issue-card");
+      await expect(
+        card.getByRole("heading", {
+          name: issueTitles[source][43],
+          exact: true,
+        }),
+      ).toBeVisible();
+      expect(await hostEvents(page, "presentation")).toEqual([
+        {
+          tool: "arco_show_issue",
+          resourceUri: "ui://arco/issue-card",
+          preferredMode: "inline",
+          availableDisplayModes: ["inline", "fullscreen"],
+        },
+      ]);
+      expect(await hostEvents(page, "display")).toEqual(["inline"]);
+      expect(await hostEvents(page, "display-request")).toEqual([]);
+      expect((await hostEvents(page, "launch")).at(-1)).toMatchObject({
+        target: nativeTarget(source, 43),
+      });
+      expect(await calls(page, "arco_update_settings")).toEqual([]);
 
-    await card
-      .getByRole("button", { name: "Open details", exact: true })
-      .click();
+      await card
+        .getByRole("button", { name: "Open details", exact: true })
+        .click();
 
-    await expect
-      .poll(async () => (await hostEvents(page, "display")).at(-1))
-      .toBe("fullscreen");
-    await expect(
-      ui.getByRole("heading", { name: issueTitles[source][43], exact: true }),
-    ).toBeVisible();
-    await ui
-      .locator(".issue-row")
-      .filter({ hasText: issueTitles[source][42] })
-      .click();
-    await expect(
-      ui.getByRole("heading", { name: issueTitles[source][42], exact: true }),
-    ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Mock inline", exact: true })
-      .click();
-    await expect(
-      card.getByRole("heading", { name: issueTitles[source][43], exact: true }),
-    ).toBeVisible();
-    expect(await hostEvents(page, "context")).toEqual([]);
-    expect(await hostEvents(page, "message")).toEqual([]);
-    await expect(page.locator("#harness-error")).toBeEmpty();
-  });
+      await expect
+        .poll(async () => (await hostEvents(page, "display")).at(-1))
+        .toBe("fullscreen");
+      await expect(
+        ui.getByRole("heading", { name: issueTitles[source][43], exact: true }),
+      ).toBeVisible();
+      await ui
+        .locator(".issue-row")
+        .filter({ hasText: issueTitles[source][42] })
+        .click();
+      await expect(
+        ui.getByRole("heading", { name: issueTitles[source][42], exact: true }),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Mock inline", exact: true })
+        .click();
+      await expect(
+        card.getByRole("heading", {
+          name: issueTitles[source][43],
+          exact: true,
+        }),
+      ).toBeVisible();
+      expect(await hostEvents(page, "context")).toEqual([]);
+      expect(await hostEvents(page, "message")).toEqual([]);
+      await expect(page.locator("#harness-error")).toBeEmpty();
+    },
+  );
 
   test(`${source} explicit issue details start fullscreen from metadata without substituting the first list row`, async ({
     page,

@@ -2,6 +2,8 @@
 
 Working-tree validation on 2026-10-24, following the [current-contract cleanup](code-quality-validation-2026-10-24.md). Local checks, GitHub Actions execution, installed artifacts, running MCP servers, provider operations, and desktop UI observations are separate evidence.
 
+The initial gate and acceptance snapshot below precedes the tiered-CI follow-up at the end of this record. Current workflow behavior is described in the [development guide](development.md).
+
 ## Quality gate
 
 `.github/workflows/quality.yml` runs the locked Node version, `npm ci`, `npm run check`, and Chromium browser tests for pull requests and pushes to `main`. It uses read-only repository permissions, immutable official Action revisions, and retains failed browser traces/screenshots for seven days. Live provider write scripts are excluded.
@@ -51,3 +53,13 @@ Final candidate and installed-copy SHA-256:
 | ------------ | ------------------------------------------------------------------ |
 | `arco.html`  | `c1ccda697e9836f500c48b4d2869d9a164544381a5959d734d79c13daff31a3e` |
 | `server.mjs` | `63831c8d6de5803c0ff518be8a80cbcbf8fbcc96ebd31cfe675a55ce5dd441dc` |
+
+## Tiered-CI follow-up
+
+The [initial hosted run](https://github.com/my-name-is-yu/Arco/actions/runs/40072861309) on `9e957e9` passed in 14 minutes 13 seconds. Its complete browser suite took 12 minutes 18 seconds; all other source/build checks together took about 57 seconds, including roughly 16 seconds for 508 passing unit/service cases and one skipped native credential test.
+
+Routine pushes and pull requests now keep all inexpensive checks and select 20 existing browser cases with `@smoke`. The complete suite still lists 173 cases. The tag-only change preserved every test title and callback body, verified by an AST comparison with the preceding revision. Nightly/manual/release events and shared host/storage/dependency changes select full coverage. Documentation-only changes still complete the same job, with tracked Markdown formatting and local-link checks.
+
+The routing helper has 30 real Git/CLI regression cases, including renamed/deleted paths, invalid revisions, initial pushes, and script-only versus dependency changes. The documentation checker has 12 CLI regressions, including unstaged deletions, missing targets, code examples, and repository/symlink escapes. No new dependency or affected-test dependency graph was introduced.
+
+Local `npm run check` passed all 551 unit/service cases, production and fixture builds, 73-tool smoke, documentation checks, and artifact inspection. `npm run test:browser:smoke` passed all 20 cases without retries in 22.6 seconds locally. The full browser list remains 173 cases. Hosted profile timings will be recorded after the new workflow is exercised. The runtime HTML/server implementation is unchanged by this CI-policy change.

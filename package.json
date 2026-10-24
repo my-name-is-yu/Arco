@@ -17,14 +17,16 @@
     "lint": "eslint src scripts tests vite.config.ts playwright.config.ts",
     "format": "prettier --write src scripts tests *.json *.ts *.js README.md",
     "format:check": "prettier --check src scripts tests *.json *.ts *.js README.md",
+    "check:docs": "node scripts/check-docs.mjs",
     "test": "vitest run --exclude '**/*browser.spec.ts'",
     "build": "vite build && node scripts/build-server.mjs",
     "smoke": "node scripts/smoke.mjs",
     "check:artifact": "node scripts/check-artifact.mjs",
     "test:browser": "playwright test",
+    "test:browser:smoke": "playwright test --grep @smoke",
     "dev:fixture": "node scripts/dev-host.mjs",
     "test:live": "node scripts/validate-live.mjs",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build && npm run smoke && npm run check:artifact"
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:docs && npm test && npm run build && npm run smoke && npm run check:artifact"
   },
   "dependencies": {
     "@linear/sdk": "99.0.0",

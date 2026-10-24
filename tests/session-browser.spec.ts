@@ -110,69 +110,71 @@ test("only the visible source reads data and hidden updates refresh when it retu
 });
 
 for (const source of ["github", "linear"] as const) {
-  test(`${source} writes keep their lock and complete in their original session across source switches`, async ({
-    page,
-  }) => {
-    let release!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const requests: Record<string, unknown>[] = [];
-    const name = source === "github" ? "arco_comment" : "linear_comment";
-    await page.route("**/tool", async (route) => {
-      const input = route.request().postDataJSON() as {
-        name: string;
-        arguments: Record<string, unknown>;
-      };
-      if (input.name === name) {
-        requests.push(input.arguments);
-        await pending;
-      }
-      await route.continue();
-    });
-    try {
-      await page.goto("/?entry=project&toolLimit=2");
-      await expect(page.locator("#bridge-status")).toHaveText("ready");
-      const ui = app(page);
-      if (source === "linear") await choose(ui, "Issue source", "linear");
-      await expect(
-        ui.getByRole("heading", { name: titles[source], exact: true }),
-      ).toBeVisible();
-      const comment = ui.getByRole("textbox", {
-        name: commentLabel[source],
-        exact: true,
+  test(
+    `${source} writes keep their lock and complete in their original session across source switches`,
+    { tag: "@smoke" },
+    async ({ page }) => {
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
       });
-      const text = `Submitted ${source} comment across source switch`;
-      await comment.fill(text);
-      await ui
-        .getByRole("button", { name: postLabel[source], exact: true })
-        .click();
-      await expect.poll(() => requests.length).toBe(1);
-      const other = source === "github" ? "linear" : "github";
-      await choose(ui, "Issue source", other);
-      await expect(
-        ui.getByRole("heading", { name: titles[other], exact: true }),
-      ).toBeVisible();
-      await ui
-        .getByRole("textbox", { name: commentLabel[other], exact: true })
-        .fill("Independent unsent comment");
-      await choose(ui, "Issue source", source);
-      await expect(comment).toHaveValue(text);
-      await expect(
-        ui.getByRole("button", { name: postLabel[source], exact: true }),
-      ).toBeDisabled();
-      release();
-      await expect(comment).toHaveValue("");
-      await expect(ui.getByText(text, { exact: true })).toBeVisible();
-      expect(requests).toHaveLength(1);
-      expect(requests[0].requestId).toEqual(expect.any(String));
-      await choose(ui, "Issue source", other);
-      await expect(
-        ui.getByRole("textbox", { name: commentLabel[other], exact: true }),
-      ).toHaveValue("Independent unsent comment");
-      await expect(page.locator("#harness-error")).toBeEmpty();
-    } finally {
-      release();
-    }
-  });
+      const requests: Record<string, unknown>[] = [];
+      const name = source === "github" ? "arco_comment" : "linear_comment";
+      await page.route("**/tool", async (route) => {
+        const input = route.request().postDataJSON() as {
+          name: string;
+          arguments: Record<string, unknown>;
+        };
+        if (input.name === name) {
+          requests.push(input.arguments);
+          await pending;
+        }
+        await route.continue();
+      });
+      try {
+        await page.goto("/?entry=project&toolLimit=2");
+        await expect(page.locator("#bridge-status")).toHaveText("ready");
+        const ui = app(page);
+        if (source === "linear") await choose(ui, "Issue source", "linear");
+        await expect(
+          ui.getByRole("heading", { name: titles[source], exact: true }),
+        ).toBeVisible();
+        const comment = ui.getByRole("textbox", {
+          name: commentLabel[source],
+          exact: true,
+        });
+        const text = `Submitted ${source} comment across source switch`;
+        await comment.fill(text);
+        await ui
+          .getByRole("button", { name: postLabel[source], exact: true })
+          .click();
+        await expect.poll(() => requests.length).toBe(1);
+        const other = source === "github" ? "linear" : "github";
+        await choose(ui, "Issue source", other);
+        await expect(
+          ui.getByRole("heading", { name: titles[other], exact: true }),
+        ).toBeVisible();
+        await ui
+          .getByRole("textbox", { name: commentLabel[other], exact: true })
+          .fill("Independent unsent comment");
+        await choose(ui, "Issue source", source);
+        await expect(comment).toHaveValue(text);
+        await expect(
+          ui.getByRole("button", { name: postLabel[source], exact: true }),
+        ).toBeDisabled();
+        release();
+        await expect(comment).toHaveValue("");
+        await expect(ui.getByText(text, { exact: true })).toBeVisible();
+        expect(requests).toHaveLength(1);
+        expect(requests[0].requestId).toEqual(expect.any(String));
+        await choose(ui, "Issue source", other);
+        await expect(
+          ui.getByRole("textbox", { name: commentLabel[other], exact: true }),
+        ).toHaveValue("Independent unsent comment");
+        await expect(page.locator("#harness-error")).toBeEmpty();
+      } finally {
+        release();
+      }
+    },
+  );
 }

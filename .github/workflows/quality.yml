@@ -4,12 +4,17 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "23 18 * * *" # 03:23 JST
+  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -22,6 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -29,21 +35,37 @@ jobs:
           node-version-file: .node-version
           cache: npm
 
+      - name: Select validation scope
+        id: scope
+        run: node scripts/ci-scope.mjs
+
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Check documentation
+        if: steps.scope.outputs.mode == 'docs'
+        run: npm run check:docs
+
       - name: Check source and build artifacts
+        if: steps.scope.outputs.mode != 'docs'
         run: npm run check
 
       - name: Install Chromium and system dependencies
+        if: steps.scope.outputs.mode != 'docs'
         run: npx --no-install playwright install --with-deps chromium
 
-      - name: Test browser interactions
-        id: browser
-        run: npm run test:browser
+      - name: Test critical browser interactions
+        if: steps.scope.outputs.mode == 'smoke'
+        id: smoke
+        run: npm run test:browser:smoke -- --reporter=list
+
+      - name: Test all browser interactions
+        if: steps.scope.outputs.mode == 'full'
+        id: full
+        run: npm run test:browser -- --reporter=list
 
       - name: Retain browser failure evidence
-        if: failure() && steps.browser.outcome == 'failure'
+        if: failure() && (steps.smoke.outcome == 'failure' || steps.full.outcome == 'failure')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}

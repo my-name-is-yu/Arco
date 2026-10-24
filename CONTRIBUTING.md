@@ -44,10 +44,10 @@ For code changes, run:
 
 ```sh
 npm run check
-npm run test:browser
+npm run test:browser:smoke
 ```
 
-Both must pass. For documentation-only changes, check Markdown formatting, relative links, and any commands you changed. State exactly what you checked and disclose anything you could not verify.
+Both must pass. Run `npm run test:browser` as well for shared host, storage-contract, or dependency changes, and before a release. For documentation-only changes, run `npm run check:docs` and verify any commands you changed. See the [development guide](docs/development.md) for the full-suite triggers. State exactly what you checked and disclose anything you could not verify.
 
 Use the fictional fixture host for routine development. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering.
 

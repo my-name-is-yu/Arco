@@ -133,37 +133,39 @@ async function open(page: Page) {
   await expect(page.locator("#harness-error")).toBeEmpty();
 }
 
-test("repository pages without a required cursor show an error and do not fall back to page-only requests", async ({
-  page,
-}) => {
-  await cursorFixture(page);
-  const errors: string[] = [];
-  const pages: number[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("**/tool", async (route) => {
-    const input = route.request().postDataJSON() as {
-      name: string;
-      arguments: ListCall["arguments"];
-    };
-    if (input.name !== "arco_list_issues") return route.fallback();
-    pages.push(input.arguments.page);
-    return route.fulfill({
-      json: {
-        content: [],
-        structuredContent: { issues: [], page: 1, hasMore: true },
-      },
+test(
+  "repository pages without a required cursor show an error and do not fall back to page-only requests",
+  { tag: "@smoke" },
+  async ({ page }) => {
+    await cursorFixture(page);
+    const errors: string[] = [];
+    const pages: number[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as {
+        name: string;
+        arguments: ListCall["arguments"];
+      };
+      if (input.name !== "arco_list_issues") return route.fallback();
+      pages.push(input.arguments.page);
+      return route.fulfill({
+        json: {
+          content: [],
+          structuredContent: { issues: [], page: 1, hasMore: true },
+        },
+      });
     });
-  });
-  await open(page);
-  await choose(app(page), "GitHub scope", "yu/Arco");
-  await expect(
-    app(page).getByRole("alert").filter({
-      hasText: "GitHub returned no continuation cursor. Refresh the list.",
-    }),
-  ).toBeVisible();
-  expect(pages).toEqual([1]);
-  expect(errors).toEqual([]);
-});
+    await open(page);
+    await choose(app(page), "GitHub scope", "yu/Arco");
+    await expect(
+      app(page).getByRole("alert").filter({
+        hasText: "GitHub returned no continuation cursor. Refresh the list.",
+      }),
+    ).toBeVisible();
+    expect(pages).toEqual([1]);
+    expect(errors).toEqual([]);
+  },
+);
 
 test("repository continuation forwards the opaque cursor and keeps numeric pages", async ({
   page,

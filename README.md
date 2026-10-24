@@ -43,11 +43,11 @@ Native behavior has been exercised on **macOS arm64**. Windows and Linux need se
 ```sh
 npm ci
 npm run check
-npm run test:browser
+npm run test:browser:smoke
 npm run dev:fixture
 ```
 
-`check` runs static checks, unit tests, builds, MCP smoke checks, and artifact validation. The fixture host uses fictional issues and does not fall back to live provider APIs. It is a browser preview, not proof of Codex desktop behavior.
+`check` runs static and documentation checks, unit tests, builds, MCP smoke checks, and artifact validation. `test:browser:smoke` runs the critical browser flows used by routine CI; `test:browser` runs the complete regression suite. Full browser checks also run nightly, manually, and for shared host, storage, or dependency changes. The fixture host uses fictional issues and does not fall back to live provider APIs. It is a browser preview, not proof of Codex desktop behavior.
 
 The build produces `dist/plugin/` for installation and `dist/dev/` for fixture development. The plugin includes the project license, third-party notices, and the native keyring binding installed on the build machine.
 
