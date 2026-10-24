@@ -92,10 +92,74 @@ function fieldStyle(input: HTMLInputElement | HTMLTextAreaElement) {
   } satisfies CSSProperties;
 }
 
+export interface AnnotationLayout {
+  rect: DOMRect;
+  field?: {
+    rect: DOMRect;
+    style: CSSProperties;
+    scrollLeft: number;
+    scrollTop: number;
+  };
+  badge: { left: number; top: number };
+  editor: { left: number; top: number; width: number };
+}
+
+export function measureSelectionAnnotation(
+  target: AnnotationTarget,
+  badgeOffsetFor: (rect: DOMRect) => number,
+  editorHeight = 28,
+): AnnotationLayout | null {
+  const rect = targetRect(target);
+  if (!rect) return null;
+  const badgeOffset = badgeOffsetFor(rect);
+  const input = target.editable?.element;
+  const width = Math.min(300, window.innerWidth - 16);
+  const height = editorHeight + 18;
+  return {
+    rect,
+    ...(input
+      ? {
+          field: {
+            rect: input.getBoundingClientRect(),
+            style: fieldStyle(input),
+            scrollLeft: input.scrollLeft,
+            scrollTop: input.scrollTop,
+          },
+        }
+      : {}),
+    badge: {
+      left: Math.max(8, Math.min(rect.right + 3, window.innerWidth - 38)),
+      top:
+        Math.max(
+          8,
+          Math.min(rect.top - 25, window.innerHeight - 38 - badgeOffset * 34),
+        ) +
+        badgeOffset * 34,
+    },
+    editor: {
+      width,
+      left: Math.max(
+        8,
+        Math.min(
+          rect.left + rect.width / 2 - width / 2,
+          window.innerWidth - width - 8,
+        ),
+      ),
+      top: Math.max(
+        8,
+        Math.min(
+          rect.top >= height + 16 ? rect.top - height - 8 : rect.bottom + 8,
+          window.innerHeight - height - 8,
+        ),
+      ),
+    },
+  };
+}
+
 export function SelectionAnnotation({
   number,
   target,
-  badgeOffset,
+  layout,
   comment,
   editing,
   onEdit,
@@ -104,11 +168,11 @@ export function SelectionAnnotation({
   error,
   onSave,
   onRemove,
-  onInvalid,
+  onLayoutChange,
 }: {
   number: number;
   target: AnnotationTarget;
-  badgeOffset: number;
+  layout: AnnotationLayout;
   comment: string;
   editing: boolean;
   onEdit: () => void;
@@ -117,88 +181,31 @@ export function SelectionAnnotation({
   error: string;
   onSave: (number: number, comment: string) => Promise<boolean>;
   onRemove: (number: number) => Promise<void>;
-  onInvalid: (number: number) => void;
+  onLayoutChange: () => void;
 }) {
   const [draft, setDraft] = useState(comment);
-  const [rect, setRect] = useState(() => targetRect(target));
   const editor = useRef<HTMLTextAreaElement>(null);
   const badge = useRef<HTMLButtonElement>(null);
   const input = target.editable;
+  const { rect, field } = layout;
   const dismiss = () => {
     if (busy) return;
     onDismiss();
   };
 
   useEffect(() => {
-    const position = () => {
-      const next = targetRect(target);
-      if (next) setRect(next);
-      else onInvalid(number);
-    };
-    const observer = new MutationObserver(position);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-    document.addEventListener("scroll", position, true);
-    document.addEventListener("toggle", position, true);
-    document.addEventListener("input", position);
-    window.addEventListener("resize", position);
-    position();
-    return () => {
-      observer.disconnect();
-      document.removeEventListener("scroll", position, true);
-      document.removeEventListener("toggle", position, true);
-      document.removeEventListener("input", position);
-      window.removeEventListener("resize", position);
-    };
-  }, [target, number, onInvalid]);
-
-  useEffect(() => {
     if (editing) {
       setDraft(comment);
       editor.current?.focus({ preventScroll: true });
+      onLayoutChange();
     }
-  }, [editing, comment]);
+  }, [editing, comment, onLayoutChange]);
 
-  useEffect(() => {
-    const outside = (event: PointerEvent) => {
-      if (
-        editing &&
-        !busy &&
-        event.target instanceof Element &&
-        !event.target.closest("[data-arco-selection-toolbar]")
-      ) {
-        onDismiss();
-      }
-    };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
-  }, [busy, editing, onDismiss]);
-
-  if (!rect) return null;
   const visible = rect.width > 0 && rect.height > 0;
-  const fieldRect = input?.element.getBoundingClientRect();
-  const width = Math.min(300, window.innerWidth - 16);
-  const x = Math.max(
-    8,
-    Math.min(
-      rect.left + rect.width / 2 - width / 2,
-      window.innerWidth - width - 8,
-    ),
-  );
-  const height = (editor.current?.offsetHeight ?? 28) + 18;
-  const y = Math.max(
-    8,
-    Math.min(
-      rect.top >= height + 16 ? rect.top - height - 8 : rect.bottom + 8,
-      window.innerHeight - height - 8,
-    ),
-  );
+  const fieldRect = field?.rect;
   return (
     <>
-      {input && fieldRect && visible && (
+      {input && field && fieldRect && visible && (
         <div
           className="selection-retained-input"
           aria-hidden="true"
@@ -212,8 +219,8 @@ export function SelectionAnnotation({
         >
           <div
             style={{
-              ...fieldStyle(input.element),
-              transform: `translate(${-input.element.scrollLeft}px, ${-input.element.scrollTop}px)`,
+              ...field.style,
+              transform: `translate(${-field.scrollLeft}px, ${-field.scrollTop}px)`,
             }}
           >
             {input.value.slice(0, input.start)}
@@ -225,6 +232,7 @@ export function SelectionAnnotation({
       <div
         className="arco"
         data-arco-selection-toolbar
+        data-arco-annotation={number}
         style={{ visibility: visible ? "visible" : "hidden" }}
       >
         <button
@@ -232,18 +240,7 @@ export function SelectionAnnotation({
           className="selection-annotation-number"
           aria-label={`Edit selection comment ${number}`}
           aria-expanded={editing}
-          style={{
-            left: Math.max(8, Math.min(rect.right + 3, window.innerWidth - 38)),
-            top:
-              Math.max(
-                8,
-                Math.min(
-                  rect.top - 25,
-                  window.innerHeight - 38 - badgeOffset * 34,
-                ),
-              ) +
-              badgeOffset * 34,
-          }}
+          style={layout.badge}
           onClick={() => {
             setDraft(comment);
             onEdit();
@@ -256,7 +253,7 @@ export function SelectionAnnotation({
             role="dialog"
             aria-label="Selection comment"
             className="selection-comment"
-            style={{ left: x, top: y, width }}
+            style={layout.editor}
             onKeyDown={(event) => {
               if (event.key === "Escape" && !event.nativeEvent.isComposing) {
                 event.stopPropagation();
@@ -276,6 +273,7 @@ export function SelectionAnnotation({
                 setDraft(event.target.value);
                 event.target.style.height = "auto";
                 event.target.style.height = `${Math.min(120, event.target.scrollHeight)}px`;
+                onLayoutChange();
               }}
             />
             <Button

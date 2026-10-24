@@ -5,6 +5,7 @@ import {
   type LinearService,
   type LinearToolName,
 } from "../../shared/linear";
+import { dataResult, failureResult, imageResult } from "../tool-results";
 
 export const linearReadOnly = new Set<LinearToolName>([
   "linear_auth_status",
@@ -44,28 +45,10 @@ export function registerLinearTools(server: McpServer, service: LinearService) {
       async (input: Record<string, unknown>): Promise<CallToolResult> => {
         try {
           const response = await service.call(name, input);
-          if (name === "linear_read_image")
-            return {
-              content: [{ type: "text", text: "Image loaded." }],
-              _meta: { image: response },
-            };
-          return {
-            content: [{ type: "text", text: JSON.stringify(response) }],
-            structuredContent: { ...response },
-          };
+          if (name === "linear_read_image") return imageResult(response);
+          return dataResult(response);
         } catch (error) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text:
-                  error instanceof Error
-                    ? error.message
-                    : "The Linear operation failed.",
-              },
-            ],
-          };
+          return failureResult(error, "The Linear operation failed.");
         }
       },
     );

@@ -39,14 +39,15 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
     draftRecordSchema.parse(
       await host.call("arco_read_draft", { key: entry.key }),
     );
-  async function load(key: DraftKey) {
+  function load(key: DraftKey) {
     const entry = entryFor(key);
-    await entry.tail.catch(() => undefined);
-    if (!entry.loaded) {
-      entry.record = await read(entry);
-      entry.loaded = true;
-    }
-    return entry.record;
+    return queue(entry, async () => {
+      if (!entry.loaded) {
+        entry.record = await read(entry);
+        entry.loaded = true;
+      }
+      return entry.record;
+    });
   }
   function queue<T>(entry: Entry, action: () => Promise<T>) {
     const next = entry.tail.catch(() => undefined).then(action);

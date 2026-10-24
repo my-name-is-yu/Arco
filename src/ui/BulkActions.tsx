@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import type {
   ArcoHost,
+  Connection,
   IssueDetail,
   IssueRef,
   RepoMetadata,
@@ -18,6 +18,7 @@ import type {
 import { FieldEditor } from "./GitHubProperties";
 import { SingleSelect } from "./SingleSelect";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { useCommandSession, useSessionState } from "./session-state";
 
 export interface BulkIssue extends IssueRef {
   title: string;
@@ -48,17 +49,47 @@ export function BulkActions({
   onBusy: (busy: boolean) => void;
 }) {
   const client = useQueryClient();
-  const [action, setAction] = useState<Action>("close");
-  const [value, setValue] = useState("");
-  const [fieldId, setFieldId] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [fieldValue, setFieldValue] = useState<FieldValue>(null);
-  const [fieldReady, setFieldReady] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<Result[]>([]);
-  const [error, setError] = useState("");
-  const lock = useRef(false);
-  const retryIds = useRef(new Map<string, string>());
+  const connection = client.getQueryData<Connection>(["connection"]);
+  const identity = `${connection?.mode ?? "pending"}:${connection?.account ?? "disconnected"}`;
+  const sessionKey = `github:bulk:${JSON.stringify([identity, issues.map(id).sort()])}`;
+  const [action, setAction] = useSessionState<Action>(
+    host,
+    `${sessionKey}:action`,
+    "close",
+  );
+  const [value, setValue] = useSessionState(host, `${sessionKey}:value`, "");
+  const [fieldId, setFieldId] = useSessionState(
+    host,
+    `${sessionKey}:fieldId`,
+    "",
+  );
+  const [projectId, setProjectId] = useSessionState(
+    host,
+    `${sessionKey}:projectId`,
+    "",
+  );
+  const [fieldValue, setFieldValue] = useSessionState<FieldValue>(
+    host,
+    `${sessionKey}:fieldValue`,
+    null,
+  );
+  const [fieldReady, setFieldReady] = useSessionState(
+    host,
+    `${sessionKey}:fieldReady`,
+    false,
+  );
+  const [results, setResults] = useSessionState<Result[]>(
+    host,
+    `${sessionKey}:results`,
+    [],
+  );
+  const [error, setError] = useSessionState(host, `${sessionKey}:error`, "");
+  const {
+    busy,
+    setBusy,
+    lock,
+    requests: retryIds,
+  } = useCommandSession(host, "github");
   const repos = [...new Set(issues.map((issue) => issue.repo))];
   const repo = repos.length === 1 ? repos[0] : undefined;
   const first = issues[0];
@@ -177,12 +208,13 @@ export function BulkActions({
                   }
                 : { projectField: { projectId, fieldId, value: fieldValue } };
         const operation = JSON.stringify([
+          "bulk",
+          identity,
           targets.map((issue) => ({ repo: issue.repo, number: issue.number })),
           patch,
         ]);
-        const requestId =
-          retryIds.current.get(operation) ?? crypto.randomUUID();
-        retryIds.current.set(operation, requestId);
+        const requestId = retryIds.get(operation) ?? crypto.randomUUID();
+        retryIds.set(operation, requestId);
         const result = await host.call<BulkUpdateResult>("arco_bulk_update", {
           issues: targets.map((issue) => ({
             repo: issue.repo,
@@ -191,7 +223,7 @@ export function BulkActions({
           requestId,
           ...patch,
         });
-        retryIds.current.delete(operation);
+        retryIds.delete(operation);
         setResults(result.results);
         await Promise.all(
           targets.map((issue) =>
@@ -202,10 +234,15 @@ export function BulkActions({
         );
       } else
         for (const issue of targets) {
-          const operation = JSON.stringify([id(issue), action, value]);
-          const requestId =
-            retryIds.current.get(operation) ?? crypto.randomUUID();
-          retryIds.current.set(operation, requestId);
+          const operation = JSON.stringify([
+            "bulk",
+            identity,
+            id(issue),
+            action,
+            value,
+          ]);
+          const requestId = retryIds.get(operation) ?? crypto.randomUUID();
+          retryIds.set(operation, requestId);
           try {
             if (action.startsWith("label"))
               await host.call<IssueDetail>("arco_change_labels", {
@@ -241,7 +278,7 @@ export function BulkActions({
                 patch,
               });
             }
-            retryIds.current.delete(operation);
+            retryIds.delete(operation);
             await client.invalidateQueries({
               queryKey: ["issue", issue.repo, issue.number],
             });

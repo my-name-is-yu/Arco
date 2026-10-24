@@ -7,20 +7,17 @@ import {
   labelInputSchema,
   listInputSchema,
   projectInputSchema,
-  repositoriesInputSchema,
   repoSchema,
+  repositoriesInputSchema,
   updateInputSchema,
   type GitHubService,
   type IssueDetail,
   type IssueRef,
   type Label,
 } from "../shared/contracts.js";
-import {
-  createWriteGuard,
-  GitHubError,
-  validateProjectStatus,
-} from "./github.js";
 import type { LabelDefinition } from "../shared/github-operations";
+import { GitHubError, validateProjectStatus } from "./github.js";
+import { createGitHubWriteGuard } from "./github/transport";
 
 export interface FixtureGitHubService extends GitHubService {
   fixture: {
@@ -159,7 +156,7 @@ export function createFixtureService(): FixtureGitHubService {
   const createdTimes = new Map(
     issues.map((issue) => [issue.number, Date.parse(issue.updatedAt)]),
   );
-  const once = createWriteGuard();
+  const once = createGitHubWriteGuard<IssueDetail>();
   let commentSequence = 1;
   function find(raw: IssueRef): IssueDetail {
     const ref = issueRefSchema.parse(raw);

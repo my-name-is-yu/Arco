@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sharedRefFromContext } from "../src/ui/shared-context";
+import { readSharedContext } from "../src/ui/shared-context";
+
+const sharedRefFromContext = (value: unknown) => readSharedContext(value).issue;
+const sharedAnnotationsFromContext = (value: unknown) =>
+  readSharedContext(value).annotations;
 
 describe("restoring shared app context", () => {
   it("restores only native refs from marked structured context", () => {
@@ -47,5 +51,72 @@ describe("restoring shared app context", () => {
       },
     ])
       expect(sharedRefFromContext(value)).toBeNull();
+  });
+  it("rejects selection-only attachments for both navigation and annotations", () => {
+    const selection = {
+      text: "Old selected fragment",
+      origin: "comment",
+      commentId: "old-comment",
+    };
+    for (const value of [
+      {
+        source: "github",
+        repo: "yu/Arco",
+        number: 42,
+        arcoSharedIssue: 1,
+        selection,
+      },
+      {
+        source: "linear",
+        connectionId: "default",
+        workspaceId: "workspace",
+        teamId: "team",
+        id: "issue",
+        arcoSharedIssue: 1,
+        selection,
+      },
+      { source: "arco", selection },
+    ]) {
+      expect(sharedRefFromContext(value)).toBeNull();
+      expect(sharedAnnotationsFromContext(value)).toBeNull();
+    }
+  });
+
+  it("reads one current annotation without mistaking a malformed collection for whole-Issue context", () => {
+    const annotation = {
+      number: 1,
+      issue: {
+        source: "github",
+        repo: "yu/Arco",
+        number: 42,
+        id: "native-42",
+        title: "Issue",
+        url: "https://github.com/yu/Arco/issues/42",
+        state: "open",
+      },
+      selection: {
+        text: "  selected text\n",
+        origin: "body",
+        comment: "My comment",
+      },
+    };
+    const value = {
+      ...annotation.issue,
+      arcoSharedIssue: 1,
+      selection: annotation.selection,
+      annotations: [annotation],
+      arcoAnnotationSnapshotId: "d849445f-dbf3-4988-847b-81d2966dc0a2",
+    };
+    expect(readSharedContext(value)).toEqual({
+      issue: { source: "github", repo: "yu/Arco", number: 42 },
+      annotations: [annotation],
+      snapshotId: value.arcoAnnotationSnapshotId,
+    });
+    expect(
+      readSharedContext({ ...value, annotations: [annotation, annotation] }),
+    ).toEqual({ issue: null, annotations: null, snapshotId: null });
+    expect(
+      sharedAnnotationsFromContext({ source: "arco", annotations: [] }),
+    ).toEqual([]);
   });
 });

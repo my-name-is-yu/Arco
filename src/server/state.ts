@@ -67,7 +67,7 @@ export function createStateStore(directory = stateDirectory()) {
       return schema.parse(JSON.parse(content));
     } catch {
       throw new Error(
-        "Local settings or drafts are damaged. The stored data was preserved without overwriting it.",
+        "Local settings or drafts do not match the current format. The stored data was preserved without overwriting it.",
       );
     }
   }

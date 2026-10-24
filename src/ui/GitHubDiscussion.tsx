@@ -14,54 +14,7 @@ import {
 import type { Draft, DraftKey } from "../shared/state";
 import { useGitHubOperation } from "./useGitHubOperation";
 import { useNearViewport } from "./useNearViewport";
-
-export function CopyValue({
-  value,
-  label = "Copy link",
-  onCopied,
-}: {
-  value: string;
-  label?: string;
-  onCopied?: (button: HTMLButtonElement) => void;
-}) {
-  const [status, setStatus] = useState<"idle" | "copied" | "manual">("idle");
-  const input = useRef<HTMLInputElement>(null);
-  const copy = async (button: HTMLButtonElement) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setStatus("copied");
-      onCopied?.(button);
-    } catch {
-      setStatus("manual");
-      requestAnimationFrame(() => {
-        input.current?.focus();
-        input.current?.select();
-      });
-    }
-  };
-  return (
-    <span className="copy-value">
-      <button
-        className="text-button"
-        onClick={(event) => void copy(event.currentTarget)}
-      >
-        {status === "copied" ? "Copied" : label}
-      </button>
-      {status === "manual" && (
-        <label className="manual-copy">
-          Select and copy
-          <input
-            ref={input}
-            readOnly
-            value={value}
-            aria-label="Value to copy"
-            onFocus={(event) => event.target.select()}
-          />
-        </label>
-      )}
-    </span>
-  );
-}
+import { CopyValue } from "./CopyValue";
 
 const reactionNames = {
   "+1": "👍",
@@ -99,7 +52,11 @@ export function ReactionBar({
       }),
     enabled: near || adding,
   });
-  const action = useGitHubOperation(host, issue);
+  const action = useGitHubOperation(
+    host,
+    ["reactions", issue.repo, issue.number, commentId ?? "issue"],
+    issue,
+  );
   return (
     <div
       ref={ref}
@@ -211,7 +168,11 @@ export function CommentActions({
     });
   }, [editing, key, load, comment.updatedAt]);
 
-  const action = useGitHubOperation(host, issue);
+  const action = useGitHubOperation(
+    host,
+    ["comment", issue.repo, issue.number, comment.databaseId ?? comment.id],
+    issue,
+  );
   const supported = typeof comment.databaseId === "number";
   return (
     <section

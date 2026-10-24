@@ -627,7 +627,7 @@ test("Linear shares hover feedback across disclosures, row selection, reactions,
     page,
     "Linear preview control",
     ui
-      .locator(".linear-controls")
+      .getByRole("region", { name: "Edit Linear description", exact: true })
       .getByRole("button", { name: "Preview", exact: true }),
   );
 });
@@ -849,14 +849,12 @@ test.describe("touch input", () => {
       expect(hovered.paint).toEqual(before.paint);
       expect(hovered.width).toBeCloseTo(before.width, 1);
       expect(hovered.height).toBeCloseTo(before.height, 1);
-      samples
-        .get(page)!
-        .push({
-          label: `touch annotation ${name}`,
-          before,
-          after: hovered,
-          hoveredScale: hovered.width / before.width,
-        });
+      samples.get(page)!.push({
+        label: `touch annotation ${name}`,
+        before,
+        after: hovered,
+        hoveredScale: hovered.width / before.width,
+      });
     }
     await comment
       .getByRole("button", { name: "Save comment", exact: true })
@@ -887,14 +885,12 @@ test.describe("touch input", () => {
     await closed.hover();
     const selectedHovered = await appearance(closed);
     expect(selectedHovered.paint.shadow).toBe(before.paint.shadow);
-    samples
-      .get(page)!
-      .push({
-        label: "touch selected filter",
-        before: selectedBefore,
-        after: selectedHovered,
-        hoveredScale: selectedHovered.width / selectedBefore.width,
-      });
+    samples.get(page)!.push({
+      label: "touch selected filter",
+      before: selectedBefore,
+      after: selectedHovered,
+      hoveredScale: selectedHovered.width / selectedBefore.width,
+    });
     await expect(closed).toHaveAttribute("aria-pressed", "true");
     const refresh = app(page).getByRole("button", {
       name: "Refresh",
@@ -908,13 +904,11 @@ test.describe("touch input", () => {
     expect(iconHovered.paint).toEqual(iconBefore.paint);
     expect(iconHovered.width).toBeCloseTo(iconBefore.width, 1);
     expect(iconHovered.height).toBeCloseTo(iconBefore.height, 1);
-    samples
-      .get(page)!
-      .push({
-        label: "touch refresh action",
-        before: iconBefore,
-        after: iconHovered,
-        hoveredScale: iconHovered.width / iconBefore.width,
-      });
+    samples.get(page)!.push({
+      label: "touch refresh action",
+      before: iconBefore,
+      after: iconHovered,
+      hoveredScale: iconHovered.width / iconBefore.width,
+    });
   });
 });

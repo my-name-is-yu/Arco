@@ -93,7 +93,11 @@ export function GitHubRelations({
       }),
     enabled: open,
   });
-  const action = useGitHubOperation(host, issue);
+  const action = useGitHubOperation(
+    host,
+    ["relations", issue.repo, issue.number],
+    issue,
+  );
   const valid =
     repoSchema.safeParse(repo).success &&
     /^[1-9]\d*$/.test(number) &&

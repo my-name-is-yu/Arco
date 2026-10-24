@@ -7,13 +7,6 @@ import {
 import { linearRefSchema } from "../shared/linear";
 import { annotationSnapshotIdSchema } from "../shared/annotation-state";
 
-export function annotationSnapshotIdFromContext(value: unknown): string | null {
-  const result = z
-    .object({ arcoAnnotationSnapshotId: annotationSnapshotIdSchema })
-    .safeParse(value);
-  return result.success ? result.data.arcoAnnotationSnapshotId : null;
-}
-
 const sharedContext = z.discriminatedUnion("source", [
   issueRefSchema
     .extend({
@@ -38,10 +31,6 @@ const selection = z
     comment: z.string().optional(),
   })
   .strict();
-const selectionContext = z.object({
-  source: z.enum(["github", "linear", "arco"]),
-  selection,
-});
 export const selectionIssueSchema = z.discriminatedUnion("source", [
   z.object({
     source: z.literal("github"),
@@ -88,40 +77,51 @@ const annotationsContext = z.object({
     ),
 });
 
-// Read only our structured app snapshot; display text is never a navigation target.
-export function sharedRefFromContext(value: unknown): SharedIssueRef | null {
-  const result = sharedContext.safeParse(value);
-  if (!result.success) return null;
-  const data = result.data;
-  return data.source === "github"
-    ? { source: "github", repo: data.repo, number: data.number }
-    : {
-        source: "linear",
-        connectionId: data.connectionId,
-        workspaceId: data.workspaceId,
-        teamId: data.teamId,
-        issueId: data.id,
-      };
+export interface SharedContextSnapshot {
+  issue: SharedIssueRef | null;
+  annotations: SelectionAnnotationContext[] | null;
+  snapshotId: string | null;
 }
 
-export function sharedAnnotationsFromContext(
-  value: unknown,
-): SelectionAnnotationContext[] | null {
-  if (
-    value &&
-    typeof value === "object" &&
-    Object.hasOwn(value, "annotations")
-  ) {
-    const result = annotationsContext.safeParse(value);
-    return result.success ? result.data.annotations : null;
-  }
-  const result = selectionContext.safeParse(value);
-  if (!result.success) return null;
-  if (result.data.source === "arco")
-    return [{ number: 1, selection: result.data.selection }];
-  if (!sharedContext.safeParse(value).success) return null;
-  const issue = selectionIssueSchema.safeParse(value);
-  return issue.success
-    ? [{ number: 1, issue: issue.data, selection: result.data.selection }]
-    : null;
+// Parse the whole attachment once so navigation, annotations, and positions agree.
+// A selection-only attachment is not a current Arco attachment format.
+export function readSharedContext(value: unknown): SharedContextSnapshot {
+  const empty: SharedContextSnapshot = {
+    issue: null,
+    annotations: null,
+    snapshotId: null,
+  };
+  if (!value || typeof value !== "object") return empty;
+  let annotations: SelectionAnnotationContext[] | null = null;
+  if (Object.hasOwn(value, "annotations")) {
+    const parsed = annotationsContext.safeParse(value);
+    if (!parsed.success) return empty;
+    annotations = parsed.data.annotations;
+  } else if (Object.hasOwn(value, "selection")) return empty;
+  const ref = sharedContext.safeParse(value);
+  if (!annotations && !ref.success) return empty;
+  const data = ref.success ? ref.data : null;
+  const issue =
+    data && (!annotations || annotations.length === 1)
+      ? data.source === "github"
+        ? { source: data.source, repo: data.repo, number: data.number }
+        : {
+            source: data.source,
+            connectionId: data.connectionId,
+            workspaceId: data.workspaceId,
+            teamId: data.teamId,
+            issueId: data.id,
+          }
+      : null;
+  const snapshot = z
+    .object({ arcoAnnotationSnapshotId: annotationSnapshotIdSchema })
+    .safeParse(value);
+  return {
+    issue,
+    annotations,
+    snapshotId:
+      annotations?.length && snapshot.success
+        ? snapshot.data.arcoAnnotationSnapshotId
+        : null,
+  };
 }

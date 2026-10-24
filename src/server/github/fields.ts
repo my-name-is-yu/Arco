@@ -1,0 +1,207 @@
+import { z } from "zod";
+import {
+  type IssueCatalog,
+  type IssueFieldList,
+} from "../../shared/github-operations";
+import { checkFieldValue, fieldValue } from "./field-values";
+import {
+  invalid,
+  issuePath,
+  type GitHubOperationContext,
+  type Input,
+} from "./operations-context";
+import { GitHubError, parse } from "./transport";
+export function createFieldsOperations(context: GitHubOperationContext) {
+  const { once, api, pages, issueRecord, refresh, repoOwner } = context;
+  async function issueCatalog(
+    input: Input<"arco_issue_catalog">,
+  ): Promise<IssueCatalog> {
+    const [issue, owner] = await Promise.all([
+      issueRecord(input),
+      repoOwner(input.repo),
+    ]);
+    const errors: string[] = [];
+    const milestones = await pages(
+      `repos/${input.repo}/milestones?state=all&per_page=100`,
+      z.object({
+        number: z.number(),
+        title: z.string(),
+        state: z.enum(["open", "closed"]),
+      }),
+    );
+    let issueTypes: IssueCatalog["issueTypes"] = [];
+    if (owner.type === "Organization") {
+      try {
+        issueTypes = parse(
+          z.array(
+            z.object({
+              id: z.number(),
+              name: z.string(),
+              description: z.string().nullable().optional(),
+            }),
+          ),
+          await api("read", `orgs/${owner.login}/issue-types`),
+        ).map((type) => ({
+          id: type.id,
+          name: type.name,
+          description: type.description ?? "",
+        }));
+      } catch {
+        errors.push(
+          "Unable to load issue types. Check your access to Issue Types in this organization.",
+        );
+      }
+    }
+    return {
+      repo: input.repo,
+      number: input.number,
+      milestoneNumber: issue.milestone?.number ?? null,
+      issueTypeId: issue.type?.id ?? null,
+      milestones,
+      issueTypes,
+      errors,
+    };
+  }
+
+  function issueAttributes(input: Input<"arco_issue_attributes">) {
+    return once(input.requestId, ["issueAttributes", input], async () => {
+      if (!Object.keys(input.patch).length)
+        return invalid("Select the attributes to change.");
+      const issue = await issueRecord(input);
+      if (
+        input.expectedUpdatedAt &&
+        input.expectedUpdatedAt !== issue.updated_at
+      )
+        throw new GitHubError(
+          "This issue has changed. Refresh before saving.",
+          "conflict",
+        );
+      const catalog = await issueCatalog(input);
+      const { milestoneNumber, issueTypeId } = input.patch;
+      if (
+        milestoneNumber != null &&
+        !catalog.milestones.some((item) => item.number === milestoneNumber)
+      )
+        return invalid("Select an existing milestone in this repository.");
+      const issueType =
+        issueTypeId == null
+          ? null
+          : catalog.issueTypes.find((item) => item.id === issueTypeId);
+      if (issueTypeId != null && !issueType)
+        return invalid("Select an existing issue type in this organization.");
+      await api("write", issuePath(input), "PATCH", {
+        ...(milestoneNumber !== undefined
+          ? { milestone: milestoneNumber }
+          : {}),
+        ...(issueTypeId !== undefined ? { type: issueType?.name ?? null } : {}),
+      });
+      const saved = await issueRecord(input);
+      if (
+        (milestoneNumber !== undefined &&
+          (saved.milestone?.number ?? null) !== milestoneNumber) ||
+        (issueTypeId !== undefined && (saved.type?.id ?? null) !== issueTypeId)
+      )
+        throw new GitHubError(
+          "The saved attributes do not match your selection. Check your permissions and refresh.",
+          "not-applied",
+        );
+      return refresh(input);
+    });
+  }
+
+  async function issueFields(
+    input: Input<"arco_issue_fields">,
+  ): Promise<IssueFieldList> {
+    await issueRecord(input);
+    const owner = await repoOwner(input.repo);
+    if (owner.type !== "Organization")
+      return {
+        repo: input.repo,
+        number: input.number,
+        organization: null,
+        fields: [],
+      };
+    const definitions = parse(
+      z.array(
+        z.object({
+          id: z.number(),
+          name: z.string(),
+          data_type: z.string(),
+          options: z
+            .array(z.object({ id: z.number(), name: z.string() }))
+            .optional(),
+        }),
+      ),
+      await api("read", `orgs/${owner.login}/issue-fields`),
+    );
+    const values = await pages(
+      `${issuePath(input)}/issue-field-values?per_page=100`,
+      z.object({
+        issue_field_id: z.number(),
+        value: z.unknown(),
+        single_select_option: z.object({ name: z.string() }).optional(),
+        multi_select_options: z
+          .array(z.object({ name: z.string() }))
+          .optional(),
+      }),
+    );
+    return {
+      repo: input.repo,
+      number: input.number,
+      organization: owner.login,
+      fields: definitions.map((definition) => {
+        const current = values.find(
+          (value) => value.issue_field_id === definition.id,
+        );
+        return {
+          id: definition.id,
+          name: definition.name,
+          type: definition.data_type,
+          supported: [
+            "text",
+            "number",
+            "date",
+            "single_select",
+            "multi_select",
+          ].includes(definition.data_type),
+          options: definition.options ?? [],
+          value: current
+            ? (current.multi_select_options?.map((option) => option.name) ??
+              current.single_select_option?.name ??
+              fieldValue(current.value))
+            : null,
+        };
+      }),
+    };
+  }
+
+  function setIssueField(input: Input<"arco_set_issue_field">) {
+    return once(input.requestId, ["setIssueField", input], async () => {
+      const field = (await issueFields(input)).fields.find(
+        (item) => item.id === input.fieldId,
+      );
+      if (!field?.supported)
+        return invalid(
+          "Select an existing supported Issue field. Its ID is separate from Project fields.",
+        );
+      checkFieldValue(
+        field.type,
+        input.value,
+        field.options.map((option) => option.name),
+      );
+      if (input.value === null) {
+        if (field.value !== null)
+          await api(
+            "write",
+            `${issuePath(input)}/issue-field-values/${field.id}`,
+            "DELETE",
+          );
+      } else
+        await api("write", `${issuePath(input)}/issue-field-values`, "POST", {
+          issue_field_values: [{ field_id: field.id, value: input.value }],
+        });
+      return refresh(input);
+    });
+  }
+  return { issueCatalog, issueAttributes, issueFields, setIssueField };
+}

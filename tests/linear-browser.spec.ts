@@ -834,9 +834,12 @@ test("Linear comment drafts do not freeze clean body content and same-field edit
   await expect(
     ui.getByRole("button", { name: "Save to Linear", exact: true }),
   ).toBeDisabled();
+  await app(page)
+    .getByRole("button", { name: "Compare latest content", exact: true })
+    .click();
   await ui
     .getByRole("button", {
-      name: "Keep draft and rebase on latest version",
+      name: "Keep draft and use latest revision",
       exact: true,
     })
     .click();
@@ -2118,7 +2121,7 @@ test("Linear inline details report a refused fullscreen request and allow retry"
   await ui.getByRole("button", { name: "Open details", exact: true }).click();
 
   await expect(ui.locator(".inline-mode")).toBeVisible();
-  await expect(ui.getByRole("status")).toHaveText(
+  await expect(ui.getByRole("alert")).toHaveText(
     "The host could not switch to fullscreen mode. It kept inline mode.",
   );
   await expect(

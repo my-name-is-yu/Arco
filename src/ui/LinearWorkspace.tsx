@@ -1,4 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AsyncState } from "./AsyncState";
+import { WorkspaceLayout, WorkspaceHeader } from "./WorkspaceLayout";
+import { RefreshFailure } from "./RefreshFailure";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
   useInfiniteQuery,
   useQuery,
@@ -10,9 +13,8 @@ import {
   DotsHorizontalMoreMenu,
   Filter,
   MagnifyingGlassSearch,
-  Plus,
 } from "@openai/apps-sdk-ui/components/Icon";
-import type { ArcoHost, DisplayMode } from "../shared/contracts";
+import type { ArcoHost } from "../shared/contracts";
 import type {
   LinearConnection,
   LinearIssue,
@@ -22,20 +24,13 @@ import type {
   LinearSavedReceipt,
   LinearScope,
   LinearScopes,
-  LinearTemplate,
 } from "../shared/linear";
-import {
-  DraftStatus,
-  draftStorageId,
-  useDraftPersistence,
-} from "./useDraftPersistence";
 import {
   useLinearSettings,
   linearScopeKey,
   defaultLinearFilter,
   type LinearFilter,
 } from "./useLinearSettings";
-import type { Draft, DraftKey } from "../shared/state";
 import { LinearBulkActions } from "./LinearBulkActions";
 import { LinearDetail } from "./LinearDetail";
 import { SingleSelect } from "./SingleSelect";
@@ -45,10 +40,18 @@ import {
   IssueListSkeleton,
   WorkspaceSkeleton,
 } from "./LoadingSkeleton";
-import { AnimatedDialogBackdrop } from "./AnimatedDialogBackdrop";
 import { selectionIssueData, isTextSelectionClick } from "./SelectionShare";
 import { isSavedReceipt } from "./linear-run";
 import "./linear.css";
+import {
+  useCommandSession,
+  useSessionRef,
+  useSessionState,
+} from "./session-state";
+import { useHostView } from "./HostProvider";
+import { Notice, type NoticeValue } from "./Notice";
+import { LinearCreateIssue } from "./LinearCreateIssue";
+import { InlineSummaryCard } from "./InlineSummaryCard";
 import { isIssueUrlInput, linearIssueUrl } from "../shared/issue-url";
 import { DisclosureSummary } from "./DisclosureSummary";
 import {
@@ -62,39 +65,6 @@ export const linearRef = (issue: LinearRef): LinearRef => ({
   teamId: issue.teamId,
   issueId: issue.issueId,
 });
-type ViewMemory = {
-  selected: LinearRef | null;
-  showDetail: boolean;
-  selections: Map<string, LinearRef>;
-  positions: Map<string, number>;
-  receipt: (LinearSavedReceipt & { requestId: string }) | null;
-};
-const retainedViews = new WeakMap<ArcoHost, ViewMemory>();
-function viewFor(host: ArcoHost): ViewMemory {
-  let view = retainedViews.get(host);
-  if (!view) {
-    const restored = host.sharedIssue?.();
-    const shared = restored?.source === "linear" ? linearRef(restored) : null;
-    view = {
-      selected: shared,
-      showDetail: false,
-      selections: new Map(),
-      positions: new Map(),
-      receipt: null,
-    };
-    retainedViews.set(host, view);
-  }
-  return view;
-}
-const retainedRequests = new WeakMap<ArcoHost, Map<string, string>>();
-function requestsFor(host: ArcoHost) {
-  let requests = retainedRequests.get(host);
-  if (!requests) {
-    requests = new Map();
-    retainedRequests.set(host, requests);
-  }
-  return requests;
-}
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const linearDataKeys = new Set([
@@ -115,63 +85,109 @@ export function LinearWorkspace({
   onSourceChange: (source: "github" | "linear") => void;
 }) {
   const cache = useQueryClient();
-  const view = useMemo(() => viewFor(host), [host]);
   const settings = useLinearSettings(host);
-  const persistence = useDraftPersistence(host);
-  const { load } = persistence;
-  const [teamOverride, setTeamOverride] = useState(view.selected?.teamId ?? "");
-  const [selected, setSelected] = useState<LinearRef | null>(view.selected);
-  const [shared, setShared] = useState<LinearRef | null>(() => {
-    const current = host.sharedIssue?.();
-    return current?.source === "linear" ? linearRef(current) : null;
-  });
-  const [localFilters, setLocalFilters] = useState<
+  const [teamOverride, setTeamOverride] = useSessionState(
+    host,
+    "linear:teamOverride",
+    () => {
+      const shared = host.sharedIssue?.();
+      return shared?.source === "linear" ? shared.teamId : "";
+    },
+  );
+  const [selected, setSelected] = useSessionState<LinearRef | null>(
+    host,
+    "linear:selected",
+    () => {
+      const shared = host.sharedIssue?.();
+      return shared?.source === "linear" ? linearRef(shared) : null;
+    },
+  );
+  const { mode, sharedIssue: sharedContext } = useHostView();
+  const shared =
+    sharedContext?.source === "linear" ? linearRef(sharedContext) : null;
+  const [localFilters, setLocalFilters] = useSessionState<
     Record<string, LinearFilter>
-  >({});
-  const filtersRef = useRef<Record<string, LinearFilter>>({});
-  const selectionByScope = useRef(view.selections);
-  const [mode, setMode] = useState<DisplayMode>(host.mode());
-  const [showDetail, setShowDetail] = useState(view.showDetail);
-  const [notice, setNotice] = useState("");
-  const [receipt, setReceipt] = useState(view.receipt);
-  const [busy, setBusy] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
+  >(host, "linear:localFilters", {});
+  const filtersRef = useSessionRef<Record<string, LinearFilter>>(
+    host,
+    "linear:filtersRef",
+    {},
+  );
+  const selectionByScope = useSessionRef(
+    host,
+    "linear:selectionByScope",
+    new Map<string, LinearRef>(),
+  );
+  const [showDetail, setShowDetail] = useSessionState(
+    host,
+    "linear:showDetail",
+    false,
+  );
+  const [notice, setNoticeValue] = useSessionState<NoticeValue | null>(
+    host,
+    "linear:notice",
+    null,
+  );
+  const setNotice = (text: string, kind: NoticeValue["kind"] = "success") =>
+    setNoticeValue(text ? { text, kind } : null);
+  const [receipt, setReceipt] = useSessionState<
+    (LinearSavedReceipt & { requestId: string }) | null
+  >(host, "linear:receipt", null);
+  const { busy, setBusy, lock, requests } = useCommandSession(host, "linear");
+  const [disconnecting, setDisconnecting] = useSessionState(
+    host,
+    "linear:disconnecting",
+    false,
+  );
   const accountMenu = useRef<HTMLDetailsElement>(null);
-  const lock = useRef(false);
-  const requests = useMemo(() => requestsFor(host), [host]);
   const search = useRef<HTMLInputElement>(null);
-  const [searchEntry, setSearchEntry] = useState<string | null>(null);
-  const [searchError, setSearchError] = useState("");
-  const [urlBusy, setUrlBusy] = useState(false);
+  const [searchEntry, setSearchEntry] = useSessionState<string | null>(
+    host,
+    "linear:searchEntry",
+    null,
+  );
+  const [searchError, setSearchError] = useSessionState(
+    host,
+    "linear:searchError",
+    "",
+  );
+  const [urlBusy, setUrlBusy] = useSessionState(host, "linear:urlBusy", false);
   const urlRequest = useRef(0);
   useEffect(
     () => () => {
       urlRequest.current += 1;
+      setUrlBusy(false);
     },
-    [],
+    [setUrlBusy],
   );
   const list = useRef<HTMLDivElement>(null);
-  const positions = useRef(view.positions);
-  const restoredScope = useRef<string | null>(null);
-  const [bulk, setBulk] = useState<string[]>([]);
-  const selectedStateTypes = useRef(new Map<string, string>());
-  const [createOpen, setCreateOpen] = useState(false);
-  type CreateDraft = {
-    title: string;
-    body: string;
-    templateId: string;
-    descriptionTouched: boolean;
-  };
-  const [createDrafts, setCreateDrafts] = useState<Record<string, CreateDraft>>(
-    {},
+  const positions = useSessionRef(
+    host,
+    "linear:positions",
+    new Map<string, number>(),
   );
-  const createRef = useRef<Record<string, CreateDraft>>({});
-  useEffect(() => {
-    view.selected = selected;
-    view.showDetail = showDetail;
-  }, [view, selected, showDetail]);
-  const [clientId, setClientId] = useState("210cd7ed4e0167355328ba0bb627b38c");
-  const [authPending, setAuthPending] = useState(false);
+  const restoredScope = useRef<string | null>(null);
+  const [bulk, setBulk] = useSessionState<string[]>(host, "linear:bulk", []);
+  const selectedStateTypes = useSessionRef(
+    host,
+    "linear:selectedStateTypes",
+    new Map<string, string>(),
+  );
+  const [createOpen, setCreateOpen] = useSessionState(
+    host,
+    "linear:createOpen",
+    false,
+  );
+  const [clientId, setClientId] = useSessionState(
+    host,
+    "linear:clientId",
+    "210cd7ed4e0167355328ba0bb627b38c",
+  );
+  const [authPending, setAuthPending] = useSessionState(
+    host,
+    "linear:authPending",
+    false,
+  );
   const connection = useQuery({
     queryKey: ["linear-connection"],
     queryFn: () => host.call<LinearConnection>("linear_connection", {}),
@@ -191,7 +207,7 @@ export function LinearWorkspace({
       setAuthPending(false);
       void cache.invalidateQueries({ queryKey: ["linear-connection"] });
     }
-  }, [auth.data?.state, cache, disconnecting]);
+  }, [auth.data?.state, cache, disconnecting, setAuthPending]);
   const scopes = useQuery({
     queryKey: [
       "linear-scopes",
@@ -267,72 +283,11 @@ export function LinearWorkspace({
       }),
     );
   };
-  const createDraft = createDrafts[scopeId] ?? {
-    title: "",
-    body: "",
-    templateId: "",
-    descriptionTouched: false,
-  };
-  const createKey = useMemo<DraftKey | null>(
-    () =>
-      scope
-        ? {
-            source: "linear",
-            workspaceId: scope.workspaceId,
-            teamId: scope.teamId,
-            issue: "new",
-          }
-        : null,
-    [scope],
-  );
-  useEffect(() => {
-    if (!createOpen || !createKey) return;
-    void load(createKey).then((saved) => {
-      if (!saved || createRef.current[scopeId]) return;
-      createRef.current = {
-        ...createRef.current,
-        [scopeId]: {
-          title: saved.title,
-          body: saved.body,
-          templateId: saved.linearTemplateId ?? "",
-          descriptionTouched: saved.linearDescriptionTouched ?? false,
-        },
-      };
-      setCreateDrafts(createRef.current);
-    });
-  }, [createOpen, createKey, scopeId, load]);
-  const setCreateDraft = (
-    update: CreateDraft | ((current: CreateDraft) => CreateDraft),
-  ) => {
-    const current = createRef.current[scopeId] ?? createDraft;
-    const next = typeof update === "function" ? update(current) : update;
-    createRef.current = { ...createRef.current, [scopeId]: next };
-    setCreateDrafts(createRef.current);
-    if (createKey)
-      persistence.schedule(createKey, {
-        title: next.title,
-        body: next.body,
-        comment: "",
-        linearTemplateId: next.templateId || undefined,
-        linearDescriptionTouched: next.descriptionTouched,
-      });
-  };
   const metadata = useQuery({
     queryKey: ["linear-metadata", scope],
     queryFn: () => host.call<LinearMetadata>("linear_metadata", { ...scope }),
     enabled: canRead && Boolean(scope),
   });
-  const templates = useQuery({
-    queryKey: ["linear-templates", scope],
-    queryFn: () =>
-      host.call<{ templates: LinearTemplate[] }>("linear_templates", {
-        ...scope,
-      }),
-    enabled: canRead && Boolean(scope) && createOpen,
-  });
-  const selectedTemplate = templates.data?.templates.find(
-    (template) => template.id === createDraft.templateId,
-  );
   const pageScope = JSON.stringify([scope, query, filters]);
   const issues = useInfiniteQuery({
     queryKey: ["linear-issues", pageScope],
@@ -413,34 +368,9 @@ export function LinearWorkspace({
       ? sharedIssue.data
       : undefined
     : detail.data;
-  useEffect(
-    () =>
-      host.subscribe((event) => {
-        if (event === "context") {
-          const restored = host.sharedIssue?.();
-          setShared(restored?.source === "linear" ? linearRef(restored) : null);
-          return;
-        }
-        setMode(host.mode());
-        if (event === "data" && canRead)
-          void cache.invalidateQueries(
-            {
-              predicate: (entry) =>
-                [
-                  "linear-issue",
-                  "linear-issues",
-                  "linear-metadata",
-                  "linear-comments",
-                ].includes(String(entry.queryKey[0])),
-            },
-            { cancelRefetch: false },
-          );
-      }),
-    [host, cache, canRead],
-  );
   useEffect(() => {
     if (canRead && !selected && rows[0]) setSelected(linearRef(rows[0]));
-  }, [canRead, selected, rows]);
+  }, [canRead, selected, rows, setSelected]);
   useLayoutEffect(() => {
     if (!issues.isSuccess || !list.current) {
       restoredScope.current = null;
@@ -451,7 +381,7 @@ export function LinearWorkspace({
       list.current.scrollTop = positions.current.get(pageScope) ?? 0;
       restoredScope.current = scopeKey;
     }
-  }, [pageScope, issues.isSuccess, mode]);
+  }, [pageScope, issues.isSuccess, mode, positions]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (
@@ -490,7 +420,7 @@ export function LinearWorkspace({
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [rows, active]);
+  }, [rows, active, setSelected, setShowDetail]);
   async function run<T>(
     name: string,
     args: Record<string, unknown>,
@@ -510,9 +440,6 @@ export function LinearWorkspace({
       requests.delete(key);
       if (isSavedReceipt(result)) {
         const saved = { ...result, requestId };
-        view.receipt = saved;
-        view.selected = linearRef(result);
-        view.showDetail = true;
         setReceipt(saved);
         setSelected(linearRef(result));
         setShowDetail(true);
@@ -556,7 +483,7 @@ export function LinearWorkspace({
       );
       return result;
     } catch (error) {
-      setNotice(message(error));
+      setNotice(message(error), "error");
       await Promise.all([
         cache.invalidateQueries({ queryKey: ["linear-issue"] }),
         cache.invalidateQueries({ queryKey: ["linear-issues"] }),
@@ -573,7 +500,7 @@ export function LinearWorkspace({
       await action();
       setNotice(success);
     } catch (error) {
-      setNotice(message(error));
+      setNotice(message(error), "error");
     }
   }
   function disconnected(connectionId: string) {
@@ -601,9 +528,6 @@ export function LinearWorkspace({
     setCreateOpen(false);
     setBulk([]);
     setReceipt(null);
-    view.selected = null;
-    view.showDetail = false;
-    view.receipt = null;
     selectionByScope.current.clear();
     selectedStateTypes.current.clear();
     setNotice(
@@ -638,7 +562,7 @@ export function LinearWorkspace({
         .call<{ connected: boolean }>("linear_auth_status", { connectionId })
         .catch(() => null);
       if (status?.connected === false) disconnected(connectionId);
-      else setNotice(message(error));
+      else setNotice(message(error), "error");
     } finally {
       lock.current = false;
       setDisconnecting(false);
@@ -650,7 +574,6 @@ export function LinearWorkspace({
     capturePosition();
     return hostAction(async () => {
       await host.display(value);
-      setMode(host.mode());
     }, "Display mode updated.");
   };
   const openRetainedDetails = () => {
@@ -722,17 +645,12 @@ export function LinearWorkspace({
           LOCAL LINEAR FIXTURE · No writes to Linear
         </div>
       )}
-      {connected && notice && (
-        <div className="notice" role="status">
-          {notice}
-          <button
-            className="icon-button"
-            aria-label="Dismiss Linear notice"
-            onClick={() => setNotice("")}
-          >
-            ×
-          </button>
-        </div>
+      {connected && (
+        <Notice
+          notice={notice}
+          onDismiss={() => setNoticeValue(null)}
+          dismissLabel="Dismiss Linear notice"
+        />
       )}
       {receipt && (
         <section
@@ -767,7 +685,6 @@ export function LinearWorkspace({
             className="icon-button"
             aria-label="Dismiss saved Linear receipt"
             onClick={() => {
-              view.receipt = null;
               setReceipt(null);
             }}
           >
@@ -775,22 +692,12 @@ export function LinearWorkspace({
           </button>
         </section>
       )}
-      {detail.isError && detail.data && (
-        <div className="notice error" role="alert">
-          <span>
-            <strong>Could not refresh this issue.</strong> Showing the last
-            loaded version. {message(detail.error)}
-          </span>
-          <Button
-            color="secondary"
-            variant="outline"
-            size="sm"
-            disabled={detail.isFetching}
-            onClick={() => void detail.refetch()}
-          >
-            Retry refresh
-          </Button>
-        </div>
+      {detail.data && (
+        <RefreshFailure
+          error={detail.error}
+          pending={detail.isFetching}
+          onRetry={() => void detail.refetch()}
+        />
       )}
     </>
   );
@@ -827,39 +734,14 @@ export function LinearWorkspace({
 
   if (mode !== "fullscreen" && connection.data?.connected && retained)
     return (
-      <main
-        className="arco compact-mode inline-mode"
-        data-arco-issue={selectionIssueData(retained)}
-        aria-busy={shared ? sharedIssue.isFetching : detail.isFetching}
-      >
-        <div className="compact-top">
-          <strong>Arco · Linear</strong>
-          <span className="muted">{shared ? "Chat context" : "Browsing"}</span>
-          <button
-            className="icon-button"
-            aria-label="Expand Linear view"
-            onClick={openRetainedDetails}
-          >
-            ↗
-          </button>
-        </div>
-        <div className="issue-kicker">
-          <span style={{ color: retained.state.color }}>◉</span>
-          {retained.identifier}
-          <span>{retained.state.name}</span>
-        </div>
-        <h1>{retained.title}</h1>
-        <p className="muted">{retained.body.slice(0, 140)}</p>
-        <Button
-          color="secondary"
-          variant="outline"
-          size="sm"
-          onClick={openRetainedDetails}
-        >
-          Open details
-        </Button>
-        {notice && <p role="status">{notice}</p>}
-      </main>
+      <InlineSummaryCard
+        issue={retained}
+        shared={Boolean(shared)}
+        busy={shared ? sharedIssue.isFetching : detail.isFetching}
+        onOpen={openRetainedDetails}
+        expandLabel="Expand Linear view"
+        notice={notice}
+      />
     );
   if (mode !== "fullscreen") {
     const failure =
@@ -895,42 +777,27 @@ export function LinearWorkspace({
         >
           Open details
         </Button>
-        {notice && <p role="status">{notice}</p>}
+        <Notice
+          notice={notice}
+          onDismiss={() => setNoticeValue(null)}
+          dismissLabel="Dismiss Linear notice"
+        />
       </main>
     );
   }
   return (
-    <main
-      className={`arco workspace linear-workspace ${showDetail ? "show-detail" : ""}`}
-    >
+    <WorkspaceLayout source="linear" detailOpen={showDetail}>
       <aside className="issue-sidebar" aria-label="Linear Issue list">
-        <div className="sidebar-heading">
-          <div className="sidebar-identity">
-            <strong className="wordmark">Arco</strong>
-            <SingleSelect
-              className="source-select"
-              label="Issue source"
-              value="linear"
-              options={[
-                { value: "github", label: "GitHub" },
-                { value: "linear", label: "Linear" },
-              ]}
-              onChange={(value) => {
-                if (value !== "github") return;
-                capturePosition();
-                onSourceChange("github");
-              }}
-            />
-          </div>
-          <button
-            className="icon-button"
-            aria-label="Create Linear Issue"
-            disabled={!scope || busy}
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus aria-hidden="true" />
-          </button>
-        </div>
+        <WorkspaceHeader
+          source="linear"
+          onSourceChange={(next) => {
+            capturePosition();
+            onSourceChange(next);
+          }}
+          onCreate={() => setCreateOpen(true)}
+          createDisabled={!scope || busy}
+          createLabel="Create Linear Issue"
+        />
         {!connection.data?.connected ? (
           <div className="list-message">
             <strong>Connect Linear</strong>
@@ -967,7 +834,11 @@ export function LinearWorkspace({
               Authorize in Linear
             </Button>
             <p>{auth.data?.message}</p>
-            {notice && <p role="status">{notice}</p>}
+            <Notice
+              notice={notice}
+              onDismiss={() => setNoticeValue(null)}
+              dismissLabel="Dismiss Linear notice"
+            />
             <button
               className="text-button"
               onClick={() => {
@@ -1222,6 +1093,7 @@ export function LinearWorkspace({
             </div>
             {bulk.length > 0 && scope && (
               <LinearBulkActions
+                host={host}
                 key={JSON.stringify(scope)}
                 scope={scope}
                 ids={bulk}
@@ -1288,7 +1160,7 @@ export function LinearWorkspace({
                 </div>
               ))}
               {issues.isError && (
-                <div role="alert" className="list-message">
+                <AsyncState kind="error" className="list-message">
                   <p className="inline-error">{message(issues.error)}</p>
                   <button
                     className="text-button"
@@ -1297,10 +1169,12 @@ export function LinearWorkspace({
                   >
                     Retry
                   </button>
-                </div>
+                </AsyncState>
               )}
               {issues.isSuccess && !rows.length && (
-                <p className="list-message">No matching Issues.</p>
+                <AsyncState as="p" kind="empty" className="list-message">
+                  No matching Issues.
+                </AsyncState>
               )}
               {issues.hasNextPage && (
                 <button
@@ -1432,354 +1306,27 @@ export function LinearWorkspace({
         )}
       </section>
       {scope && (
-        <AnimatedDialogBackdrop open={createOpen}>
-          <section
-            className="create-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="linear-create-title"
-            onKeyDown={(event) => {
-              if (
-                event.defaultPrevented ||
-                (event.target instanceof Element &&
-                  event.target.closest('[role="dialog"]') !==
-                    event.currentTarget)
-              )
-                return;
-              if (event.key === "Escape" && !busy) {
-                event.stopPropagation();
-                setCreateOpen(false);
-              }
-              if (event.key === "Tab") {
-                const elements = [
-                  ...event.currentTarget.querySelectorAll<HTMLElement>(
-                    'button:not(:disabled):not([tabindex="-1"]),input:not(:disabled):not([type="hidden"]):not([tabindex="-1"]),textarea:not(:disabled):not([tabindex="-1"]),[role="button"][tabindex="0"]:not([aria-disabled="true"])',
-                  ),
-                ];
-                const first = elements[0];
-                const last = elements[elements.length - 1];
-                if (event.shiftKey && document.activeElement === first) {
-                  event.preventDefault();
-                  last?.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                  event.preventDefault();
-                  first?.focus();
-                }
-              }
-            }}
-          >
-            <h2 id="linear-create-title">Create Linear Issue</h2>
-            <p className="muted">
-              {scopes.data?.workspace.name} /{" "}
-              {
-                scopes.data?.teams.find((team) => team.id === scope.teamId)
-                  ?.name
-              }
-            </p>
-            {createKey && (
-              <DraftStatus
-                status={persistence.statuses[draftStorageId(createKey)]}
-                onRetry={() =>
-                  persistence.retry(createKey, {
-                    title: createDraft.title,
-                    body: createDraft.body,
-                    comment: "",
-                    linearTemplateId: createDraft.templateId || undefined,
-                    linearDescriptionTouched: createDraft.descriptionTouched,
-                  })
-                }
-                onResolve={(choice) => {
-                  const local: Draft = {
-                    title: createDraft.title,
-                    body: createDraft.body,
-                    comment: "",
-                    linearTemplateId: createDraft.templateId || undefined,
-                    linearDescriptionTouched: createDraft.descriptionTouched,
-                  };
-                  void persistence
-                    .resolve(createKey, choice, local)
-                    .then((saved) => {
-                      if (saved === undefined) return;
-                      createRef.current = {
-                        ...createRef.current,
-                        [scopeId]: saved
-                          ? {
-                              title: saved.title,
-                              body: saved.body,
-                              templateId: saved.linearTemplateId ?? "",
-                              descriptionTouched:
-                                saved.linearDescriptionTouched ?? false,
-                            }
-                          : {
-                              title: "",
-                              body: "",
-                              templateId: "",
-                              descriptionTouched: false,
-                            },
-                      };
-                      setCreateDrafts(createRef.current);
-                    });
-                }}
-              />
-            )}
-            <label>
-              Template
-              <SingleSelect
-                label="Linear template"
-                value={createDraft.templateId}
-                disabled={busy}
-                options={[
-                  { value: "", label: "None" },
-                  ...(templates.data?.templates ?? []).map((template) => ({
-                    value: template.id,
-                    label: `${template.name}${
-                      !template.supported
-                        ? ` · Create in Linear: ${template.reason}`
-                        : ""
-                    }`,
-                  })),
-                ]}
-                onChange={(value) => {
-                  const nextTemplate = templates.data?.templates.find(
-                    (template) => template.id === value,
-                  );
-                  setCreateDraft((previous) => {
-                    if (!nextTemplate?.supported)
-                      return { ...previous, templateId: value };
-                    const previousTemplate = templates.data?.templates.find(
-                      (template) => template.id === previous.templateId,
-                    );
-                    return {
-                      ...previous,
-                      templateId: nextTemplate.id,
-                      title:
-                        !previous.title ||
-                        previous.title === previousTemplate?.defaults?.title
-                          ? (nextTemplate.defaults?.title ?? previous.title)
-                          : previous.title,
-                      body: previous.descriptionTouched
-                        ? previous.body
-                        : (nextTemplate.defaults?.body ?? ""),
-                    };
-                  });
-                }}
-              />
-            </label>
-            {templates.isPending && (
-              <p className="muted" role="status">
-                Loading templates…
-              </p>
-            )}
-            {templates.isError && (
-              <p className="inline-error" role="alert">
-                {templates.error.message}
-              </p>
-            )}
-            {selectedTemplate && (
-              <section className="linear-template-preview">
-                <p className="muted">{selectedTemplate.description}</p>
-                {selectedTemplate.supported ? (
-                  <>
-                    <p className="property-note">
-                      Untouched descriptions use the template default. Editing
-                      the description overrides it.
-                    </p>
-                    <LinearTemplateDefaults
-                      template={selectedTemplate}
-                      metadata={metadata.data}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <p className="inline-error">
-                      {selectedTemplate.reason ||
-                        "This template needs the official Linear flow."}
-                    </p>
-                    <button
-                      className="text-button"
-                      onClick={() => {
-                        const url = new URL("https://linear.app/new");
-                        url.searchParams.set("team", scope.teamId);
-                        url.searchParams.set("template", selectedTemplate.id);
-                        void hostAction(
-                          () => host.openLink(url.href),
-                          "Opened Linear to use the template.",
-                        );
-                      }}
-                    >
-                      Open Linear to use this template ↗
-                    </button>
-                  </>
-                )}
-              </section>
-            )}
-            <label>
-              Title
-              <input
-                autoFocus
-                value={createDraft.title}
-                disabled={busy}
-                onChange={(event) =>
-                  setCreateDraft((previous) => ({
-                    ...previous,
-                    title: event.target.value,
-                  }))
-                }
-              />
-            </label>
-            <label>
-              Markdown description
-              <textarea
-                rows={8}
-                value={createDraft.body}
-                disabled={busy}
-                onChange={(event) =>
-                  setCreateDraft((previous) => ({
-                    ...previous,
-                    body: event.target.value,
-                    descriptionTouched: true,
-                  }))
-                }
-              />
-            </label>
-            <div className="dialog-actions">
-              <Button
-                color="secondary"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => setCreateOpen(false)}
-              >
-                Close
-              </Button>
-              <Button
-                color="primary"
-                disabled={
-                  busy ||
-                  !createDraft.title.trim() ||
-                  Boolean(
-                    createDraft.templateId && !selectedTemplate?.supported,
-                  )
-                }
-                onClick={() =>
-                  void run<LinearIssue>("linear_create_issue", {
-                    ...scope,
-                    title: createDraft.title,
-                    ...(!createDraft.templateId ||
-                    createDraft.descriptionTouched
-                      ? { body: createDraft.body }
-                      : {}),
-                    ...(createDraft.templateId
-                      ? { templateId: createDraft.templateId }
-                      : {}),
-                  }).then((result) => {
-                    if (result?.issueId) {
-                      setSelected(linearRef(result));
-                      setShowDetail(true);
-                      setCreateOpen(false);
-                      setCreateDraft({
-                        title: "",
-                        body: "",
-                        templateId: "",
-                        descriptionTouched: false,
-                      });
-                    }
-                  })
-                }
-              >
-                Create in Linear
-              </Button>
-            </div>
-          </section>
-        </AnimatedDialogBackdrop>
+        <LinearCreateIssue
+          host={host}
+          scope={scope}
+          open={createOpen}
+          busy={busy}
+          notice={notice}
+          workspaceName={scopes.data?.workspace.name ?? "Workspace"}
+          teamName={
+            scopes.data?.teams.find((team) => team.id === scope.teamId)?.name ??
+            scope.teamId
+          }
+          metadata={metadata.data}
+          run={run}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(result) => {
+            setSelected(linearRef(result));
+            setShowDetail(true);
+          }}
+          onNotice={setNotice}
+        />
       )}
-    </main>
+    </WorkspaceLayout>
   );
-}
-
-function LinearTemplateDefaults({
-  template,
-  metadata,
-}: {
-  template: LinearTemplate;
-  metadata?: LinearMetadata;
-}) {
-  const defaults = template.defaults;
-  if (!defaults) return null;
-  const values: [string, string][] = [];
-  if (defaults.stateId)
-    values.push([
-      "Workflow state",
-      metadata?.states.find((state) => state.id === defaults.stateId)?.name ??
-        "Unavailable in this team",
-    ]);
-  if (defaults.assigneeId !== undefined)
-    values.push([
-      "Assignee",
-      defaults.assigneeId === null
-        ? "Unassigned"
-        : (metadata?.members.find((member) => member.id === defaults.assigneeId)
-            ?.name ?? "Unavailable in this team"),
-    ]);
-  if (defaults.priority !== undefined)
-    values.push([
-      "Priority",
-      ["No priority", "Urgent", "High", "Normal", "Low"][defaults.priority],
-    ]);
-  if (defaults.estimate !== undefined)
-    values.push([
-      "Estimate",
-      defaults.estimate === null ? "Not set" : String(defaults.estimate),
-    ]);
-  if (defaults.dueDate !== undefined)
-    values.push(["Due date", defaults.dueDate ?? "Not set"]);
-  if (defaults.labelIds?.length)
-    values.push([
-      "Labels",
-      defaults.labelIds
-        .map(
-          (id) =>
-            metadata?.labels.find((label) => label.id === id)?.name ??
-            "Unavailable label",
-        )
-        .join(", "),
-    ]);
-  if (defaults.projectId !== undefined)
-    values.push([
-      "Project",
-      defaults.projectId === null
-        ? "None"
-        : (metadata?.projects.find(
-            (project) => project.id === defaults.projectId,
-          )?.name ?? "Unavailable Project"),
-    ]);
-  if (defaults.projectMilestoneId !== undefined)
-    values.push([
-      "Project milestone",
-      defaults.projectMilestoneId === null
-        ? "None"
-        : (metadata?.milestones.find(
-            (milestone) => milestone.id === defaults.projectMilestoneId,
-          )?.name ?? "Unavailable milestone"),
-    ]);
-  if (defaults.cycleId !== undefined)
-    values.push([
-      "Cycle",
-      defaults.cycleId === null
-        ? "None"
-        : (metadata?.cycles.find((cycle) => cycle.id === defaults.cycleId)
-            ?.name ?? "Unavailable cycle"),
-    ]);
-  return values.length ? (
-    <details>
-      <DisclosureSummary>Initial template attributes</DisclosureSummary>
-      <dl>
-        {values.map(([name, value]) => (
-          <div key={name}>
-            <dt>{name}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </details>
-  ) : null;
 }

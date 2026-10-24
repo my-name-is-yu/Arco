@@ -1,0 +1,1500 @@
+import { AsyncState } from "./AsyncState";
+import { WorkspaceLayout, WorkspaceHeader } from "./WorkspaceLayout";
+import { RefreshFailure } from "./RefreshFailure";
+import { GitHubDetail } from "./GitHubDetail";
+import { StateIcon, ShortDate } from "./GitHubIssueMeta";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { Button } from "@openai/apps-sdk-ui/components/Button";
+import {
+  ArrowRotateCw,
+  Filter,
+  Plus,
+  MagnifyingGlassSearch,
+} from "@openai/apps-sdk-ui/components/Icon";
+import { selectionIssueData, isTextSelectionClick } from "./SelectionShare";
+import { SingleSelect, type SingleSelectHandle } from "./SingleSelect";
+import {
+  DraftStatus,
+  draftStorageId,
+  useDraftPersistence,
+} from "./useDraftPersistence";
+import { GitHubCreateIssue } from "./GitHubCreateIssue";
+import { InlineSummaryCard } from "./InlineSummaryCard";
+import {
+  InlineSkeleton,
+  IssueDetailSkeleton,
+  IssueListSkeleton,
+  WorkspaceSkeleton,
+} from "./LoadingSkeleton";
+import { useGitHubSettings } from "./useGitHubSettings";
+import type { DraftKey, Settings } from "../shared/state";
+import { ProjectScopePicker } from "./ProjectScopePicker";
+import { BulkActions, type BulkIssue } from "./BulkActions";
+import { repoSchema } from "../shared/contracts";
+import {
+  githubIssueUrl,
+  githubRepositoryUrl,
+  isIssueUrlInput,
+} from "../shared/issue-url";
+import type {
+  ArcoHost,
+  AccountIssuePage,
+  AccountIssuesInput,
+  Connection,
+  IssueDetail,
+  IssuePage,
+  IssueRef,
+  IssueSummary,
+  RepoMetadata,
+  RepositoryPage,
+} from "../shared/contracts";
+import { DisclosureSummary } from "./DisclosureSummary";
+import type { LaunchContext } from "../shared/launch";
+import { resolveContentDraft as resolveDraft } from "./content-drafts";
+import type { Draft } from "../shared/state";
+import {
+  useCommandSession,
+  useSessionRef,
+  useSessionState,
+} from "./session-state";
+import { useHostView } from "./HostProvider";
+import { Notice, type NoticeValue } from "./Notice";
+import {
+  commentsKey,
+  commentPostsKey,
+  mergeCommentPages,
+} from "./github-comments";
+import type { Comment } from "../shared/contracts";
+
+const issueKey = (issue: IssueRef) =>
+  ["issue", issue.repo, issue.number] as const;
+const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
+const errorText = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+const requestId = () => crypto.randomUUID();
+const accountViews = [
+  { value: "assigned", label: "Assigned to me" },
+  { value: "created", label: "Created by me" },
+  { value: "mentioned", label: "Mentioned me" },
+  { value: "all", label: "All account repositories" },
+] as const;
+const isInput = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  Boolean(
+    target.closest(
+      'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="button"]',
+    ),
+  );
+
+function IssueRow({
+  issue,
+  selected,
+  onSelect,
+  showRepository = false,
+}: {
+  issue: IssueSummary;
+  selected: boolean;
+  onSelect: () => void;
+  showRepository?: boolean;
+}) {
+  return (
+    <button
+      className={`issue-row ${selected ? "selected" : ""}`}
+      aria-current={selected ? "true" : undefined}
+      data-arco-issue={selectionIssueData(issue)}
+      onClick={(event) => {
+        if (event.detail > 0 && isTextSelectionClick(event.currentTarget))
+          return;
+        onSelect();
+      }}
+    >
+      <StateIcon state={issue.state} />
+      <span className="row-content">
+        <span className="row-title">{issue.title}</span>
+        <span className="row-meta">
+          <span>
+            {showRepository ? `${issue.repo} ` : ""}#{issue.number} ·{" "}
+            {issue.author}
+          </span>
+          <ShortDate date={issue.updatedAt} />
+        </span>
+        {issue.labels.length > 0 && (
+          <span className="row-labels">
+            {issue.labels.slice(0, 2).map((label) => (
+              <span key={label.id}>{label.name}</span>
+            ))}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+export function GitHubWorkspace({
+  host,
+  launch,
+  onSourceChange,
+}: {
+  host: ArcoHost;
+  launch: LaunchContext;
+  onSourceChange: (source: "github" | "linear") => void;
+}) {
+  const projectView = launch.view === "project";
+  const { mode, sharedIssue } = useHostView();
+  const [restoredShared] = useState(() => host.sharedIssue?.() ?? null);
+  const restoredGithub =
+    restoredShared?.source === "github" ? restoredShared : null;
+  const [restoreSharedView] = useState(
+    () => !projectView || host.mode() === "inline",
+  );
+  const restoredSelection =
+    restoreSharedView ||
+    restoredGithub?.repo.toLowerCase() === launch.repo?.toLowerCase()
+      ? restoredGithub
+      : null;
+  const queryClient = useQueryClient();
+  const persistence = useDraftPersistence(host);
+  const { load: loadDraft, schedule: scheduleDraft } = persistence;
+  const settings = useGitHubSettings(
+    host,
+    projectView ? { key: launch.projectKey } : undefined,
+  );
+  const [repoOverride, setRepoOverride] = useSessionState<string | null>(
+    host,
+    "github:repoOverride",
+    restoreSharedView ? (restoredGithub?.repo ?? launch.repo) : launch.repo,
+  );
+  const [accountViewOverride, setAccountViewOverride] = useSessionState<
+    AccountIssuesInput["filter"] | null
+  >(host, "github:accountViewOverride", null);
+  const [registeredRepos, setRegisteredRepos] = useSessionState<string[]>(
+    host,
+    "github:registeredRepos",
+    [],
+  );
+  const previousSelection = useSessionRef(
+    host,
+    "github:previousSelection",
+    new Map<string, number>(),
+  );
+  const [bulkIssues, setBulkIssues] = useSessionState<BulkIssue[]>(
+    host,
+    "github:bulkIssues",
+    [],
+  );
+  const [bulkBusy, setBulkBusy] = useSessionState(
+    host,
+    "github:bulkBusy",
+    false,
+  );
+  const [repoError, setRepoError] = useSessionState(
+    host,
+    "github:repoError",
+    "",
+  );
+  const [searchEntry, setSearchEntry] = useSessionState<string | null>(
+    host,
+    "github:searchEntry",
+    null,
+  );
+  const [searchError, setSearchError] = useSessionState(
+    host,
+    "github:searchError",
+    "",
+  );
+  const [urlBusy, setUrlBusy] = useSessionState(host, "github:urlBusy", false);
+  const urlRequest = useRef(0);
+  useEffect(
+    () => () => {
+      urlRequest.current += 1;
+      setUrlBusy(false);
+    },
+    [setUrlBusy],
+  );
+  const [localFilters, setLocalFilters] = useSessionState<
+    Settings["githubFilters"]
+  >(host, "github:localFilters", {});
+  const filtersRef = useSessionRef<Settings["githubFilters"]>(
+    host,
+    "github:filtersRef",
+    {},
+  );
+  const source = "github";
+  const [selected, setSelected] = useSessionState<IssueRef | null>(
+    host,
+    "github:selected",
+    restoredSelection,
+  );
+  const [showDetail, setShowDetail] = useSessionState(
+    host,
+    "github:showDetail",
+    false,
+  );
+  const shared = sharedIssue?.source === "github" ? sharedIssue : null;
+  const [createOpen, setCreateOpen] = useSessionState(
+    host,
+    "github:createOpen",
+    false,
+  );
+  const [notice, setNotice] = useSessionState<NoticeValue | null>(
+    host,
+    "github:notice",
+    null,
+  );
+  const [hostBusy, setHostBusy] = useSessionState(
+    host,
+    "github:hostBusy",
+    false,
+  );
+  const hostLock = useSessionRef(host, "github:hostLock", false);
+  const {
+    busy: mutationBusy,
+    setBusy: setMutationBusy,
+    lock: mutationLock,
+    requests: pendingRequestIds,
+  } = useCommandSession(host, "github");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const scopeSelectRef = useRef<SingleSelectHandle>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const scrollPositions = useSessionRef(
+    host,
+    "github:scrollPositions",
+    new Map<string, number>(),
+  );
+  const restoredListScope = useRef<string | null>(null);
+  const connection = useQuery({
+    queryKey: ["connection"],
+    queryFn: () => host.call<Connection>("arco_connection", {}),
+  });
+  const repo =
+    repoOverride ??
+    (projectView && launch.projectKey
+      ? settings.query.data?.settings.projectGithubRepos[launch.projectKey]
+      : "") ??
+    "";
+  const connectionIdentity = `${connection.data?.mode ?? "pending"}:${connection.data?.account ?? "disconnected"}`;
+  const accountView =
+    accountViewOverride ??
+    settings.query.data?.settings.githubAccountFilter.filter ??
+    "assigned";
+  const accountViewLabel = accountViews.find(
+    (view) => view.value === accountView,
+  )!.label;
+  const filterKey = `${connectionIdentity}:${repo || `@account:${accountView}`}`;
+  const repositoryDiscovery = useInfiniteQuery({
+    queryKey: [
+      "github-repositories",
+      connection.data?.mode,
+      connection.data?.account,
+      connection.data?.connected,
+    ],
+    queryFn: ({ pageParam }) =>
+      host.call<RepositoryPage>("arco_repositories", { page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.hasMore ? last.page + 1 : undefined),
+    enabled: connection.data?.connected === true,
+  });
+  const filter = localFilters[filterKey] ??
+    (repo
+      ? settings.query.data?.settings.githubFilters[repo]
+      : {
+          query: "",
+          ...(settings.query.data?.settings.githubAccountFilter ?? {
+            state: "open" as const,
+            sort: "updated" as const,
+            order: "desc" as const,
+          }),
+        }) ?? {
+      query: "",
+      state: "open" as const,
+      sort: "updated" as const,
+      order: "desc" as const,
+    };
+  const { query, state, sort, order } = filter;
+  const updateFilter = (patch: Partial<Settings["githubFilters"][string]>) => {
+    const current = filtersRef.current[filterKey] ?? filter;
+    const next = { ...current, ...patch };
+    filtersRef.current = { ...filtersRef.current, [filterKey]: next };
+    setLocalFilters(filtersRef.current);
+    if (repo) settings.saveFilter(repo, next);
+    else
+      settings.saveAccountFilter({
+        filter: accountView,
+        state: next.state,
+        sort: next.sort,
+        order: next.order,
+      });
+  };
+  const setQuery = (query: string) => updateFilter({ query });
+  const setState = (state: "open" | "closed" | "all") =>
+    updateFilter({ state });
+  const setSort = (sort: "updated" | "created" | "comments") =>
+    updateFilter({ sort });
+  const setOrder = (order: "asc" | "desc") => updateFilter({ order });
+  const setSource = onSourceChange;
+  const repositories = [
+    ...new Set(
+      [
+        repo,
+        ...launch.candidates,
+        connection.data?.defaultRepo,
+        ...(settings.query.data?.settings.githubRepos ?? []),
+        ...registeredRepos,
+        ...(repositoryDiscovery.data?.pages.flatMap((page) =>
+          page.repositories.map((repository) => repository.repo),
+        ) ?? []),
+      ].filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const changeRepo = (
+    nextRepo: string,
+    nextAccountView?: AccountIssuesInput["filter"],
+  ) => {
+    if (mutationLock.current || bulkBusy) return;
+    urlRequest.current += 1;
+    setUrlBusy(false);
+    setSearchEntry(null);
+    setSearchError("");
+    rememberListScroll();
+    if (selected) previousSelection.current.set(selected.repo, selected.number);
+    setRepoOverride(nextRepo);
+    if (nextRepo) settings.register(nextRepo, registeredRepos);
+    else {
+      if (nextAccountView) setAccountViewOverride(nextAccountView);
+      settings.setAccountScope(nextAccountView);
+    }
+    const previous = previousSelection.current.get(nextRepo);
+    setSelected(previous ? { repo: nextRepo, number: previous } : null);
+    setShowDetail(false);
+  };
+  const listScope = `${connectionIdentity}|${repo || `@account:${accountView}`}|${query}|${state}|${sort}|${order}`;
+  const issues = useInfiniteQuery({
+    queryKey: [
+      "issues",
+      connection.data?.mode,
+      connection.data?.account,
+      connection.data?.connected,
+      repo,
+      accountView,
+      query,
+      state,
+      sort,
+      order,
+    ],
+    refetchInterval: 30_000,
+    queryFn: ({ pageParam }) =>
+      repo
+        ? host.call<IssuePage>("arco_list_issues", {
+            repo,
+            query,
+            state,
+            sort,
+            order,
+            page: pageParam,
+          })
+        : host.call<AccountIssuePage>("arco_account_issues", {
+            filter: accountView,
+            state,
+            sort,
+            order,
+            page: pageParam,
+          }),
+    enabled:
+      source === "github" &&
+      connection.data?.connected === true &&
+      (!projectView || Boolean(repo)) &&
+      !settings.query.isPending,
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.hasMore ? last.page + 1 : undefined),
+  });
+  const rows = useMemo(
+    () =>
+      connection.data?.connected
+        ? (issues.data?.pages.flatMap((page) => page.issues) ?? [])
+        : [],
+    [issues.data, connection.data?.connected],
+  );
+  useEffect(() => {
+    if (!selected && rows[0])
+      setSelected({ repo: rows[0].repo, number: rows[0].number });
+  }, [selected, rows, setSelected]);
+  const activeRef = selected ?? rows[0] ?? null;
+  const activeRepo = activeRef?.repo;
+  const activeNumber = activeRef?.number;
+  const activeDraftKey = useMemo<DraftKey | null>(
+    () =>
+      activeRepo && activeNumber
+        ? { source: "github", repo: activeRepo, issue: String(activeNumber) }
+        : null,
+    [activeRepo, activeNumber],
+  );
+  useEffect(() => {
+    if (activeDraftKey) void loadDraft(activeDraftKey);
+  }, [activeDraftKey, loadDraft]);
+
+  const detail = useQuery({
+    queryKey: activeRef ? issueKey(activeRef) : ["issue", "none"],
+    refetchInterval: 30_000,
+    queryFn: ({ signal }) =>
+      host.call<IssueDetail>(
+        "arco_get_issue",
+        {
+          repo: activeRef!.repo,
+          number: activeRef!.number,
+        },
+        { signal, priority: "background" },
+      ),
+    enabled: source === "github" && Boolean(activeRef),
+  });
+  const sharedDetail = useQuery({
+    queryKey: shared ? issueKey(shared) : ["issue", "shared-none"],
+    refetchInterval: 30_000,
+    queryFn: ({ signal }) =>
+      host.call<IssueDetail>(
+        "arco_get_issue",
+        {
+          repo: shared!.repo,
+          number: shared!.number,
+        },
+        { signal, priority: "background" },
+      ),
+    enabled: source === "github" && Boolean(shared),
+  });
+  const metadataRepo = activeRef?.repo ?? repo;
+  const metadata = useQuery({
+    queryKey: ["metadata", metadataRepo],
+    queryFn: () =>
+      host.call<RepoMetadata>("arco_repo_metadata", { repo: metadataRepo }),
+    enabled:
+      source === "github" &&
+      Boolean(metadataRepo) &&
+      connection.data?.connected === true,
+  });
+  const mutation = useMutation({
+    mutationFn: ({
+      name,
+      args,
+    }: {
+      name: string;
+      args: Record<string, unknown>;
+    }) => host.call<IssueDetail>(name, args),
+    onSuccess: async (result) => {
+      if (result.postedComment)
+        queryClient.setQueryData<Comment[]>(
+          commentPostsKey(result),
+          (previous = []) =>
+            mergeCommentPages([], [...previous, result.postedComment!]),
+        );
+      queryClient.setQueryData(issueKey(result), result);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["issues"] }),
+        queryClient.invalidateQueries({ queryKey: issueKey(result) }),
+        queryClient.invalidateQueries({ queryKey: commentsKey(result) }),
+      ]);
+    },
+  });
+
+  useLayoutEffect(() => {
+    const element = listRef.current;
+    if (!element || !issues.isSuccess) {
+      restoredListScope.current = null;
+      return;
+    }
+    const scope = `${mode}:${listScope}`;
+    if (restoredListScope.current !== scope) {
+      element.scrollTop = scrollPositions.current.get(listScope) ?? 0;
+      restoredListScope.current = scope;
+    }
+  }, [listScope, mode, issues.isSuccess, scrollPositions]);
+  const rememberListScroll = () => {
+    if (listRef.current && restoredListScope.current === `${mode}:${listScope}`)
+      scrollPositions.current.set(listScope, listRef.current.scrollTop);
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (source !== "github") return;
+      if (
+        event.defaultPrevented ||
+        isInput(event.target) ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
+      if (event.key === "/") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === "Escape") {
+        setShowDetail(false);
+      }
+      if (event.key === "j" || event.key === "k") {
+        event.preventDefault();
+        const index = rows.findIndex(
+          (row) => activeRef && refKey(row) === refKey(activeRef),
+        );
+        const next =
+          rows[
+            Math.min(
+              rows.length - 1,
+              Math.max(0, index + (event.key === "j" ? 1 : -1)),
+            )
+          ];
+        if (next) {
+          setSelected({ repo: next.repo, number: next.number });
+          setShowDetail(true);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rows, activeRef, source, setSelected, setShowDetail]);
+
+  const save = async (
+    name: string,
+    args: Record<string, unknown>,
+    after?: (result: IssueDetail) => void,
+  ) => {
+    if (mutationLock.current) return;
+    mutationLock.current = true;
+    setMutationBusy(true);
+    setNotice(null);
+    const operationKey = JSON.stringify([name, args]);
+    const operationId = pendingRequestIds.get(operationKey) ?? requestId();
+    pendingRequestIds.set(operationKey, operationId);
+    try {
+      const result = await mutation.mutateAsync({
+        name,
+        args: { ...args, requestId: operationId },
+      });
+      pendingRequestIds.delete(operationKey);
+      after?.(result);
+      setNotice({
+        kind: "success",
+        text:
+          connection.data?.mode === "fixture"
+            ? "Local fixture updated."
+            : "Saved to GitHub and refreshed.",
+      });
+    } catch (error) {
+      setNotice({ kind: "error", text: errorText(error) });
+      await queryClient.invalidateQueries({ queryKey: ["issue"] });
+      await queryClient.invalidateQueries({ queryKey: ["issues"] });
+    } finally {
+      mutationLock.current = false;
+      setMutationBusy(false);
+    }
+  };
+  const hostAction = async (action: () => Promise<void>, success: string) => {
+    if (hostLock.current) return;
+    hostLock.current = true;
+    setHostBusy(true);
+    setNotice(null);
+    try {
+      await action();
+      setNotice({ kind: "success", text: success });
+    } catch (error) {
+      setNotice({ kind: "error", text: errorText(error) });
+    } finally {
+      hostLock.current = false;
+      setHostBusy(false);
+    }
+  };
+  const switchMode = (next: "inline" | "fullscreen") =>
+    hostAction(async () => {
+      rememberListScroll();
+      await host.display(next);
+    }, "Display mode changed.");
+  const updateDraft = (issue: IssueDetail, patch: Partial<Draft>) => {
+    const current = resolveDraft(
+      issue,
+      persistence.value({
+        source: "github",
+        repo: issue.repo,
+        issue: String(issue.number),
+      }),
+    );
+    const startsContentEdit =
+      ("title" in patch || "body" in patch) && !current.baseUpdatedAt;
+    const next = {
+      ...current,
+      ...(startsContentEdit
+        ? {
+            baseUpdatedAt: issue.updatedAt,
+            baseTitle: issue.title,
+            baseBody: issue.body,
+          }
+        : {}),
+      ...patch,
+    };
+    scheduleDraft(
+      { source: "github", repo: issue.repo, issue: String(issue.number) },
+      next,
+    );
+  };
+  const openIssueUrl = async (
+    value: string,
+    entry: "search" | "repo" = "search",
+  ) => {
+    const request = ++urlRequest.current;
+    setUrlBusy(true);
+    setSearchError("");
+    setRepoError("");
+    try {
+      const target = githubIssueUrl(value);
+      if (mutationLock.current || bulkBusy)
+        throw new Error(
+          "Wait for the current change before opening another issue.",
+        );
+      const issue = await host.call<IssueDetail>("arco_get_issue", target);
+      if (request !== urlRequest.current) return;
+      if (
+        issue.repo.toLowerCase() !== target.repo.toLowerCase() ||
+        issue.number !== target.number
+      )
+        throw new Error(
+          "GitHub returned a different issue than the pasted URL.",
+        );
+      const resolved = { repo: issue.repo, number: issue.number };
+      queryClient.setQueryData(issueKey(resolved), issue);
+      changeRepo(resolved.repo);
+      setSelected(resolved);
+      setShowDetail(true);
+    } catch (error) {
+      if (request !== urlRequest.current) return;
+      if (entry === "repo") setRepoError(errorText(error));
+      else setSearchError(errorText(error));
+    } finally {
+      if (request === urlRequest.current) setUrlBusy(false);
+    }
+  };
+  const submitRepo = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (mutationBusy) return;
+    const entered = String(
+      new FormData(event.currentTarget).get("repo") ?? "",
+    ).trim();
+    let value = entered;
+    if (isIssueUrlInput(entered)) {
+      try {
+        value = githubRepositoryUrl(entered);
+      } catch {
+        void openIssueUrl(entered, "repo");
+        return;
+      }
+    }
+    if (!repoSchema.safeParse(value).success) {
+      setRepoError("Enter owner/repository or a github.com repository URL.");
+      return;
+    }
+    setRepoError("");
+    setRegisteredRepos((previous) => [...new Set([...previous, value])]);
+    changeRepo(value);
+  };
+  const selectedDetail = detail.data;
+  const initialIssuesLoading =
+    issues.isPending &&
+    connection.data?.connected === true &&
+    (!projectView || Boolean(repo));
+  const detailLoading =
+    !selectedDetail &&
+    ((detail.isPending && Boolean(activeRef)) ||
+      (initialIssuesLoading && !activeRef));
+  const retainedIssue =
+    sharedDetail.data ?? (!shared ? selectedDetail : undefined);
+  const compactError = sharedDetail.isError
+    ? errorText(sharedDetail.error)
+    : detail.isError
+      ? errorText(detail.error)
+      : connection.isError
+        ? errorText(connection.error)
+        : settings.query.isError
+          ? errorText(settings.query.error)
+          : issues.isError
+            ? errorText(issues.error)
+            : null;
+  const compactReady =
+    connection.data?.connected === true && settings.query.isSuccess;
+  const emptyIssueList =
+    compactReady &&
+    !shared &&
+    !activeRef &&
+    issues.isSuccess &&
+    rows.length === 0;
+  const openRetainedDetails = () => {
+    if (retainedIssue) {
+      if (retainedIssue.repo !== repo) changeRepo(retainedIssue.repo);
+      setSelected({ repo: retainedIssue.repo, number: retainedIssue.number });
+      setShowDetail(true);
+    }
+    void switchMode("fullscreen");
+  };
+  const chooseRepository = async () => {
+    setShowDetail(false);
+    if (mode !== "fullscreen") await switchMode("fullscreen");
+    requestAnimationFrame(() => scopeSelectRef.current?.open());
+  };
+
+  const detailFeedback = (
+    <>
+      {connection.data?.mode === "fixture" && (
+        <div className="fixture-banner">
+          <span>LOCAL FIXTURE</span>
+          Testing with fictional issues. Changes stay in the local fixture.
+        </div>
+      )}
+      <Notice notice={notice} onDismiss={() => setNotice(null)} />
+      {selectedDetail && (
+        <RefreshFailure
+          error={detail.error}
+          pending={detail.isFetching}
+          onRetry={() => void detail.refetch()}
+        />
+      )}
+      {selectedDetail && activeDraftKey && (
+        <DraftStatus
+          status={persistence.statuses[draftStorageId(activeDraftKey)]}
+          onRetry={() =>
+            persistence.retry(
+              activeDraftKey,
+              persistence.value(activeDraftKey!) ??
+                resolveDraft(selectedDetail),
+            )
+          }
+          onResolve={(choice) => {
+            void persistence.resolve(
+              activeDraftKey,
+              choice,
+              persistence.value(activeDraftKey!) ??
+                resolveDraft(selectedDetail),
+            );
+          }}
+        />
+      )}
+    </>
+  );
+
+  if (settings.query.isPending) return <WorkspaceSkeleton mode={mode} />;
+
+  if (connection.isPending) return <WorkspaceSkeleton mode={mode} />;
+
+  if (
+    mode === "inline" &&
+    !retainedIssue &&
+    !compactError &&
+    connection.data?.connected &&
+    (initialIssuesLoading ||
+      (detail.isPending && Boolean(activeRef)) ||
+      (sharedDetail.isPending && Boolean(shared)))
+  )
+    return <InlineSkeleton />;
+
+  if (mode === "inline" && retainedIssue)
+    return (
+      <InlineSummaryCard
+        issue={retainedIssue}
+        shared={Boolean(shared)}
+        onOpen={openRetainedDetails}
+        notice={notice}
+        footer={
+          connection.data?.mode === "fixture"
+            ? "Local fixture · No GitHub writes"
+            : undefined
+        }
+      />
+    );
+
+  if (mode === "inline")
+    return (
+      <main
+        className="arco compact-mode inline-mode"
+        data-arco-issue={
+          retainedIssue ? selectionIssueData(retainedIssue) : undefined
+        }
+      >
+        <div className="compact-top">
+          <strong className="wordmark">Arco</strong>
+          <span className="muted">{shared ? "Shared issue" : "Browsing"}</span>
+          <button
+            className="icon-button"
+            aria-label="Expand"
+            onClick={openRetainedDetails}
+          >
+            ↗
+          </button>
+        </div>
+        {compactError ? (
+          <p className="inline-error" role="alert">
+            {compactError}
+          </p>
+        ) : connection.data && !connection.data.connected ? (
+          <p className="muted">{connection.data.message}</p>
+        ) : emptyIssueList ? (
+          <>
+            <h1>
+              {issues.hasNextPage
+                ? "No issues on this page"
+                : "No matching issues"}
+            </h1>
+            <p className="compact-summary">
+              {`${repo || accountViewLabel} · ${state === "all" ? "All states" : state === "closed" ? "Closed" : "Open"}${repo && query ? ` · ${query}` : ""}`}
+            </p>
+            {issues.hasNextPage ? (
+              <Button
+                color="secondary"
+                variant="outline"
+                size="sm"
+                loading={issues.isFetchingNextPage}
+                disabled={issues.isFetchingNextPage}
+                onClick={() => void issues.fetchNextPage()}
+              >
+                Load more
+              </Button>
+            ) : !repo && accountView === "assigned" ? (
+              <div className="empty-scope-actions">
+                <Button
+                  color="secondary"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => changeRepo("", "created")}
+                >
+                  View issues created by me
+                </Button>
+                <button
+                  className="text-button"
+                  disabled={hostBusy}
+                  onClick={() => void chooseRepository()}
+                >
+                  Choose a repository
+                </button>
+              </div>
+            ) : (
+              <Button
+                color="secondary"
+                variant="outline"
+                size="sm"
+                disabled={hostBusy}
+                onClick={() => void switchMode("fullscreen")}
+              >
+                Open issue list
+              </Button>
+            )}
+          </>
+        ) : (
+          <p className="muted">Select an issue to view its details.</p>
+        )}
+        {connection.data?.mode === "fixture" && (
+          <span className="fixture-tag">Local fixture · No GitHub writes</span>
+        )}
+        {notice && (
+          <div
+            role={notice.kind === "error" ? "alert" : "status"}
+            className={`notice ${notice.kind}`}
+          >
+            {notice.text}
+          </div>
+        )}
+      </main>
+    );
+
+  return (
+    <WorkspaceLayout
+      source="github"
+      detailOpen={showDetail}
+      viewer={projectView ? "project" : "personal"}
+    >
+      <aside className="issue-sidebar" aria-label="Issues">
+        <WorkspaceHeader
+          source="github"
+          onSourceChange={(next) => {
+            rememberListScroll();
+            setSource(next);
+          }}
+          onCreate={() => {
+            if (repo) setCreateOpen(true);
+            else scopeSelectRef.current?.open();
+          }}
+          createDisabled={!connection.data?.connected}
+          createLabel="Create issue"
+          createTitle={
+            repo ? "Create issue" : "Choose a repository to create an issue"
+          }
+        />
+        <div className="scope-picker">
+          <h2 className="viewer-title">
+            {projectView
+              ? "Project issues"
+              : repo
+                ? "Repository issues"
+                : "My issues"}
+          </h2>
+          <SingleSelect
+            ref={scopeSelectRef}
+            id="github-scope"
+            className="scope-select"
+            label="GitHub scope"
+            value={repo || (projectView ? "" : `account:${accountView}`)}
+            disabled={mutationBusy || bulkBusy}
+            onChange={(value) => {
+              const view = accountViews.find(
+                (entry) => `account:${entry.value}` === value,
+              );
+              if (view) changeRepo("", view.value);
+              else changeRepo(value);
+            }}
+            options={[
+              ...(!projectView
+                ? [
+                    {
+                      label: "Account views",
+                      options: accountViews.map((view) => ({
+                        value: `account:${view.value}`,
+                        label: view.label,
+                      })),
+                    },
+                  ]
+                : [
+                    {
+                      label: "Project",
+                      options: [
+                        {
+                          value: "",
+                          label: "Choose repository",
+                          disabled: true,
+                        },
+                      ],
+                    },
+                  ]),
+              ...(repositories.length > 0 ||
+              (repositoryDiscovery.isPending && connection.data?.connected)
+                ? [
+                    {
+                      label: "Repositories",
+                      options: [
+                        ...repositories.map((value) => {
+                          const info = repositoryDiscovery.data?.pages
+                            .flatMap((page) => page.repositories)
+                            .find((repository) => repository.repo === value);
+                          return {
+                            value,
+                            label: `${value}${info?.archived ? " (archived)" : ""}${info?.issuesEnabled === false ? " (issues disabled)" : ""}`,
+                            disabled: info?.issuesEnabled === false,
+                          };
+                        }),
+                        ...(repositoryDiscovery.isPending &&
+                        connection.data?.connected
+                          ? [
+                              {
+                                value: "loading:repositories",
+                                label: "Loading repositories…",
+                                disabled: true,
+                              },
+                            ]
+                          : []),
+                      ],
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          <p className="viewer-description">
+            {projectView
+              ? launch.projectName
+                ? `Repository for ${launch.projectName}`
+                : "Repository for this chat"
+              : repo
+                ? "Issues in this repository"
+                : "Your issues across repositories"}
+          </p>
+          <details className="repo-add repository-management">
+            <DisclosureSummary>Manage repositories</DisclosureSummary>
+            <div className="scope-actions">
+              {repositoryDiscovery.hasNextPage && (
+                <button
+                  className="text-button"
+                  disabled={repositoryDiscovery.isFetchingNextPage}
+                  onClick={() => void repositoryDiscovery.fetchNextPage()}
+                >
+                  {repositoryDiscovery.isFetchingNextPage
+                    ? "Loading…"
+                    : "Load more repositories"}
+                </button>
+              )}
+            </div>
+            <form
+              className="repo-form"
+              key={`repo-form:${repo}`}
+              onSubmit={submitRepo}
+            >
+              <label htmlFor="repo-input">Repository or URL</label>
+              <div className="repo-control">
+                <input
+                  id="repo-input"
+                  name="repo"
+                  disabled={mutationBusy}
+                  defaultValue=""
+                  placeholder="owner/repository"
+                  autoComplete="off"
+                  aria-describedby={repoError ? "repo-error" : undefined}
+                />
+                <button
+                  className="icon-button"
+                  aria-label="Open repository"
+                  type="submit"
+                >
+                  <Plus aria-hidden="true" />
+                </button>
+              </div>
+            </form>
+            {repoError && (
+              <p id="repo-error" role="alert" className="inline-error">
+                {repoError}
+              </p>
+            )}
+            {repositoryDiscovery.isError && (
+              <p className="inline-error" role="alert">
+                Could not load repositories.{" "}
+                <button
+                  className="text-button"
+                  onClick={() => void repositoryDiscovery.refetch()}
+                >
+                  Retry
+                </button>
+              </p>
+            )}
+          </details>
+        </div>
+        {(settings.query.isError || settings.error) && (
+          <div className="settings-error inline-error" role="alert">
+            Could not save display settings locally:{" "}
+            {settings.error || settings.query.error?.message}
+            <button
+              className="text-button"
+              onClick={() =>
+                repo
+                  ? settings.register(repo, registeredRepos)
+                  : settings.setAccountScope()
+              }
+            >
+              Retry save
+            </button>
+          </div>
+        )}
+        {(!projectView || repo) && (
+          <div className="search-control" aria-busy={urlBusy}>
+            <MagnifyingGlassSearch aria-hidden="true" />
+            <input
+              ref={searchRef}
+              aria-label="Search issues"
+              value={searchEntry ?? (repo ? query : "")}
+              disabled={!connection.data?.connected}
+              aria-describedby={searchError ? "github-search-error" : undefined}
+              onChange={(event) => {
+                urlRequest.current += 1;
+                setUrlBusy(false);
+                setSearchError("");
+                rememberListScroll();
+                const value = event.target.value;
+                if (isIssueUrlInput(value) || !repo) setSearchEntry(value);
+                else {
+                  setSearchEntry(null);
+                  setQuery(value);
+                }
+              }}
+              onPaste={(event) => {
+                const value = event.clipboardData.getData("text").trim();
+                if (isIssueUrlInput(value)) {
+                  event.preventDefault();
+                  setSearchEntry(value);
+                  void openIssueUrl(value);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.nativeEvent.isComposing)
+                  return;
+                const value = event.currentTarget.value.trim();
+                if (isIssueUrlInput(value)) {
+                  event.preventDefault();
+                  void openIssueUrl(value);
+                } else if (!repo && value)
+                  setSearchError(
+                    "Choose a repository to search titles, or paste a GitHub issue URL.",
+                  );
+              }}
+              placeholder={
+                repo
+                  ? "Search or paste issue URL…"
+                  : "Paste a GitHub issue URL…"
+              }
+            />
+            {repo && <kbd>/</kbd>}
+          </div>
+        )}
+        {searchError && (
+          <p className="inline-error" id="github-search-error" role="alert">
+            {searchError}
+          </p>
+        )}
+        {(!projectView || repo) && (
+          <div className="list-filter">
+            <div className="segmented" aria-label="Issue state">
+              {(["open", "closed", "all"] as const).map((value) => (
+                <button
+                  key={value}
+                  aria-pressed={state === value}
+                  onClick={() => {
+                    rememberListScroll();
+                    setState(value);
+                  }}
+                >
+                  {value === "open"
+                    ? "Open"
+                    : value === "closed"
+                      ? "Closed"
+                      : "All"}
+                </button>
+              ))}
+            </div>
+            <button
+              className="icon-button"
+              aria-label="Refresh"
+              title="Refresh"
+              disabled={issues.isFetching}
+              onClick={() => void queryClient.invalidateQueries()}
+            >
+              <ArrowRotateCw aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        {(!projectView || repo) && (
+          <details className="search-options sidebar-filters">
+            <DisclosureSummary>
+              <Filter aria-hidden="true" />
+              Filters
+            </DisclosureSummary>
+            <label>
+              Sort by
+              <SingleSelect
+                label="Sort issues"
+                value={sort}
+                onChange={(value) => {
+                  rememberListScroll();
+                  setSort(value as "updated" | "created" | "comments");
+                }}
+                options={[
+                  { value: "updated", label: "Last updated" },
+                  { value: "created", label: "Created" },
+                  { value: "comments", label: "Comments" },
+                ]}
+              />
+            </label>
+            <label>
+              Direction
+              <SingleSelect
+                label="Sort direction"
+                value={order}
+                onChange={(value) => {
+                  rememberListScroll();
+                  setOrder(value === "asc" ? "asc" : "desc");
+                }}
+                options={[
+                  { value: "desc", label: "Descending" },
+                  { value: "asc", label: "Ascending" },
+                ]}
+              />
+            </label>
+            {repo ? (
+              <ProjectScopePicker
+                key={`project-scope:${repo}`}
+                host={host}
+                repo={repo}
+                value={/(?:^|\s)project:([^\s]+)/.exec(query)?.[1] ?? ""}
+                onChange={(value) => {
+                  rememberListScroll();
+                  const rest = query
+                    .replace(/(?:^|\s)project:[^\s]+/g, "")
+                    .trim();
+                  setQuery(`${rest}${value ? ` project:${value}` : ""}`.trim());
+                }}
+              />
+            ) : null}
+            <p>
+              {repo
+                ? "Search supports label:bug, assignee:username, and project:owner/number."
+                : "Choose a repository to search or filter by Project."}
+            </p>
+            {!repo && accountView === "all" && (
+              <p>
+                Includes repositories you own or collaborate on, including
+                organization repositories.
+              </p>
+            )}
+          </details>
+        )}
+        <div className="list-caption">
+          <span>
+            {issues.isFetching && !issues.isPending
+              ? "Refreshing…"
+              : repo
+                ? `${state === "all" ? "All" : state === "closed" ? "Closed" : "Open"} issues`
+                : projectView
+                  ? "Repository not selected"
+                  : accountViewLabel}
+          </span>
+          <span>
+            {rows.length} {rows.length === 1 ? "issue" : "issues"}
+            {issues.hasNextPage ? "+" : ""}
+          </span>
+        </div>
+        <div
+          className={`issue-list${issues.isFetching && !issues.isPending ? " refreshing" : ""}`}
+          ref={listRef}
+          onScroll={rememberListScroll}
+          aria-busy={issues.isFetching}
+        >
+          {projectView && !repo && connection.data?.connected && (
+            <div className="list-message project-repository-empty">
+              <strong>Choose a repository</strong>
+              <p>
+                {launch.reason === "ambiguous"
+                  ? "More than one GitHub repository is connected to this project. Choose the one to view."
+                  : "Choose the repository to view in this chat. Arco will remember your choice here."}
+              </p>
+              <Button
+                color="secondary"
+                variant="outline"
+                size="sm"
+                onClick={() => scopeSelectRef.current?.open()}
+              >
+                Choose repository
+              </Button>
+            </div>
+          )}
+          {initialIssuesLoading && <IssueListSkeleton />}
+          {connection.isError && (
+            <p className="list-message inline-error" role="alert">
+              {errorText(connection.error)}
+            </p>
+          )}
+          {connection.data && !connection.data.connected && (
+            <div className="list-message connection-empty">
+              <strong>Connect to GitHub</strong>
+              <p>{connection.data.message}</p>
+              <p>
+                Arco uses GitHub CLI authentication. Refresh after connecting.
+              </p>
+              <Button
+                color="secondary"
+                variant="outline"
+                size="sm"
+                onClick={() => void connection.refetch()}
+              >
+                Check connection
+              </Button>
+            </div>
+          )}
+          {issues.isError && (
+            <AsyncState kind="error" className="list-message inline-error">
+              {errorText(issues.error)}
+              <button
+                className="text-button"
+                onClick={() => void issues.refetch()}
+              >
+                Retry
+              </button>
+            </AsyncState>
+          )}
+          {rows.map((issue) => (
+            <div className="selectable-row" key={refKey(issue)}>
+              <input
+                type="checkbox"
+                aria-label={`Select ${issue.repo} #${issue.number} for bulk actions`}
+                checked={bulkIssues.some(
+                  (value) => refKey(value) === refKey(issue),
+                )}
+                disabled={bulkBusy}
+                onChange={(event) =>
+                  setBulkIssues((previous) =>
+                    event.target.checked
+                      ? [
+                          ...previous,
+                          {
+                            repo: issue.repo,
+                            number: issue.number,
+                            title: issue.title,
+                          },
+                        ]
+                      : previous.filter(
+                          (value) => refKey(value) !== refKey(issue),
+                        ),
+                  )
+                }
+              />
+              <IssueRow
+                issue={issue}
+                showRepository={!repo}
+                selected={Boolean(
+                  activeRef && refKey(issue) === refKey(activeRef),
+                )}
+                onSelect={() => {
+                  setSelected({ repo: issue.repo, number: issue.number });
+                  setShowDetail(true);
+                }}
+              />
+            </div>
+          ))}
+          {issues.isSuccess && rows.length === 0 && (
+            <div className="list-message account-empty">
+              <p>
+                {issues.hasNextPage
+                  ? "No issues on this page. More results are available."
+                  : repo
+                    ? "No issues match these filters."
+                    : `No matching issues in ${accountViewLabel}.`}
+              </p>
+              {!issues.hasNextPage && !repo && accountView === "assigned" && (
+                <div className="empty-scope-actions">
+                  <button
+                    className="text-button"
+                    onClick={() => changeRepo("", "created")}
+                  >
+                    View issues created by me
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => void chooseRepository()}
+                  >
+                    Choose a repository
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {issues.hasNextPage && (
+            <button
+              className="load-more"
+              disabled={issues.isFetchingNextPage}
+              onClick={() => void issues.fetchNextPage()}
+            >
+              {issues.isFetchingNextPage ? "Loading…" : "Load more"}
+            </button>
+          )}
+        </div>
+        {bulkIssues.length > 0 && (
+          <BulkActions
+            host={host}
+            issues={bulkIssues}
+            onClear={() => setBulkIssues([])}
+            onBusy={setBulkBusy}
+          />
+        )}
+        <div className="sidebar-footer sidebar-account">
+          <div className="connection-line">
+            <span
+              className={`connection-dot ${connection.data?.connected ? "connected" : ""}`}
+            />
+            {connection.data?.mode === "fixture"
+              ? "Local fixture"
+              : connection.data?.account || "Disconnected"}
+            {connection.data?.mode === "fixture" && (
+              <span className="muted">· Local verification</span>
+            )}
+          </div>
+        </div>
+      </aside>
+      <section
+        className={`detail-pane${detail.isFetching && !detail.isPending ? " refreshing" : ""}`}
+        aria-label="Issue details"
+        aria-busy={detail.isFetching || detailLoading}
+        data-arco-issue={
+          selectedDetail ? selectionIssueData(selectedDetail) : undefined
+        }
+      >
+        {!selectedDetail && (
+          <header className="detail-toolbar">
+            <span className="toolbar-tab">Issue</span>
+          </header>
+        )}
+        {!selectedDetail && detailFeedback}
+        {detailLoading && <IssueDetailSkeleton />}
+        {detail.isError && !selectedDetail && (
+          <div className="empty-state" role="alert">
+            <strong>Could not load this issue</strong>
+            <p>{errorText(detail.error)}</p>
+            <Button
+              color="secondary"
+              variant="outline"
+              onClick={() => void detail.refetch()}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+        {!activeRef && !detail.isError && !detailLoading && (
+          <AsyncState kind="empty" className="empty-state">
+            <span className="empty-icon">◉</span>
+            <h1>Start a conversation with an issue</h1>
+            <p>
+              Select an issue to review its description and progress.
+              <br />
+              You can review the target before sharing it with a chat.
+            </p>
+            <span className="keyboard-hint">
+              <kbd>/</kbd> Search <kbd>j</kbd> <kbd>k</kbd> Select
+            </span>
+          </AsyncState>
+        )}
+        {selectedDetail && (
+          <GitHubDetail
+            key={refKey(selectedDetail)}
+            issue={selectedDetail}
+            feedback={detailFeedback}
+            onBack={() => setShowDetail(false)}
+            onFullscreen={() => void switchMode("fullscreen")}
+            draft={resolveDraft(
+              selectedDetail,
+              activeDraftKey ? persistence.value(activeDraftKey) : undefined,
+            )}
+            onDraft={(patch) => updateDraft(selectedDetail, patch)}
+            metadata={metadata.data}
+            metadataError={metadata.error}
+            busy={mutationBusy}
+            save={save}
+            host={host}
+            hostBusy={hostBusy}
+            hostAction={hostAction}
+            shared={shared}
+          />
+        )}
+      </section>
+      <GitHubCreateIssue
+        host={host}
+        repo={repo}
+        open={createOpen}
+        busy={mutationBusy}
+        fixture={connection.data?.mode === "fixture"}
+        notice={notice}
+        save={save}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(result) => {
+          setRepoOverride(result.repo);
+          setSelected({ repo: result.repo, number: result.number });
+          setShowDetail(true);
+        }}
+      />
+    </WorkspaceLayout>
+  );
+}

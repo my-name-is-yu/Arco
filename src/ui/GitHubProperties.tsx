@@ -174,7 +174,11 @@ function Catalog({ host, issue }: { host: ArcoHost; issue: IssueDetail }) {
         number: issue.number,
       }),
   });
-  const action = useGitHubOperation(host, issue);
+  const action = useGitHubOperation(
+    host,
+    ["catalog", issue.repo, issue.number],
+    issue,
+  );
   const change = (patch: {
     milestoneNumber?: number | null;
     issueTypeId?: number | null;
@@ -261,7 +265,11 @@ function IssueFields({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
         number: issue.number,
       }),
   });
-  const action = useGitHubOperation(host, issue);
+  const action = useGitHubOperation(
+    host,
+    ["issue-fields", issue.repo, issue.number],
+    issue,
+  );
   return (
     <section>
       <h3>Organization Issue fields</h3>
@@ -332,7 +340,11 @@ function ProjectFields({
         itemId,
       }),
   });
-  const action = useGitHubOperation(host, issue);
+  const action = useGitHubOperation(
+    host,
+    ["project-fields", issue.repo, issue.number, projectId, itemId],
+    issue,
+  );
   return (
     <div className="project-field-list">
       {query.isPending && <p className="muted">Loading Project fields…</p>}
@@ -399,7 +411,11 @@ function Projects({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
     getNextPageParam: (last) =>
       last.hasMore ? (last.cursor ?? undefined) : undefined,
   });
-  const action = useGitHubOperation(host, issue);
+  const action = useGitHubOperation(
+    host,
+    ["project-memberships", issue.repo, issue.number],
+    issue,
+  );
   return (
     <section className="projects-manager">
       <h3>Project membership and fields</h3>

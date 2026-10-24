@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "npm run build && node scripts/dev-host.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src scripts tests vite.config.ts",
+    "lint": "eslint src scripts tests vite.config.ts playwright.config.ts",
     "format": "prettier --write src scripts tests *.json *.ts *.js README.md",
     "format:check": "prettier --check src scripts tests *.json *.ts *.js README.md",
     "test": "vitest run --exclude '**/*browser.spec.ts'",
@@ -20,7 +20,7 @@
     "test:browser": "playwright test",
     "dev:fixture": "node scripts/dev-host.mjs",
     "test:live": "node scripts/validate-live.mjs",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run smoke && npm run check:artifact"
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build && npm run smoke && npm run check:artifact"
   },
   "dependencies": {
     "@linear/sdk": "99.0.0",

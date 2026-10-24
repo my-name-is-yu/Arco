@@ -18,18 +18,12 @@ import {
   type LaunchContext,
 } from "../shared/launch";
 import {
-  sharedRefFromContext,
-  sharedAnnotationsFromContext,
-  annotationSnapshotIdFromContext,
+  readSharedContext,
+  type SharedContextSnapshot,
 } from "./shared-context";
 import { createToolQueue } from "./tool-queue";
 import { annotationAttachment, contextAttachment } from "./context-attachment";
-import type {
-  ArcoHost,
-  ConversationIssue,
-  SelectionAnnotationContext,
-  SharedIssueRef,
-} from "../shared/contracts";
+import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 
 function issueContext(issue: ConversationIssue) {
   if (issue.source === "linear")
@@ -86,12 +80,19 @@ export async function connectHost(): Promise<ArcoHost> {
   >();
   const notify = (event: "data" | "display" | "context" | "launch") =>
     listeners.forEach((listener) => listener(event));
-  let contextVersion: string | null | undefined;
-  let contextPresent = false;
   let contextRevision = 0;
-  let sharedOverride: SharedIssueRef | null | undefined;
-  let annotationsOverride: SelectionAnnotationContext[] | null | undefined;
-  let snapshotOverride: string | null | undefined;
+  let attachment: SharedContextSnapshot & {
+    updateId?: string | null;
+    present: boolean;
+  } = { ...readSharedContext(undefined), present: false };
+  const applyAttachment = (
+    value: unknown,
+    updateId: string | null | undefined,
+    present: boolean,
+  ) => {
+    attachment = { ...readSharedContext(value), updateId, present };
+    notify("context");
+  };
   let attachmentBusy = false;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   const dataChanged = () => {
@@ -127,21 +128,12 @@ export async function connectHost(): Promise<ArcoHost> {
         change !== undefined &&
         Object.keys(change).length === 1;
       if (
-        nextVersion !== contextVersion ||
-        present !== contextPresent ||
+        nextVersion !== attachment.updateId ||
+        present !== attachment.present ||
         pendingRemoval
       ) {
         contextRevision += 1;
-        contextVersion = nextVersion;
-        contextPresent = present;
-        sharedOverride = sharedRefFromContext(modelContext?.structuredContent);
-        annotationsOverride = sharedAnnotationsFromContext(
-          modelContext?.structuredContent,
-        );
-        snapshotOverride = annotationSnapshotIdFromContext(
-          modelContext?.structuredContent,
-        );
-        notify("context");
+        applyAttachment(modelContext?.structuredContent, nextVersion, present);
       }
     }
   };
@@ -183,19 +175,14 @@ export async function connectHost(): Promise<ArcoHost> {
       // An echo of this exact update may arrive before its acknowledgement.
       if (
         contextRevision !== revision &&
-        (!receipt || contextVersion !== receipt.updateId)
+        (!receipt || attachment.updateId !== receipt.updateId)
       )
         return;
-      contextVersion = receipt?.updateId ?? contextVersion;
-      contextPresent = true;
-      sharedOverride = sharedRefFromContext(params.structuredContent);
-      annotationsOverride = sharedAnnotationsFromContext(
+      applyAttachment(
         params.structuredContent,
+        receipt?.updateId ?? attachment.updateId,
+        true,
       );
-      snapshotOverride = annotationSnapshotIdFromContext(
-        params.structuredContent,
-      );
-      notify("context");
     } finally {
       attachmentBusy = false;
     }
@@ -205,23 +192,13 @@ export async function connectHost(): Promise<ArcoHost> {
       return launchContext;
     },
     annotationSnapshotId() {
-      return snapshotOverride !== undefined
-        ? snapshotOverride
-        : annotationSnapshotIdFromContext(
-            openai.modelContext?.getCurrent()?.structuredContent,
-          );
+      return attachment.snapshotId;
     },
     sharedIssue() {
-      if (sharedOverride !== undefined) return sharedOverride;
-      return sharedRefFromContext(
-        openai.modelContext?.getCurrent()?.structuredContent,
-      );
+      return attachment.issue;
     },
     sharedAnnotations() {
-      if (annotationsOverride !== undefined) return annotationsOverride;
-      return sharedAnnotationsFromContext(
-        openai.modelContext?.getCurrent()?.structuredContent,
-      );
+      return attachment.annotations;
     },
     async readImage(issue, url, commentId, options) {
       const result = await tools.run(
@@ -286,10 +263,10 @@ export async function connectHost(): Promise<ArcoHost> {
     async shareAnnotations(annotations, snapshotId) {
       if (snapshotId !== undefined)
         snapshotId = annotationSnapshotIdSchema.parse(snapshotId);
-      const parsed = sharedAnnotationsFromContext({
+      const parsed = readSharedContext({
         source: "arco",
         annotations,
-      });
+      }).annotations;
       if (!parsed)
         throw new Error(
           "Annotations must have valid, unique positive numbers.",

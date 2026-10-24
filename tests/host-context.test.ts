@@ -8,6 +8,7 @@ import { connectHost } from "../src/ui/host";
 
 const fixture = vi.hoisted(() => ({
   context: {} as Record<string, unknown>,
+  modelContextSupported: true,
   change: undefined as ((change: Record<string, unknown>) => void) | undefined,
   toolResult: undefined as
     | ((result: {
@@ -28,7 +29,9 @@ vi.mock("@modelcontextprotocol/ext-apps", () => ({
       return fixture.context;
     }
     getHostCapabilities() {
-      return { experimental: { "openai/modelContext": {} } };
+      return fixture.modelContextSupported
+        ? { experimental: { "openai/modelContext": {} } }
+        : {};
     }
     set onhostcontextchanged(handler: typeof fixture.change) {
       fixture.change = handler;
@@ -101,6 +104,7 @@ function deferred() {
 }
 
 beforeEach(() => {
+  fixture.modelContextSupported = true;
   fixture.context = { "openai/modelContext": null };
   fixture.change = undefined;
   fixture.toolResult = undefined;
@@ -199,6 +203,66 @@ describe("host launch context", () => {
 });
 
 describe("host attachment context lifecycle", () => {
+  it("uses standard model context updates when the optional extension is not advertised", async () => {
+    fixture.modelContextSupported = false;
+    fixture.update.mockResolvedValue({});
+    const host = await connectHost();
+    await host.shareAnnotations([annotationFor(1)]);
+    expect(fixture.update).toHaveBeenCalledOnce();
+    expect(host.sharedAnnotations?.()).toEqual([annotationFor(1)]);
+    expect(host.sharedIssue?.()).toEqual({
+      source: "github",
+      repo: "yu/Arco",
+      number: 1,
+    });
+  });
+
+  it("applies the native attachment as one snapshot and ignores unsupported selection-only context", async () => {
+    const host = await connectHost();
+    const observed: unknown[] = [];
+    host.subscribe((event) => {
+      if (event === "context")
+        observed.push({
+          issue: host.sharedIssue?.(),
+          annotations: host.sharedAnnotations?.(),
+          snapshotId: host.annotationSnapshotId?.(),
+        });
+    });
+    const annotation = annotationFor(1);
+    const id = "d849445f-dbf3-4988-847b-81d2966dc0a2";
+    changed({
+      "openai/modelContext": {
+        updateId: "native-current",
+        structuredContent: {
+          ...annotation.issue,
+          arcoSharedIssue: 1,
+          selection: annotation.selection,
+          annotations: [annotation],
+          arcoAnnotationSnapshotId: id,
+        },
+      },
+    });
+    changed({
+      "openai/modelContext": {
+        updateId: "unsupported-selection-only",
+        structuredContent: {
+          ...annotation.issue,
+          arcoSharedIssue: 1,
+          selection: annotation.selection,
+          arcoAnnotationSnapshotId: id,
+        },
+      },
+    });
+    expect(observed).toEqual([
+      {
+        issue: { source: "github", repo: "yu/Arco", number: 1 },
+        annotations: [annotation],
+        snapshotId: id,
+      },
+      { issue: null, annotations: null, snapshotId: null },
+    ]);
+  });
+
   it("keeps an opaque position ID through a recreated view and clears it with native attachment removal", async () => {
     fixture.update.mockResolvedValue(acknowledged("with-positions"));
     const id = "d849445f-dbf3-4988-847b-81d2966dc0a2";
@@ -456,6 +520,7 @@ describe("host attachment context lifecycle", () => {
           ...issue,
           arcoSharedIssue: 1,
           selection,
+          annotations: [{ number: 1, issue, selection }],
         },
       },
     };
@@ -552,6 +617,7 @@ describe("host attachment context lifecycle", () => {
         ...annotationFor(2).issue,
         arcoSharedIssue: 1,
         selection: annotationFor(1).selection,
+        annotations: [{ ...annotationFor(1), issue: annotationFor(2).issue }],
       },
     },
   ])(
@@ -616,6 +682,7 @@ describe("host attachment context lifecycle", () => {
           ...revised.issue,
           arcoSharedIssue: 1,
           selection: revised.selection,
+          annotations: [revised],
         },
       },
     });

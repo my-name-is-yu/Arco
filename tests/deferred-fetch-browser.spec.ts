@@ -147,11 +147,17 @@ test("leaving an issue discards its queued image and reaction reads", async ({
   const calls = await fixtureTools(
     page,
     (issue) => {
-      issue.body = Array.from(
-        { length: 4 },
-        (_, index) =>
-          `![Queued preview ${index + 1}](${imageUrl(`queued-${index + 1}`)})`,
-      ).join(" ");
+      issue.body = [
+        Array.from(
+          { length: 4 },
+          (_, index) =>
+            `![Queued preview ${index + 1}](${imageUrl(`queued-${index + 1}`)})`,
+        ).join(" "),
+        ...Array.from(
+          { length: 45 },
+          (_, index) => `Reading paragraph ${index + 1}.`,
+        ),
+      ].join("\n\n");
       issue.comments = [];
       issue.commentsHasMore = false;
     },
@@ -177,6 +183,10 @@ test("leaving an issue discards its queued image and reaction reads", async ({
       ),
     );
     await expect.poll(() => oldReads().length).toBe(2);
+    const reactions = ui.getByLabel("Issue reactions", { exact: true });
+    await expect(reactions).toContainText("Reactions not loaded");
+    await reactions.scrollIntoViewIfNeeded();
+    await expect(reactions).toContainText("Loading reactions");
     await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
     // The old observers must unmount while both started reads remain in flight.
     await expect(ui.locator(".source-image-placeholder")).toHaveCount(0);
@@ -194,5 +204,56 @@ test("leaving an issue discards its queued image and reaction reads", async ({
     await expect(page.locator("#harness-error")).toBeEmpty();
   } finally {
     releaseImages();
+  }
+});
+
+test("editing a draft keeps an in-flight Markdown image mounted and reuses its result", async ({
+  page,
+}) => {
+  let releaseImage!: () => void;
+  const heldImage = new Promise<void>((resolve) => {
+    releaseImage = resolve;
+  });
+  const calls = await fixtureTools(
+    page,
+    (issue) => {
+      issue.body = `![Retained preview](${imageUrl("retained")})`;
+      issue.comments = [];
+      issue.commentsHasMore = false;
+    },
+    async (route, call) => {
+      await heldImage;
+      await imageResult(route, call.arguments.url);
+    },
+  );
+  try {
+    await openFixture(page);
+    const ui = app(page);
+    const image = ui.locator(".source-image");
+    await expect(image).toContainText("Loading Retained preview");
+    const original = await image.elementHandle();
+    await ui
+      .getByRole("textbox", { name: "Comment on GitHub", exact: true })
+      .fill("Unsent draft while preview loads");
+    await image.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect(await original!.evaluate((node) => node.isConnected)).toBe(true);
+    expect(
+      calls.filter((call) => call.name === "arco_read_image"),
+    ).toHaveLength(1);
+    releaseImage();
+    await image.scrollIntoViewIfNeeded();
+    await expect(
+      ui.getByRole("img", { name: "Retained preview", exact: true }),
+    ).toBeVisible();
+    expect(
+      calls.filter((call) => call.name === "arco_read_image"),
+    ).toHaveLength(1);
+  } finally {
+    releaseImage();
   }
 });

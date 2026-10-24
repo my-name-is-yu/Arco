@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { draftConflict, mergeCommentPages, resolveDraft } from "../src/ui/App";
+import {
+  contentConflict as draftConflict,
+  resolveContentDraft as resolveDraft,
+} from "../src/ui/content-drafts";
+import { mergeCommentPages } from "../src/ui/github-comments";
 import type { Comment, IssueDetail } from "../src/shared/contracts";
 
 const source = (patch: Partial<IssueDetail> = {}): IssueDetail => ({
@@ -90,19 +94,17 @@ describe("GitHub comment page revisions", () => {
 });
 
 describe("Issue draft concurrency", () => {
-  it("comment and prompt drafts do not freeze an old title or body", () => {
+  it("comment drafts do not freeze an old title or body", () => {
     const latest = source({ title: "Changed elsewhere", body: "New body" });
     const draft = resolveDraft(latest, {
       title: "Old title",
       body: "Old body",
       comment: "Keep comment",
-      promptText: "Keep prompt",
     });
     expect(draft).toMatchObject({
       title: latest.title,
       body: latest.body,
       comment: "Keep comment",
-      promptText: "Keep prompt",
     });
     expect(draftConflict(latest, draft)).toBe(false);
   });
@@ -154,12 +156,10 @@ describe("Issue draft concurrency", () => {
     const clean = {
       ...edited(),
       body: "Original body",
-      promptText: "Keep prompt",
     };
     const resolved = resolveDraft(latest, clean);
     expect(resolved.body).toBe("New remote body");
     expect(resolved.baseUpdatedAt).toBeUndefined();
     expect(resolved.comment).toBe("Comment draft");
-    expect(resolved.promptText).toBe("Keep prompt");
   });
 });

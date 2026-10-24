@@ -1,4 +1,10 @@
-import { Children, isValidElement } from "react";
+import {
+  Children,
+  createContext,
+  isValidElement,
+  useContext,
+  type ComponentProps,
+} from "react";
 import { Markdown } from "@openai/apps-sdk-ui/components/Markdown";
 import { useQuery } from "@tanstack/react-query";
 import rehypeSanitize from "rehype-sanitize";
@@ -131,21 +137,76 @@ function linePosition(node: Record<string, unknown>): number | undefined {
     : undefined;
 }
 
+type MarkdownContextValue = {
+  body: string;
+  onOpen: (url: string) => void;
+  onToggleTask?: (line: number, checked: boolean) => void;
+  busy?: boolean;
+  image?: ImageContext;
+};
+const MarkdownContext = createContext<MarkdownContextValue | null>(null);
+
+// Renderer identities must stay stable: remounting an image aborts its query.
+const markdownComponents: NonNullable<
+  ComponentProps<typeof Markdown>["components"]
+> = {
+  a: function MarkdownLink({ node, children }) {
+    const { onOpen } = useContext(MarkdownContext)!;
+    const url = safeUrl(property(node, "href"));
+    return url ? (
+      <button
+        type="button"
+        className="markdown-link"
+        onClick={() => onOpen(url)}
+      >
+        {children}
+      </button>
+    ) : (
+      <span>{children}</span>
+    );
+  },
+  img: function MarkdownImage({ node }) {
+    const { image, onOpen } = useContext(MarkdownContext)!;
+    const url = safeUrl(property(node, "src"));
+    const alt = property(node, "alt") || "Attached image";
+    return url ? (
+      <SourceImage url={url} alt={alt} image={image} onOpen={onOpen} />
+    ) : (
+      <span>{alt}</span>
+    );
+  },
+  li: function MarkdownListItem({ node, children, className }) {
+    const { body, busy, onToggleTask } = useContext(MarkdownContext)!;
+    const line = linePosition(node);
+    const task = line ? markdownTaskAtLine(body, line) : null;
+    if (!task || !line || !onToggleTask)
+      return <li className={className}>{children}</li>;
+    return (
+      <li className="task-list-item">
+        <input
+          type="checkbox"
+          checked={task.checked}
+          disabled={busy}
+          aria-label={`Completion of ${task.text}`}
+          onChange={(event) => onToggleTask(line, event.target.checked)}
+        />
+        {Children.toArray(children).filter(
+          (child) => !isValidElement(child) || child.type !== "input",
+        )}
+      </li>
+    );
+  },
+};
+
 export function IssueMarkdown({
   body,
   onOpen,
   onToggleTask,
   busy = false,
   image,
-}: {
-  body: string;
-  onOpen: (url: string) => void;
-  onToggleTask?: (line: number, checked: boolean) => void;
-  busy?: boolean;
-  image?: ImageContext;
-}) {
+}: MarkdownContextValue) {
   return (
-    <>
+    <MarkdownContext value={{ body, onOpen, onToggleTask, busy, image }}>
       <Markdown
         className="issue-markdown"
         includeMath={false}
@@ -153,51 +214,7 @@ export function IssueMarkdown({
         // Directives also create HTML nodes; keep provider content from creating
         // active elements or the data attributes used for selection provenance.
         rehypePlugins={[normalizeMarkdownProperties, rehypeSanitize]}
-        components={{
-          a: ({ node, children }) => {
-            const url = safeUrl(property(node, "href"));
-            return url ? (
-              <button
-                type="button"
-                className="markdown-link"
-                onClick={() => onOpen(url)}
-              >
-                {children}
-              </button>
-            ) : (
-              <span>{children}</span>
-            );
-          },
-          img: ({ node }) => {
-            const url = safeUrl(property(node, "src"));
-            const alt = property(node, "alt") || "Attached image";
-            return url ? (
-              <SourceImage url={url} alt={alt} image={image} onOpen={onOpen} />
-            ) : (
-              <span>{alt}</span>
-            );
-          },
-          li: ({ node, children, className }) => {
-            const line = linePosition(node);
-            const task = line ? markdownTaskAtLine(body, line) : null;
-            if (!task || !line || !onToggleTask)
-              return <li className={className}>{children}</li>;
-            return (
-              <li className="task-list-item">
-                <input
-                  type="checkbox"
-                  checked={task.checked}
-                  disabled={busy}
-                  aria-label={`Completion of ${task.text}`}
-                  onChange={(event) => onToggleTask(line, event.target.checked)}
-                />
-                {Children.toArray(children).filter(
-                  (child) => !isValidElement(child) || child.type !== "input",
-                )}
-              </li>
-            );
-          },
-        }}
+        components={markdownComponents}
       >
         {body || "*No description.*"}
       </Markdown>
@@ -213,6 +230,6 @@ export function IssueMarkdown({
           </button>
         </p>
       )}
-    </>
+    </MarkdownContext>
   );
 }

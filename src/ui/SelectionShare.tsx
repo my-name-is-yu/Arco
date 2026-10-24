@@ -23,6 +23,8 @@ import {
 } from "./selection-anchor";
 import {
   SelectionAnnotation,
+  measureSelectionAnnotation,
+  type AnnotationLayout,
   type AnnotationTarget,
 } from "./SelectionAnnotation";
 
@@ -321,6 +323,9 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     })),
   );
   const current = useRef(annotations);
+  const [layouts, setLayouts] = useState(new Map<number, AnnotationLayout>());
+  const scheduleLayout = useRef<() => void>(() => undefined);
+  const repositionAnnotations = useCallback(() => scheduleLayout.current(), []);
   const anchors = useRef(new Map<number, SelectionAnchor>());
   const persisted = useRef(
     new Map<number, AnnotationSnapshot["anchors"][number]>(),
@@ -442,22 +447,46 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
   useEffect(() => {
     let cancelled = false;
     let running = false;
+    let pending = false;
+    let frame: number | undefined;
+    const schedule = () => {
+      if (cancelled) return;
+      if (running) {
+        pending = true;
+        return;
+      }
+      if (frame === undefined)
+        frame = requestAnimationFrame(() => {
+          frame = undefined;
+          void reconnect();
+        });
+    };
     const reconnect = async () => {
-      if (running || cancelled) return;
       running = true;
-      let changed = false;
       const original = current.current;
       try {
         const next = await Promise.all(
           original.map(async (item) => {
             const number = item.context.number;
-            if (item.target) {
-              const anchor = captureSelectionAnchor(item.target);
+            let target = item.target;
+            const input = target?.editable;
+            const range = target?.range;
+            const valid =
+              target &&
+              matchesTargetContext(target, item.context) &&
+              (input
+                ? input.element.isConnected &&
+                  input.element.value === input.value
+                : range?.startContainer.isConnected &&
+                  range.endContainer.isConnected &&
+                  range.toString() === target.sourceText);
+            if (valid && target) {
+              const anchor = captureSelectionAnchor(target);
               if (anchor) anchors.current.set(number, anchor);
               return item;
             }
             const anchor = anchors.current.get(number);
-            let target = anchor && restoreSelectionTarget(anchor);
+            target = anchor ? restoreSelectionTarget(anchor) : null;
             const saved = persisted.current.get(number);
             if (
               !target &&
@@ -468,19 +497,59 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
                 saved.anchor,
                 item.context.selection.text,
               );
-            if (!target || !matchesTargetContext(target, item.context))
-              return item;
-            changed = true;
-            return { ...item, target };
+            if (target && !matchesTargetContext(target, item.context))
+              target = null;
+            return target === item.target ? item : { ...item, target };
           }),
         );
-        if (!cancelled && current.current === original && changed) commit(next);
+        if (cancelled || current.current !== original) return;
+        if (next.some((item, index) => item !== original[index])) commit(next);
+        const badgeSlots = new Map<string, number>();
+        const badgeOffset = (rect: DOMRect) => {
+          const key = `${Math.round(rect.right)}:${Math.round(rect.top)}`;
+          const offset = badgeSlots.get(key) ?? 0;
+          badgeSlots.set(key, offset + 1);
+          return offset;
+        };
+        const measured = new Map<number, AnnotationLayout>();
+        for (const { context, target } of next) {
+          if (!target) continue;
+          const editor = document.querySelector<HTMLTextAreaElement>(
+            `[data-arco-annotation="${context.number}"] .selection-comment textarea`,
+          );
+          const layout = measureSelectionAnnotation(
+            target,
+            badgeOffset,
+            editor?.offsetHeight,
+          );
+          if (layout) measured.set(context.number, layout);
+        }
+        setLayouts((previous) =>
+          JSON.stringify([...previous]) === JSON.stringify([...measured])
+            ? previous
+            : measured,
+        );
       } finally {
         running = false;
+        if (pending) {
+          pending = false;
+          schedule();
+        }
       }
     };
-    const observer = new MutationObserver(reconnect);
-    reconnect();
+    const observer = new MutationObserver((records) => {
+      if (
+        records.some(
+          (record) =>
+            !elementFor(record.target)?.closest(
+              "[data-arco-selection-toolbar], .selection-retained-input",
+            ),
+        )
+      )
+        schedule();
+    });
+    scheduleLayout.current = schedule;
+    schedule();
     observer.observe(document.body, {
       childList: true,
       subtree: true,
@@ -491,15 +560,31 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
         "data-comment-id",
         "data-context-origin",
         "data-linear-context",
+        "class",
+        "style",
+        "hidden",
+        "open",
       ],
     });
-    document.addEventListener("input", reconnect);
+    document.addEventListener("scroll", schedule, true);
+    document.addEventListener("toggle", schedule, true);
+    document.addEventListener("input", schedule);
+    window.addEventListener("resize", schedule);
     return () => {
       cancelled = true;
+      if (frame !== undefined) cancelAnimationFrame(frame);
       observer.disconnect();
-      document.removeEventListener("input", reconnect);
+      document.removeEventListener("scroll", schedule, true);
+      document.removeEventListener("toggle", schedule, true);
+      document.removeEventListener("input", schedule);
+      window.removeEventListener("resize", schedule);
     };
-  }, [annotations, commit, restored]);
+  }, [commit]);
+  useEffect(repositionAnnotations, [
+    annotations,
+    restored,
+    repositionAnnotations,
+  ]);
   useEffect(
     () =>
       host.subscribe((event) => {
@@ -555,8 +640,10 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
       if (
         !(event.target instanceof Element) ||
         !event.target.closest("[data-arco-selection-toolbar]")
-      )
+      ) {
         setSelected(null);
+        if (!lock.current) setEditing(null);
+      }
     };
     const scroll = () => {
       if (!lock.current) setSelected(null);
@@ -580,16 +667,6 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
       window.removeEventListener("resize", reposition);
     };
   }, [capture]);
-  const invalidate = useCallback(
-    (number: number) => {
-      commit(
-        current.current.map((item) =>
-          item.context.number === number ? { ...item, target: null } : item,
-        ),
-      );
-    },
-    [commit],
-  );
   const dismiss = useCallback(() => setEditing(null), []);
   const share = async (next: Annotation[]) => {
     lock.current = true;
@@ -723,25 +800,18 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
         active.setSelectionRange(active.selectionEnd, active.selectionEnd);
     }
   };
-  const badgeSlots = new Map<string, number>();
   return (
     <>
       {annotations.map(({ context, target }) => {
         if (!target) return null;
-        const rect =
-          target.editable?.element.getBoundingClientRect() ??
-          target.range?.getClientRects()[0];
-        const location = rect
-          ? `${Math.round(rect.right)}:${Math.round(rect.top)}`
-          : `${context.number}`;
-        const badgeOffset = badgeSlots.get(location) ?? 0;
-        badgeSlots.set(location, badgeOffset + 1);
+        const layout = layouts.get(context.number);
+        if (!layout) return null;
         return (
           <SelectionAnnotation
             key={context.number}
             number={context.number}
             target={target}
-            badgeOffset={badgeOffset}
+            layout={layout}
             comment={context.selection.comment ?? ""}
             editing={editing === context.number}
             onEdit={() => {
@@ -753,7 +823,7 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
             error={error}
             onSave={saveComment}
             onRemove={remove}
-            onInvalid={invalidate}
+            onLayoutChange={repositionAnnotations}
           />
         );
       })}

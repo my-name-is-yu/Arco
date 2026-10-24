@@ -66,14 +66,7 @@ export const settingsSchema = z
   .strict();
 export const settingsRecordSchema = z.object({
   revision: z.number().int().nonnegative(),
-  settings: settingsSchema.extend({
-    githubFilters: settingsSchema.shape.githubFilters.default({}),
-    linearFilters: settingsSchema.shape.linearFilters.default({}),
-    githubAccountFilter: githubAccountFilterSchema
-      .extend({ filter: accountIssueFilterSchema.default("assigned") })
-      .default(defaultGithubAccountFilter),
-    projectGithubRepos: settingsSchema.shape.projectGithubRepos.default({}),
-  }),
+  settings: settingsSchema,
 });
 export const settingsUpdateSchema = z
   .object({
@@ -110,9 +103,6 @@ export const draftSchema = z
     linearTemplateId: z.string().min(1).max(200).optional(),
     linearDescriptionTouched: z.boolean().optional(),
     linearReplyTo: z.string().min(1).max(200).optional(),
-    promptText: z.string().max(65536).optional(),
-    // Accept earlier saved drafts; request sending no longer uses this value.
-    promptTarget: z.enum(["self", "new"]).optional(),
     baseTitle: z.string().max(256).optional(),
     baseBody: z.string().max(65536).optional(),
     baseUpdatedAt: z.string().optional(),

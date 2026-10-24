@@ -1,4 +1,5 @@
-import { useState } from "react";
+import type { ArcoHost } from "../shared/contracts";
+import { useSessionState } from "./session-state";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { SingleSelect } from "./SingleSelect";
 import type { LinearMetadata, LinearScope } from "../shared/linear";
@@ -15,6 +16,7 @@ type Action =
   | "estimate"
   | "due-date";
 export function LinearBulkActions({
+  host,
   scope,
   ids,
   metadata,
@@ -23,6 +25,7 @@ export function LinearBulkActions({
   run,
   onClear,
 }: {
+  host: ArcoHost;
   scope: LinearScope;
   ids: string[];
   metadata?: LinearMetadata;
@@ -31,10 +34,23 @@ export function LinearBulkActions({
   run: LinearRun;
   onClear: () => void;
 }) {
-  const [action, setAction] = useState<Action>("state");
-  const [value, setValue] = useState("");
-  const [clearDate, setClearDate] = useState(false);
-  const [results, setResults] = useState<Result[]>([]);
+  const sessionKey = `linear:bulk:${JSON.stringify([scope.connectionId, scope.workspaceId, scope.teamId, [...ids].sort()])}`;
+  const [action, setAction] = useSessionState<Action>(
+    host,
+    `${sessionKey}:action`,
+    "state",
+  );
+  const [value, setValue] = useSessionState(host, `${sessionKey}:value`, "");
+  const [clearDate, setClearDate] = useSessionState(
+    host,
+    `${sessionKey}:clearDate`,
+    false,
+  );
+  const [results, setResults] = useSessionState<Result[]>(
+    host,
+    `${sessionKey}:results`,
+    [],
+  );
   const labels = metadata?.labels.filter((label) => !label.isGroup) ?? [];
   const duplicate =
     metadata?.states.find((state) => state.id === value)?.type === "duplicate";

@@ -1,7 +1,8 @@
 import type { Draft } from "../shared/state";
 
 type Content = { title: string; body: string; updatedAt: string };
-export function resolveContentDraft(issue: Content, stored: Draft): Draft {
+export function resolveContentDraft(issue: Content, stored?: Draft): Draft {
+  if (!stored) return { title: issue.title, body: issue.body, comment: "" };
   const titleChanged =
     Boolean(stored.baseUpdatedAt) && stored.title !== stored.baseTitle;
   const bodyChanged =

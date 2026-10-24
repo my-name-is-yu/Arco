@@ -119,6 +119,7 @@ test("GitHub startup progresses from the workspace to list and detail skeletons 
   const connection = gate();
   const list = gate();
   const detail = gate();
+  let connectionRequested = false;
   const gates: Record<string, ReturnType<typeof gate>> = {
     arco_get_settings: settings,
     arco_connection: connection,
@@ -127,19 +128,21 @@ test("GitHub startup progresses from the workspace to list and detail skeletons 
   };
   await page.route("**/tool", async (route) => {
     const input = route.request().postDataJSON() as { name: string };
+    if (input.name === "arco_connection") connectionRequested = true;
     await gates[input.name]?.wait();
     await route.continue();
   });
   try {
     await page.goto("/");
     await settings.entered;
-    await connection.entered;
     await expect(skeleton(page, "workspace")).toBeVisible();
     await expect(skeleton(page, "workspace")).toHaveAttribute(
       "aria-busy",
       "true",
     );
+    expect(connectionRequested).toBe(false);
     settings.release();
+    await connection.entered;
     await expect(skeleton(page, "workspace")).toBeVisible();
     connection.release();
     await list.entered;

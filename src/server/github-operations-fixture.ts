@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { GitHubService, IssueRef } from "../shared/contracts";
 import {
   type BulkUpdateResult,
   type FieldValue,
@@ -16,13 +17,13 @@ import {
   type Reaction,
   type RelatedIssue,
 } from "../shared/github-operations";
-import type { GitHubService, IssueRef } from "../shared/contracts";
-import { createWriteGuard, GitHubError } from "./github";
+import { FIXTURE_REPO, isFixtureGitHubService } from "./fixture";
+import { GitHubError } from "./github";
 import {
   checkFieldValue,
   type createGitHubOperations,
 } from "./github-operations";
-import { FIXTURE_REPO, isFixtureGitHubService } from "./fixture";
+import { createGitHubWriteGuard } from "./github/transport";
 
 interface Membership {
   projectId: string;
@@ -204,7 +205,9 @@ export function createFixtureGitHubOperations(options: {
   const service = options.service;
   const extras = new Map<string, Extras>();
   const reactionTargets = new Map<string, Reaction[]>();
-  const once = createWriteGuard<GitHubOperationResult | BulkUpdateResult>();
+  const once = createGitHubWriteGuard<
+    GitHubOperationResult | BulkUpdateResult
+  >();
   let labelSequence = 100;
   let reactionSequence = 1;
   async function state(ref: IssueRef) {

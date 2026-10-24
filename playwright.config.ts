@@ -2,16 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: [
-    "browser.spec.ts",
-    "linear-browser.spec.ts",
-    "account-browser.spec.ts",
-    "issue-url-browser.spec.ts",
-    "loading-motion-browser.spec.ts",
-    "hover-browser.spec.ts",
-    "launch-browser.spec.ts",
-    "deferred-fetch-browser.spec.ts",
-  ],
+  testMatch: "**/*browser.spec.ts",
   fullyParallel: false,
   workers: 1,
   retries: 0,

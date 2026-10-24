@@ -592,6 +592,45 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
     ).rejects.toThrow("Merge duplicate");
     expect(calls.some((call) => call.operation === "updateIssue")).toBe(false);
   });
+  it("shares checked context and metadata within one call and reads back a labeled bulk member once", async () => {
+    const { service, calls } = await source();
+    const result = (await service.call("linear_bulk", {
+      ...scope,
+      requestId: randomUUID(),
+      issueIds: ["issue"],
+      patch: { priority: 1 },
+      addLabels: ["added"],
+    })) as { results: { success: boolean; issue: LinearIssue }[] };
+    expect(result.results[0]).toMatchObject({
+      success: true,
+      issue: { priority: 1 },
+    });
+    expect(result.results[0].issue.labels.map((label) => label.id)).toEqual([
+      "existing",
+      "added",
+    ]);
+    for (const operation of [
+      "team",
+      "team_projects",
+      "team_states",
+      "issue_comments",
+      "issue_children",
+    ])
+      expect(
+        calls.filter((call) => call.operation === operation),
+        operation,
+      ).toHaveLength(1);
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(2);
+    const firstCallTeamReads = calls.filter(
+      (call) => call.operation === "team",
+    ).length;
+    await service.call("linear_get_issue", ref);
+    expect(calls.filter((call) => call.operation === "team")).toHaveLength(
+      firstCallTeamReads + 1,
+    );
+  });
   it("rejects GraphQL partial errors and reports an intra-issue bulk partial save", async () => {
     const { service, issue, controls } = await source();
     controls.partialError = true;

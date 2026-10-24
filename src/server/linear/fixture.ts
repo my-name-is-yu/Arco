@@ -1,19 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { linearIssueUrl } from "../../shared/issue-url";
 import {
   linearSchemas,
+  type LinearComment,
   type LinearIssue,
-  type LinearScope,
-  type LinearRef,
   type LinearMetadata,
+  type LinearRef,
+  type LinearScope,
   type LinearService,
   type LinearToolName,
-  type LinearComment,
 } from "../../shared/linear";
-import { createWriteGuard } from "../github";
 import { FIXTURE_IMAGE_URL, readIssueImage } from "../images";
+import { createWriteGuard } from "../write-guard";
 import { decodeLinearUpload } from "./upload";
-import { linearIssueUrl } from "../../shared/issue-url";
 
 export const LINEAR_FIXTURE_SCOPE = {
   connectionId: "default",

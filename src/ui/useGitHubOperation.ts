@@ -1,25 +1,22 @@
-import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost, Comment, IssueRef } from "../shared/contracts";
-
-const pendingByHost = new WeakMap<ArcoHost, Map<string, string>>();
-function pendingFor(host: ArcoHost) {
-  let pending = pendingByHost.get(host);
-  if (!pending) {
-    pending = new Map();
-    pendingByHost.set(host, pending);
-  }
-  return pending;
-}
+import { useCommandSession, useSessionState } from "./session-state";
 
 // Shared request bookkeeping; the operation schemas and service semantics remain explicit at each caller.
-export function useGitHubOperation(host: ArcoHost, issue?: IssueRef) {
+export function useGitHubOperation(
+  host: ArcoHost,
+  scope: readonly (string | number)[],
+  issue?: IssueRef,
+) {
   const client = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const lock = useRef(false);
-  const requests = useRef(pendingFor(host));
+  const { busy, setBusy, lock, requests } = useCommandSession(host, "github");
+  const [outcome, setOutcome] = useSessionState<{
+    error: string | null;
+    saved: boolean;
+  }>(host, `github:operation:${JSON.stringify(scope)}`, {
+    error: null,
+    saved: false,
+  });
   const run = async <T>(
     name: string,
     args: Record<string, unknown>,
@@ -28,11 +25,10 @@ export function useGitHubOperation(host: ArcoHost, issue?: IssueRef) {
     if (lock.current) return false;
     lock.current = true;
     setBusy(true);
-    setError(null);
-    setSaved(false);
+    setOutcome({ error: null, saved: false });
     const key = JSON.stringify([name, args]);
-    const requestId = requests.current.get(key) ?? crypto.randomUUID();
-    requests.current.set(key, requestId);
+    const requestId = requests.get(key) ?? crypto.randomUUID();
+    requests.set(key, requestId);
     const reaction =
       name === "arco_add_reaction" || name === "arco_remove_reaction";
     const reactionKey = [
@@ -62,7 +58,7 @@ export function useGitHubOperation(host: ArcoHost, issue?: IssueRef) {
     };
     try {
       const result = await host.call<T>(name, { ...args, requestId });
-      requests.current.delete(key);
+      requests.delete(key);
       if (
         issue &&
         (name === "arco_edit_comment" || name === "arco_delete_comment")
@@ -85,10 +81,13 @@ export function useGitHubOperation(host: ArcoHost, issue?: IssueRef) {
       }
       after?.(result);
       await refresh();
-      setSaved(true);
+      setOutcome({ error: null, saved: true });
       return true;
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setOutcome({
+        error: failure instanceof Error ? failure.message : String(failure),
+        saved: false,
+      });
       if (reaction)
         await client.invalidateQueries({ queryKey: reactionKey, exact: true });
       else {
@@ -104,5 +103,5 @@ export function useGitHubOperation(host: ArcoHost, issue?: IssueRef) {
       setBusy(false);
     }
   };
-  return { busy, error, saved, run };
+  return { busy, ...outcome, run };
 }

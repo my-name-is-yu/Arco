@@ -1,6 +1,8 @@
 # Arco 実装・受入確認
 
-更新日: 2026-10-23。完成範囲は [要件定義](requirements.md) と [操作対応表](issue-operations.md) に従う。実装済み、fixtureでの確認、実サービスでの確認、Codex実画面での確認を分ける。
+更新日: 2026-10-24。完成範囲は [要件定義](requirements.md) と [操作対応表](issue-operations.md) に従う。実装済み、fixtureでの確認、実サービスでの確認、Codex実画面での確認を分ける。
+
+2026-10-24、ローカルの構造整理でアプリ入口・source別画面・下書きと設定・MCP / 通信 / 操作を分離し、通知・作成・本文編集・競合比較・inline cardを共通化した。旧依頼欄の保存項目、旧設定の補完、selectionだけの旧添付復元、初期inline probeを削除した。現在の責務と互換範囲は[技術スタック](technical-stack.md)、実行した検証と配布候補は[構造整理の確認記録](refactor-validation-2026-10-24.md)にまとめる。この変更を実Codexへの反映・実サービス操作の確認として扱わない。以下の実績は各変更時点の履歴である。
 
 UIの文言・日付・エラーは英語。元サービスから取得したタイトルや本文は翻訳しない。GitHubとLinearはsource切替で扱い、各source内でrepo／teamを切り替える。元のID・workflow・属性を保持し、共通workflowやサービス間同期は作らない。
 

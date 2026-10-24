@@ -1,3 +1,4 @@
+import { AsyncState } from "./AsyncState";
 import type { DisplayMode } from "../shared/contracts";
 
 function Line({
@@ -71,35 +72,35 @@ function DetailShape() {
 
 export function IssueListSkeleton() {
   return (
-    <div
+    <AsyncState
+      as="div"
+      kind="loading"
       className="loading-skeleton"
       data-loading-skeleton="list"
-      role="status"
-      aria-label="Loading issues"
-      aria-busy="true"
+      label="Loading issues"
     >
       <span className="skeleton-label">Loading issues…</span>
       <div aria-hidden="true">
         <ListShape />
       </div>
-    </div>
+    </AsyncState>
   );
 }
 
 export function IssueDetailSkeleton() {
   return (
-    <div
+    <AsyncState
+      as="div"
+      kind="loading"
       className="loading-skeleton skeleton-detail"
       data-loading-skeleton="detail"
-      role="status"
-      aria-label="Loading issue"
-      aria-busy="true"
+      label="Loading issue"
     >
       <span className="skeleton-label">Loading issue…</span>
       <div aria-hidden="true">
         <DetailShape />
       </div>
-    </div>
+    </AsyncState>
   );
 }
 
@@ -109,12 +110,12 @@ export function InlineSkeleton({
   label?: string;
 }) {
   return (
-    <div
+    <AsyncState
+      as="div"
+      kind="loading"
       className="arco compact-mode loading-skeleton inline-skeleton"
       data-loading-skeleton="inline"
-      role="status"
-      aria-label={label}
-      aria-busy="true"
+      label={label}
     >
       <span className="skeleton-label">{label}</span>
       <div aria-hidden="true">
@@ -128,7 +129,7 @@ export function InlineSkeleton({
         <Line width="70%" />
         <span className="skeleton-block skeleton-pill" />
       </div>
-    </div>
+    </AsyncState>
   );
 }
 
@@ -141,12 +142,12 @@ export function WorkspaceSkeleton({
 }) {
   if (mode === "inline") return <InlineSkeleton label={label} />;
   return (
-    <main
+    <AsyncState
+      as="main"
+      kind="loading"
       className={`arco workspace loading-skeleton workspace-skeleton${mode ? "" : " bootstrap-skeleton"}`}
       data-loading-skeleton="workspace"
-      role="status"
-      aria-label={label}
-      aria-busy="true"
+      label={label}
     >
       <span className="skeleton-label">{label}</span>
       <aside className="issue-sidebar" aria-hidden="true">
@@ -169,6 +170,6 @@ export function WorkspaceSkeleton({
         </div>
         <DetailShape />
       </section>
-    </main>
+    </AsyncState>
   );
 }

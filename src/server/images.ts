@@ -7,6 +7,7 @@ import {
   imageDataSchema,
   type ImageData,
 } from "../shared/images";
+import { failureResult, imageResult } from "./tool-results";
 
 declare const __ARCO_FIXTURE__: boolean;
 
@@ -274,23 +275,9 @@ export function registerGitHubImageTool(
           { url: input.url, markdown },
           options,
         );
-        return {
-          content: [{ type: "text", text: "Image loaded." }],
-          _meta: { image: { ...image } },
-        };
+        return imageResult({ ...image });
       } catch (error) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text:
-                error instanceof Error
-                  ? error.message
-                  : "The image could not be loaded.",
-            },
-          ],
-        };
+        return failureResult(error, "The image could not be loaded.");
       }
     },
   );

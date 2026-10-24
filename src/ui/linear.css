@@ -106,17 +106,9 @@
   max-height: 180px;
   overflow: auto;
 }
-.linear-draft-state {
-  font-size: 11px;
-  color: var(--arco-muted);
-}
 .linear-upload input {
   font-size: 12px;
   max-width: 100%;
-}
-.linear-body-editor {
-  display: grid;
-  gap: 10px;
 }
 .linear-workspace .issue-sidebar .list-message label {
   display: grid;
@@ -163,20 +155,12 @@
 .linear-bulk .checkbox-label input {
   width: 13px;
 }
-.linear-body-editor > label,
 .linear-comment-editor > label,
 .comments-section form > label {
   display: grid;
   gap: 6px;
   color: var(--arco-muted);
   font-size: 11px;
-}
-.linear-body-editor > label > input {
-  width: 100%;
-}
-.linear-body-editor > textarea {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
 }
 .linear-properties > label {
   font-size: 12px;

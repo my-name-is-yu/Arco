@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { build } from "esbuild";
@@ -76,39 +77,38 @@ describe("local settings and drafts", () => {
     ).rejects.toBeInstanceOf(StateConflict);
     expect((await store.readDraft(key)).draft).toBeNull();
   });
-  it("loads earlier settings with empty filter maps and preserves unrelated preferences", async () => {
-    const dir = await temporary();
-    const settings = {
-      githubRepos: ["yu/Arco"],
-      activeGithubRepo: "yu/Arco",
-      activeSource: "github",
-      linearTeams: [],
-      activeLinearTeam: null,
-    };
-    await writeFile(
-      join(dir, "settings.json"),
-      JSON.stringify({ revision: 3, settings }),
-    );
-    const store = createStateStore(dir);
-    expect((await store.readSettings()).settings).toEqual({
-      ...settings,
-      githubFilters: {},
-      projectGithubRepos: {},
-      linearFilters: {},
-      githubAccountFilter: {
-        filter: "assigned",
-        state: "open",
-        sort: "updated",
-        order: "desc",
-      },
-    });
-    const result = await store.updateSettings({
-      expectedRevision: 3,
-      patch: { activeSource: "linear" },
-    });
-    expect(result.settings.githubRepos).toEqual(["yu/Arco"]);
-    expect(result.revision).toBe(4);
-  });
+  it.each(["missing preferences", "missing account scope"])(
+    "rejects old settings with %s without overwriting them",
+    async (variant) => {
+      const dir = await temporary();
+      const store = createStateStore(dir);
+      const original = await store.readSettings();
+      const settings: Record<string, unknown> = { ...original.settings };
+      if (variant === "missing preferences") {
+        delete settings.githubFilters;
+        delete settings.linearFilters;
+        delete settings.projectGithubRepos;
+        delete settings.githubAccountFilter;
+      } else {
+        settings.githubAccountFilter = {
+          state: "closed",
+          sort: "comments",
+          order: "asc",
+        };
+      }
+      const file = join(dir, "settings.json");
+      const stored = JSON.stringify({ revision: 3, settings });
+      await writeFile(file, stored);
+      await expect(store.readSettings()).rejects.toThrow("current format");
+      await expect(
+        store.updateSettings({
+          expectedRevision: 3,
+          patch: { activeSource: "linear" },
+        }),
+      ).rejects.toThrow("current format");
+      expect(await readFile(file, "utf8")).toBe(stored);
+    },
+  );
   it("persists bounded account filters separately and preserves repositories and revision conflicts", async () => {
     const dir = await temporary();
     const store = createStateStore(dir);
@@ -155,32 +155,45 @@ describe("local settings and drafts", () => {
       saved.settings,
     );
   });
-  it("migrates an earlier account sort preference without resetting it or the revision", async () => {
-    const dir = await temporary();
-    const original = await createStateStore(dir).readSettings();
-    await writeFile(
-      join(dir, "settings.json"),
-      JSON.stringify({
-        revision: 7,
-        settings: {
-          ...original.settings,
-          githubAccountFilter: {
-            state: "closed",
-            sort: "comments",
-            order: "asc",
-          },
-        },
-      }),
-    );
-    const saved = await createStateStore(dir).readSettings();
-    expect(saved.revision).toBe(7);
-    expect(saved.settings.githubAccountFilter).toEqual({
-      filter: "assigned",
-      state: "closed",
-      sort: "comments",
-      order: "asc",
-    });
-  });
+  it.each([
+    { source: "github" as const, repo: "yu/Arco", issue: "42" },
+    {
+      source: "linear" as const,
+      workspaceId: "workspace",
+      teamId: "team",
+      issue: "issue",
+    },
+  ])(
+    "reloads current drafts and rejects retired request fields for $source",
+    async (key) => {
+      const dir = await temporary();
+      const store = createStateStore(dir);
+      const draft = {
+        title: "Title",
+        body: "Current body draft",
+        comment: "Unsent comment",
+        baseBody: "Original body",
+        baseUpdatedAt: "2026-10-24T00:00:00Z",
+      };
+      await store.writeDraft({ key, expectedRevision: 0, draft });
+      expect((await createStateStore(dir).readDraft(key)).draft).toEqual(draft);
+      const file = join(
+        dir,
+        "drafts",
+        `${createHash("sha256").update(JSON.stringify(key)).digest("hex")}.json`,
+      );
+      const stored = JSON.stringify({
+        revision: 1,
+        draft: { ...draft, promptText: "Retired request", promptTarget: "new" },
+      });
+      await writeFile(file, stored);
+      await expect(store.readDraft(key)).rejects.toThrow("current format");
+      await expect(
+        store.writeDraft({ key, expectedRevision: 1, draft }),
+      ).rejects.toThrow("current format");
+      expect(await readFile(file, "utf8")).toBe(stored);
+    },
+  );
   it("preserves corrupt settings instead of treating them as empty and overwriting", async () => {
     const dir = await temporary();
     const file = join(dir, "settings.json");
@@ -190,7 +203,7 @@ describe("local settings and drafts", () => {
         expectedRevision: 0,
         patch: { githubRepos: [] },
       }),
-    ).rejects.toThrow("damaged");
+    ).rejects.toThrow("current format");
     expect(await readFile(file, "utf8")).toBe("{partial");
   });
   it("serializes two independent processes: exactly one write can use revision zero", async () => {

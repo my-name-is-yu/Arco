@@ -1,12 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureService, FIXTURE_REPO } from "../src/server/fixture.js";
-import {
-  createGitHubService,
-  createWriteGuard,
-  GitHubError,
-  runBulk,
-  type GhRunner,
-} from "../src/server/github.js";
+import { createGitHubService, type GhRunner } from "../src/server/github.js";
+import { createWriteGuard } from "../src/server/write-guard";
 
 const ref = { repo: FIXTURE_REPO, number: 42 };
 const apiIssue = (overrides: Record<string, unknown> = {}) => ({
@@ -651,29 +646,6 @@ describe("write safety across the service boundary", () => {
     expect(closed.projects[0].optionId).toBe("fixture-status-done");
   });
 
-  it("returns every bulk outcome without retrying successful or failed members", async () => {
-    const operation = vi.fn(async (issue: IssueRefForTest) => {
-      if (issue.number === 43)
-        throw new GitHubError(
-          "You do not have permission to change this issue.",
-          "forbidden",
-        );
-      return issue.number;
-    });
-    const outcomes = await runBulk(
-      [ref, { ...ref, number: 43 }, { ...ref, number: 41 }],
-      operation,
-    );
-    expect(
-      outcomes.map((outcome) => [outcome.issue.number, outcome.ok]),
-    ).toEqual([
-      [42, true],
-      [43, false],
-      [41, true],
-    ]);
-    expect(operation).toHaveBeenCalledTimes(3);
-  });
-
   it("does not evict in-flight duplicate guards when its bounded cache is full", async () => {
     const guard = createWriteGuard(1);
     const issue = await createFixtureService().get(ref);
@@ -695,8 +667,6 @@ describe("write safety across the service boundary", () => {
     expect(write).toHaveBeenCalledOnce();
   });
 });
-
-type IssueRefForTest = { repo: string; number: number };
 
 describe("reads and explicit fixtures", () => {
   it("reads one bounded comment page and acknowledges a new comment beyond the loaded window", async () => {

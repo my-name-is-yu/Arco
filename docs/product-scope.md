@@ -57,11 +57,11 @@ MCPサーバー、認証処理、API adapter、通常のcache・再取得があ�
 sourceと元のID・URLを保ち、同名のStatusやラベルを同一の定義として扱わない。
 GitHubではOpen／ClosedとProjects Status、Linearでは元のworkflow stateを区別する。
 
-## 最終スコープとして残る決定
+## 最終スコープの決定状況
 
 | 決定             | 詰める内容                                                                             |
 | ---------------- | -------------------------------------------------------------------------------------- |
-| sourceの見せ方   | source切替か混在一覧か。各sourceの状態の意味を保つことは共通条件                       |
+| sourceの見せ方   | GitHub / Linearのsource切替を採用済み。混在一覧や共通workflowは作らない                |
 | 接続の範囲       | 対応するサービスはGitHub・Linearに確定。複数アカウント・workspaceを扱うかは別途決める  |
 | 配布物の利用許諾 | 開発repo非公開・成果物無料配布は確定。具体的な利用条件と依存物のlicense noticeを整える |
 

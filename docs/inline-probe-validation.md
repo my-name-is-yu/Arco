@@ -3,6 +3,10 @@
 確認日: 2026-10-22
 状態: 修正版0.0.2の標準経路で、Codexの会話本文内へのカード表示とMCP Apps bridgeの初期化を確認。ユーザー提供の実画面が根拠。counter操作は未確認。
 
+## 退役と記録の扱い
+
+2026-10-24、初期の描画検証を終えたinline probeのコードとmarketplace項目を削除した。以下は2026-10-22の検証履歴であり、現在の導入手順ではない。実画面の証拠は保持する。本体Arcoのmarketplaceと導入済みpluginの設定は変更していない。
+
 ## 検証対象
 
 `experiments/inline-probe/` に、外部依存のないローカルstdio MCPプラグインを作成した。
@@ -60,7 +64,7 @@ CLI 0.161.0の公開app-serverを独立したstdioプロセスで起動し、新
 [公開loaderの制約](https://github.com/openai/codex/blob/rust-v0.161.0/codex-rs/codex-mcp/src/agent_plugin_config.rs#L150-L175)とも一致する。
 これはCLI側での設定解析・起動・公開の確認であり、実行中のdesktopが再読込した証拠やinline描画の証拠にはしない。
 
-## インストール
+## 当時のインストール記録
 
 CLI: `codex-cli 0.161.0`。
 marketplaceは`.agents/plugins/marketplace.json`から`./experiments/inline-probe`を参照する。
@@ -94,13 +98,6 @@ codex plugin list --marketplace arco-local --json
 標準経路のinline描画とbridge初期化は上記の実画面で確認済み。互換経路を試さなくても、今回の表示可否の検証は成立する。
 counterのクリック、UIからのサーバー操作、Arco本体の会話への受け渡し、他の表示形式は必要な実装段階で確認する。
 
-## 取り外し
+## 現在の配布範囲
 
-検証pluginと今回追加したmarketplaceだけを取り外す場合:
-
-```sh
-codex plugin remove arco-inline-probe@arco-local --json
-codex plugin marketplace remove arco-local --json
-```
-
-リポジトリの実験ファイルは残る。再導入には上記のインストール手順を使う。
+inline probeの再導入は現在の配布対象から外した。Arco本体は同じarco-local marketplaceで提供するため、probe退役を理由にmarketplace全体を削除しない。導入済みprobeの削除・host設定変更は今回実施していない。

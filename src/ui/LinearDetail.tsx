@@ -1,3 +1,7 @@
+import { LinearLabelManager } from "./LinearLabelManager";
+import { LinearRelations } from "./LinearRelations";
+import { MarkdownEditor } from "./MarkdownEditor";
+import { ConflictPanel } from "./ConflictPanel";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Edit,
@@ -10,7 +14,7 @@ import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { IssueMarkdown } from "./MarkdownContent";
 import { toggleMarkdownTask } from "./markdown-tasks";
 import { LinearCommentEditor } from "./LinearCommentEditor";
-import { CopyValue } from "./GitHubDiscussion";
+import { CopyValue } from "./CopyValue";
 import { MultiSelect } from "./MultiSelect";
 import { SingleSelect } from "./SingleSelect";
 import {
@@ -177,14 +181,9 @@ export function LinearDetail({
   connection?: LinearConnection;
   busy: boolean;
   run: LinearRun;
-  onNotice: (message: string) => void;
+  onNotice: (message: string, kind?: "success" | "error" | "info") => void;
 }) {
   const discussion = useLinearComments(host, issue);
-  const [storedDraft, setStoredDraft] = useState<Draft>({
-    title: issue.title,
-    body: issue.body,
-    comment: "",
-  });
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState(false);
   const [commentEdit, setCommentEdit] = useState<{
@@ -193,23 +192,6 @@ export function LinearDetail({
   } | null>(null);
   const [hostBusy, setHostBusy] = useState(false);
 
-  const [relationTarget, setRelationTarget] = useState("");
-  const [relationKind, setRelationKind] = useState<
-    "blocks" | "blocked-by" | "related"
-  >("related");
-  const [parentId, setParentId] = useState("");
-  const [child, setStoredChild] = useState({ title: "", body: "" });
-  const childRef = useRef(child);
-  const childTouched = useRef(false);
-  const [labelDraft, setLabelDraft] = useState({
-    id: "",
-    name: "",
-    color: "#8b8b8b",
-    description: "",
-    scope: "team",
-  });
-  const touched = useRef(false);
-  const draftRef = useRef(storedDraft);
   const root = useRef<HTMLDivElement>(null);
   const hostLock = useRef(false);
   const persistence = useDraftPersistence(host);
@@ -223,45 +205,20 @@ export function LinearDetail({
     }),
     [issue.workspaceId, issue.teamId, issue.issueId],
   );
-  const childKey = useMemo<DraftKey>(
-    () => ({ ...key, issue: `child:${issue.issueId}` }),
-    [key, issue.issueId],
-  );
-  useEffect(() => {
-    let alive = true;
-    void load(childKey).then((saved) => {
-      if (!alive || !saved || childTouched.current) return;
-      const next = { title: saved.title, body: saved.body };
-      childRef.current = next;
-      setStoredChild(next);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [load, childKey]);
-  const setChild = (
-    update: typeof child | ((previous: typeof child) => typeof child),
-  ) => {
-    const next =
-      typeof update === "function" ? update(childRef.current) : update;
-    childTouched.current = true;
-    childRef.current = next;
-    setStoredChild(next);
-    persistence.schedule(childKey, { ...next, comment: "" });
-  };
   useEffect(() => {
     let alive = true;
     void load(key).then((saved) => {
-      if (alive && saved && !touched.current) {
-        draftRef.current = saved;
-        setStoredDraft(saved);
-        if (saved.baseUpdatedAt) setEditing(true);
-      }
+      if (alive && saved?.baseUpdatedAt) setEditing(true);
     });
     return () => {
       alive = false;
     };
   }, [load, key]);
+  const storedDraft = persistence.value(key) ?? {
+    title: issue.title,
+    body: issue.body,
+    comment: "",
+  };
   const draft = resolveContentDraft(issue, storedDraft);
   const dirty = draft.title !== issue.title || draft.body !== issue.body;
   const conflict = contentConflict(issue, draft);
@@ -285,13 +242,13 @@ export function LinearDetail({
   const setReplyTo = (value: string | null) =>
     edit({ linearReplyTo: value ?? undefined });
   function persist(next: Draft) {
-    touched.current = true;
-    draftRef.current = next;
-    setStoredDraft(next);
     persistence.schedule(key, next);
   }
   function edit(patch: Partial<Draft>) {
-    const current = resolveContentDraft(issue, draftRef.current);
+    const current = resolveContentDraft(
+      issue,
+      persistence.value(key) ?? storedDraft,
+    );
     const content = "title" in patch || "body" in patch;
     persist({
       ...current,
@@ -313,7 +270,7 @@ export function LinearDetail({
       await action();
       onNotice(success);
     } catch (error) {
-      onNotice(errorText(error));
+      onNotice(errorText(error), "error");
     } finally {
       hostLock.current = false;
       setHostBusy(false);
@@ -378,7 +335,7 @@ export function LinearDetail({
             busy={busy}
             run={run}
             onClose={() => setCommentEdit(null)}
-            onError={onNotice}
+            onError={(text) => onNotice(text, "error")}
           />
         ) : (
           <div data-linear-context="comment" data-comment-id={comment.id}>
@@ -387,7 +344,7 @@ export function LinearDetail({
               host={host}
               issue={issue}
               commentId={comment.id}
-              onError={onNotice}
+              onError={(text) => onNotice(text, "error")}
             />
           </div>
         )}
@@ -536,108 +493,70 @@ export function LinearDetail({
           status={persistence.statuses[draftStorageId(key)]}
           onRetry={() => persistence.retry(key, draft)}
           onResolve={(choice) => {
-            void persistence.resolve(key, choice, draft).then((saved) => {
-              if (saved === undefined) return;
-              const next = saved ?? {
-                title: issue.title,
-                body: issue.body,
-                comment: "",
-              };
-              draftRef.current = next;
-              setStoredDraft(next);
-              touched.current = Boolean(saved);
-            });
+            void persistence.resolve(key, choice, draft);
           }}
         />
         <div className="issue-columns">
           <div className="issue-main">
             {editing ? (
-              <section className="linear-body-editor">
-                <label>
-                  Title
-                  <input
-                    aria-label="Linear title"
-                    value={draft.title}
-                    disabled={busy}
-                    onChange={(event) => edit({ title: event.target.value })}
-                  />
-                </label>
-                <div className="linear-controls" data-motion="selection">
-                  <button
-                    className="text-button"
-                    onClick={() => setPreview(false)}
-                  >
-                    Markdown
-                  </button>
-                  <button
-                    className="text-button"
-                    onClick={() => setPreview(true)}
-                  >
-                    Preview
-                  </button>
-                </div>
-                {preview ? (
+              <MarkdownEditor
+                label="Edit Linear description"
+                title={draft.title}
+                body={draft.body}
+                titleLabel="Linear title"
+                bodyLabel="Linear Markdown description"
+                busy={busy}
+                preview={preview}
+                onPreview={setPreview}
+                onTitle={(title) => edit({ title })}
+                onBody={(body) => edit({ body })}
+                renderedBody={
                   <MarkdownBody
                     text={draft.body}
                     host={host}
                     issue={issue}
-                    onError={onNotice}
+                    onError={(text) => onNotice(text, "error")}
                   />
-                ) : (
-                  <textarea
-                    rows={14}
-                    aria-label="Linear Markdown description"
-                    value={draft.body}
-                    disabled={busy}
-                    onChange={(event) => edit({ body: event.target.value })}
-                  />
-                )}
+                }
+              >
                 {conflict && (
-                  <div className="linear-conflict" role="alert">
-                    <p>
-                      The title or description changed in Linear. Your draft is
-                      preserved.
-                    </p>
-                    <details>
-                      <DisclosureSummary>
-                        Compare latest description
-                      </DisclosureSummary>
-                      <pre>{issue.body}</pre>
-                    </details>
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        persist({
-                          ...draft,
-                          baseTitle: issue.title,
-                          baseBody: issue.body,
-                          baseUpdatedAt: issue.updatedAt,
-                        })
-                      }
-                    >
-                      Keep draft and rebase on latest version
-                    </button>
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        persist({
-                          ...draft,
-                          title: issue.title,
-                          body: issue.body,
-                          baseTitle: undefined,
-                          baseBody: undefined,
-                          baseUpdatedAt: undefined,
-                        })
-                      }
-                    >
-                      Use latest description
-                    </button>
-                  </div>
+                  <ConflictPanel
+                    source="Linear"
+                    latestTitle={issue.title}
+                    latestBody={
+                      <MarkdownBody
+                        text={issue.body}
+                        host={host}
+                        issue={issue}
+                        onError={(text) => onNotice(text, "error")}
+                      />
+                    }
+                    busy={busy}
+                    onKeep={() =>
+                      persist({
+                        ...draft,
+                        baseTitle: issue.title,
+                        baseBody: issue.body,
+                        baseUpdatedAt: issue.updatedAt,
+                      })
+                    }
+                    onUseLatest={() =>
+                      persist({
+                        ...draft,
+                        title: issue.title,
+                        body: issue.body,
+                        baseTitle: undefined,
+                        baseBody: undefined,
+                        baseUpdatedAt: undefined,
+                      })
+                    }
+                  />
                 )}
-                <div className="linear-controls">
+                <div className="editor-actions">
                   <Button
                     color="primary"
                     size="sm"
+                    loading={busy}
                     disabled={busy || conflict || !dirty || !draft.title.trim()}
                     onClick={() =>
                       void run<LinearIssue>("linear_update_issue", {
@@ -678,14 +597,14 @@ export function LinearDetail({
                     Close and keep draft
                   </button>
                 </div>
-              </section>
+              </MarkdownEditor>
             ) : (
               <div className="body-content" data-linear-context="body">
                 <MarkdownBody
                   text={issue.body}
                   host={host}
                   issue={issue}
-                  onError={onNotice}
+                  onError={(text) => onNotice(text, "error")}
                   busy={busy || dirty}
                   onToggleTask={(line, checked) => {
                     const body = toggleMarkdownTask(issue.body, line, checked);
@@ -994,338 +913,19 @@ export function LinearDetail({
                   </label>
                 ),
               )}
-              <details className="linear-extra">
-                <DisclosureSummary>Manage label definitions</DisclosureSummary>
-                <p className="muted">
-                  Definitions apply across Issues. Manage label groups and scope
-                  changes in Linear.
-                </p>
-                <label>
-                  Definition
-                  <SingleSelect
-                    label="Linear label definition"
-                    value={labelDraft.id}
-                    options={[
-                      { value: "", label: "New label" },
-                      ...(metadata?.labels ?? [])
-                        .filter((label) => !label.isGroup)
-                        .map((label) => ({
-                          value: label.id,
-                          label: `${label.name} · ${label.teamId ? "team" : "workspace"}`,
-                        })),
-                    ]}
-                    onChange={(value) => {
-                      const label = metadata?.labels.find(
-                        (item) => item.id === value,
-                      );
-                      setLabelDraft(
-                        label
-                          ? {
-                              id: label.id,
-                              name: label.name,
-                              color: label.color,
-                              description: label.description ?? "",
-                              scope: label.teamId ? "team" : "workspace",
-                            }
-                          : {
-                              id: "",
-                              name: "",
-                              color: "#8b8b8b",
-                              description: "",
-                              scope: "team",
-                            },
-                      );
-                    }}
-                  />
-                </label>
-                <label>
-                  Name
-                  <input
-                    value={labelDraft.name}
-                    disabled={busy}
-                    onChange={(event) =>
-                      setLabelDraft((previous) => ({
-                        ...previous,
-                        name: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Color
-                  <input
-                    type="color"
-                    value={labelDraft.color}
-                    disabled={busy}
-                    onChange={(event) =>
-                      setLabelDraft((previous) => ({
-                        ...previous,
-                        color: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Description
-                  <input
-                    value={labelDraft.description}
-                    disabled={busy}
-                    onChange={(event) =>
-                      setLabelDraft((previous) => ({
-                        ...previous,
-                        description: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                {!labelDraft.id && (
-                  <label>
-                    Scope
-                    <SingleSelect
-                      label="Linear label scope"
-                      value={labelDraft.scope}
-                      options={[
-                        { value: "team", label: "This team" },
-                        { value: "workspace", label: "workspace" },
-                      ]}
-                      onChange={(value) =>
-                        setLabelDraft((previous) => ({
-                          ...previous,
-                          scope: value,
-                        }))
-                      }
-                    />
-                  </label>
-                )}
-                <Button
-                  color="secondary"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy || !labelDraft.name.trim()}
-                  onClick={() =>
-                    void run("linear_label_definition", {
-                      connectionId: issue.connectionId,
-                      workspaceId: issue.workspaceId,
-                      teamId: issue.teamId,
-                      action: labelDraft.id ? "update" : "create",
-                      ...(labelDraft.id ? { labelId: labelDraft.id } : {}),
-                      name: labelDraft.name,
-                      color: labelDraft.color,
-                      description: labelDraft.description,
-                      scope: labelDraft.scope,
-                    })
-                  }
-                >
-                  {labelDraft.id ? "Save definition" : "Create definition"}
-                </Button>
-                {labelDraft.id && (
-                  <details>
-                    <DisclosureSummary>Delete definition</DisclosureSummary>
-                    <p>
-                      Delete “{labelDraft.name}” from this {labelDraft.scope}.
-                      Issues will lose this label when its definition is
-                      deleted.
-                    </p>
-                    <Button
-                      color="danger"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() =>
-                        void run("linear_label_definition", {
-                          connectionId: issue.connectionId,
-                          workspaceId: issue.workspaceId,
-                          teamId: issue.teamId,
-                          action: "delete",
-                          labelId: labelDraft.id,
-                          scope: labelDraft.scope,
-                        })
-                      }
-                    >
-                      Delete this label definition
-                    </Button>
-                  </details>
-                )}
-              </details>
-              <details className="linear-extra">
-                <DisclosureSummary>
-                  Parent, sub-issues and relations
-                </DisclosureSummary>
-                <p>
-                  Parent:{" "}
-                  {issue.parent
-                    ? `${issue.parent.identifier} ${issue.parent.title}`
-                    : "None"}
-                </p>
-                {issue.parent && (
-                  <button
-                    className="text-button"
-                    disabled={busy}
-                    onClick={() => void update({ parentId: null })}
-                  >
-                    Remove parent
-                  </button>
-                )}
-                <div className="linear-controls">
-                  <input
-                    aria-label="Linear parent Issue ID"
-                    value={parentId}
-                    onChange={(event) => setParentId(event.target.value)}
-                    placeholder="Parent Issue ID / ABC-123"
-                  />
-                  <Button
-                    color="secondary"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || !parentId.trim()}
-                    onClick={() => void update({ parentId: parentId.trim() })}
-                  >
-                    Set or replace parent
-                  </Button>
-                </div>
-                {issue.children.map((child) => (
-                  <p key={child.id}>
-                    {child.identifier} {child.title}
-                  </p>
-                ))}
-                <details>
-                  <DisclosureSummary>Create sub-issue</DisclosureSummary>
-                  <DraftStatus
-                    status={persistence.statuses[draftStorageId(childKey)]}
-                    onRetry={() =>
-                      persistence.retry(childKey, { ...child, comment: "" })
-                    }
-                    onResolve={(choice) => {
-                      void persistence
-                        .resolve(childKey, choice, { ...child, comment: "" })
-                        .then((saved) => {
-                          if (saved === undefined) return;
-                          const next = {
-                            title: saved?.title ?? "",
-                            body: saved?.body ?? "",
-                          };
-                          childTouched.current = true;
-                          childRef.current = next;
-                          setStoredChild(next);
-                        });
-                    }}
-                  />
-                  <label>
-                    Title
-                    <input
-                      disabled={busy}
-                      aria-label="Sub-issue title"
-                      value={child.title}
-                      onChange={(event) =>
-                        setChild((previous) => ({
-                          ...previous,
-                          title: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label>
-                    Description
-                    <textarea
-                      disabled={busy}
-                      aria-label="Sub-issue description"
-                      value={child.body}
-                      onChange={(event) =>
-                        setChild((previous) => ({
-                          ...previous,
-                          body: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <Button
-                    color="secondary"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || !child.title.trim()}
-                    onClick={() =>
-                      void run<LinearIssue>("linear_create_issue", {
-                        connectionId: issue.connectionId,
-                        workspaceId: issue.workspaceId,
-                        teamId: issue.teamId,
-                        parentId: issue.issueId,
-                        ...child,
-                      }).then((result) => {
-                        if (result) setChild({ title: "", body: "" });
-                      })
-                    }
-                  >
-                    Create sub-issue in Linear
-                  </Button>
-                </details>
-                {issue.relations.map((relation) => (
-                  <div key={relation.id}>
-                    <span>
-                      {relation.type}: {relation.identifier} {relation.title}
-                    </span>
-                    <button
-                      className="text-button"
-                      disabled={busy}
-                      onClick={() =>
-                        void run("linear_relation", {
-                          ...ref(issue),
-                          action: "remove",
-                          relationId: relation.id,
-                          kind: ["blocks", "blocked-by"].includes(relation.type)
-                            ? relation.type
-                            : "related",
-                        })
-                      }
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                <div className="linear-controls">
-                  <label>
-                    Relation kind
-                    <SingleSelect
-                      label="Linear relation kind"
-                      value={relationKind}
-                      options={[
-                        { value: "blocks", label: "blocks" },
-                        { value: "blocked-by", label: "blocked by" },
-                        { value: "related", label: "related" },
-                      ]}
-                      onChange={(value) =>
-                        setRelationKind(
-                          value === "blocks"
-                            ? "blocks"
-                            : value === "blocked-by"
-                              ? "blocked-by"
-                              : "related",
-                        )
-                      }
-                    />
-                  </label>
-                  <input
-                    aria-label="Related Linear Issue ID"
-                    value={relationTarget}
-                    onChange={(event) => setRelationTarget(event.target.value)}
-                    placeholder="Issue ID / ABC-123"
-                  />
-                  <Button
-                    color="secondary"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || !relationTarget.trim()}
-                    onClick={() =>
-                      void run("linear_relation", {
-                        ...ref(issue),
-                        action: "add",
-                        relatedIssueId: relationTarget.trim(),
-                        kind: relationKind,
-                      })
-                    }
-                  >
-                    Add relation
-                  </Button>
-                </div>
-              </details>
+              <LinearLabelManager
+                host={host}
+                issue={issue}
+                metadata={metadata}
+                busy={busy}
+                run={run}
+              />
+              <LinearRelations
+                host={host}
+                issue={issue}
+                busy={busy}
+                run={run}
+              />
               <button
                 className="text-button"
                 onClick={() =>

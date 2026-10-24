@@ -521,16 +521,6 @@
 .connection-dot.connected {
   background: #69b787;
 }
-.linear-pending {
-  margin-top: 8px;
-  color: var(--arco-muted);
-}
-.linear-pending summary {
-  cursor: pointer;
-}
-.linear-pending p {
-  margin: 6px 0;
-}
 .detail-pane {
   min-width: 0;
   min-height: 0;

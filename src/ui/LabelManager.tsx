@@ -28,7 +28,7 @@ export function LabelManager({ host, repo }: { host: ArcoHost; repo: string }) {
       ),
     enabled: open,
   });
-  const action = useGitHubOperation(host);
+  const action = useGitHubOperation(host, ["label-definitions", repo]);
   const reset = () => {
     setEditing(null);
     setForm({ name: "", color: "808080", description: "" });

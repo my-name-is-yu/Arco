@@ -9,6 +9,7 @@ import {
   createGitHubOperations,
   githubOperationReadOnly,
 } from "./github-operations";
+import { dataResult, failureResult } from "./tool-results";
 
 export function registerGitHubOperationTools(
   server: McpServer,
@@ -32,23 +33,9 @@ export function registerGitHubOperationTools(
       async (args: Record<string, unknown>): Promise<CallToolResult> => {
         try {
           const response = await callGitHubOperation(operations, name, args);
-          return {
-            content: [{ type: "text", text: JSON.stringify(response) }],
-            structuredContent: { ...response },
-          };
+          return dataResult(response);
         } catch (error) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text:
-                  error instanceof Error
-                    ? error.message
-                    : "The GitHub operation failed.",
-              },
-            ],
-          };
+          return failureResult(error, "The GitHub operation failed.");
         }
       },
     );

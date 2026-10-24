@@ -1,7 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { createStateStore } from "./state";
 import {
   annotationSnapshotKeySchema,
   annotationSnapshotSchema,
@@ -12,6 +11,8 @@ import {
   draftWriteSchema,
   settingsUpdateSchema,
 } from "../shared/state";
+import { createStateStore } from "./state";
+import { dataResult, failureResult } from "./tool-results";
 
 export const stateToolSchemas = {
   arco_get_settings: z.object({}),
@@ -87,20 +88,12 @@ export function registerStateTools(
               value = await store.deleteDraft(draftDeleteSchema.parse(input));
               break;
           }
-          return { content: [], structuredContent: { ...value } };
+          return dataResult(value, "empty");
         } catch (error) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text:
-                  error instanceof Error
-                    ? error.message
-                    : "Unable to save locally. Keep your current input.",
-              },
-            ],
-          };
+          return failureResult(
+            error,
+            "Unable to save locally. Keep your current input.",
+          );
         }
       },
     );
