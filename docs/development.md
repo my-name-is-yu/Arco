@@ -46,7 +46,7 @@ The [Quality workflow](../.github/workflows/quality.yml) runs on pull requests a
 | `smoke` | Ordinary code, test, or workflow changes                                                 | Complete `npm run check`, then `npm run test:browser:smoke` |
 | `full`  | Shared host/storage contracts, dependency/toolchain changes, or an explicitly full event | Complete `npm run check`, then `npm run test:browser`       |
 
-The critical browser suite contains 20 existing cases for both providers: reading/saving, exact targets and selections, annotation removal, drafts, conflict handling, uncertain-write protection, hostile Markdown, invalid settings/cursors, explicit scope, and request/operation limits. The full 173-case suite also covers the broad property, hover, theme/width, and real-time polling matrices. Tag metadata selects the critical cases; their titles and test logic remain the same in the full suite. No browser retries are enabled.
+The critical browser suite contains 20 existing cases for both providers: reading/saving, exact targets and selections, annotation removal, drafts, conflict handling, uncertain-write protection, hostile Markdown, invalid settings/cursors, explicit scope, and request/operation limits. The full 179-case suite also covers the broad property, hover, theme/width, and real-time polling matrices. Tag metadata selects the critical cases; their titles and test logic remain the same in the full suite. No browser retries are enabled.
 
 All unit/service tests remain in every code check. The initial hosted run spent about 57 seconds on all non-browser checks, including roughly 16 seconds on unit/service tests; full browser coverage took 12 minutes 18 seconds. Reducing the routine browser scope retains those inexpensive checks.
 

@@ -193,10 +193,6 @@
 .linear-comment-editor .linear-controls {
   margin-top: 9px;
 }
-.linear-comment-editor .draft-storage-status {
-  padding: 5px 0;
-  border-bottom: 0;
-}
 .linear-reactions button[aria-pressed="true"] {
   color: var(--arco-accent);
   border-color: var(--arco-accent);

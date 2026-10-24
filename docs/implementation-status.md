@@ -8,6 +8,8 @@ The latest local cleanup is recorded in [Current-contract cleanup](code-quality-
 
 The follow-up [quality gate and error-recovery record](quality-gates-validation-2026-10-24.md) covers CI configuration, the structured error contract, refreshed installed-server checks, and the remaining desktop acceptance boundary. A locally installed update does not establish that an existing conversation has reloaded it.
 
+The [notification policy](design/notifications.md) limits notices to actionable failures, draft protection, incomplete outcomes, bulk failures, and pending external authorization. Ordinary success feedback comes from the screen; copy actions retain their local **Copied** label.
+
 ## Implemented operations
 
 Paths below are relative to `src/ui/` or `src/server/` unless stated otherwise. The [technical stack](technical-stack.md) describes the current ownership boundaries.

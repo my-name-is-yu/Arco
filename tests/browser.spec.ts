@@ -1,4 +1,5 @@
 import { toolFailure } from "./tool-failure";
+import { expectDraftWrite, observeDraftWrites } from "./draft-helpers";
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
 import { checkMarkdownSecurity } from "./markdown-security-helpers";
@@ -95,6 +96,7 @@ async function addSelectionToChat(app: FrameLocator) {
     .click();
 }
 test.beforeEach(async ({ page }) => {
+  observeDraftWrites(page);
   pageErrors.set(page, []);
   page.on("pageerror", (error) => pageErrors.get(page)!.push(error.message));
   await page.addInitScript(() => {
@@ -1425,9 +1427,7 @@ test("presentation changes preserve the GitHub draft without tool calls", async 
   const comment = app.getByRole("textbox", { name: "Comment on GitHub" });
   const draft = "Keep this unsent GitHub comment while resizing";
   await comment.fill(draft);
-  await expect(
-    app.getByText("Draft saved on this device", { exact: true }),
-  ).toBeVisible();
+  await expectDraftWrite(page, { comment: draft });
   await expect
     .poll(
       async () =>
@@ -1808,9 +1808,10 @@ test("bulk changes keep per-Issue results and report partial permission failures
   await app
     .getByRole("button", { name: "Apply to 2 issues", exact: true })
     .click();
-  await expect(app.locator(".bulk-results")).toContainText(
-    "yu/Arco #42 Saved and refreshed",
-  );
+  await expect(
+    app.locator('.bulk-results[aria-label="Failed issues"] li'),
+  ).toHaveCount(1);
+  await expect(app.locator(".bulk-results")).not.toContainText("yu/Arco #42");
   await expect(app.locator(".bulk-results")).toContainText(
     "Fixture permission denied for #43",
   );
@@ -1934,9 +1935,10 @@ test("Markdown tasks, comment edits, reactions, and label definitions use explic
   await bulk
     .getByRole("button", { name: "Apply to 1 issues", exact: true })
     .click();
-  await expect(bulk.locator(".bulk-results")).toContainText(
-    "yu/Arco #42 Saved and refreshed",
-  );
+  await expect(
+    bulk.getByRole("button", { name: "Apply to 1 issues", exact: true }),
+  ).toBeEnabled();
+  await expect(bulk.locator(".bulk-results")).toHaveCount(0);
   expect(await events(page, "tool")).toContainEqual(
     expect.objectContaining({
       name: "arco_change_labels",
@@ -2199,9 +2201,7 @@ test("simple templates include visible defaults and complex forms hand off to Gi
   await dialog
     .getByRole("textbox", { name: "Title", exact: true })
     .fill("Fixture created from a template");
-  await expect(dialog.locator(".draft-storage-status")).toContainText(
-    "Draft saved on this device",
-  );
+  await expectDraftWrite(page, { title: "Fixture created from a template" });
   await page.keyboard.press("Escape");
   const frame = page
     .frames()
@@ -2256,9 +2256,10 @@ test("scoped issue and creation drafts plus filter settings restore after iframe
   await app
     .getByRole("textbox", { name: "Comment on GitHub" })
     .fill("A locally saved comment draft");
-  await expect(
-    app.locator(".detail-pane > .draft-storage-status"),
-  ).toContainText("saved on this device");
+  await expectDraftWrite(page, {
+    body: "A locally saved unsent body",
+    comment: "A locally saved comment draft",
+  });
   await app.getByRole("button", { name: "Create issue", exact: true }).click();
   const dialog = app.getByRole("dialog", { name: "Create issue" });
   await dialog
@@ -2267,9 +2268,10 @@ test("scoped issue and creation drafts plus filter settings restore after iframe
   await dialog
     .getByRole("textbox", { name: "Body", exact: true })
     .fill("A body not yet created on the source");
-  await expect(dialog.locator(".draft-storage-status")).toContainText(
-    "saved on this device",
-  );
+  await expectDraftWrite(page, {
+    title: "An uncreated issue draft",
+    body: "A body not yet created on the source",
+  });
   await dialog
     .getByRole("button", { name: "Close create issue", exact: true })
     .click();
@@ -2731,9 +2733,7 @@ test("annotation restoration hashes unselected input text and refuses a changed 
   const suffix = "_PRIVATE_UNSELECTED_SUFFIX";
   const draft = prefix + text + suffix;
   await source.fill(draft);
-  await expect(
-    app.locator(".detail-pane > .draft-storage-status"),
-  ).toContainText("saved on this device");
+  await expectDraftWrite(page, { comment: draft });
   await source.scrollIntoViewIfNeeded();
   await source.evaluate(
     (element: HTMLTextAreaElement, { start, end }) => {
@@ -2796,9 +2796,7 @@ test("annotation restoration hashes unselected input text and refuses a changed 
   await source.fill(changedDraft);
   await expect(marker).toHaveCount(0);
   await expect(mark).toHaveCount(0);
-  await expect(
-    app.locator(".detail-pane > .draft-storage-status"),
-  ).toContainText("saved on this device");
+  await expectDraftWrite(page, { comment: changedDraft });
   const read = page.waitForResponse((response) => {
     if (!response.url().endsWith("/tool")) return false;
     return (

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-export type NoticeValue = { kind: "success" | "error" | "info"; text: string };
+export type NoticeValue = { kind: "error" | "info"; text: string };
 export function Notice({
   notice,
   onDismiss,

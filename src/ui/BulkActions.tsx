@@ -83,6 +83,7 @@ export function BulkActions({
     `${sessionKey}:results`,
     [],
   );
+  const failures = results.filter((result) => !result.ok);
   const [error, setError] = useSessionState(host, `${sessionKey}:error`, "");
   const {
     busy,
@@ -521,22 +522,23 @@ export function BulkActions({
       >
         {busy ? "Refreshing…" : `Apply to ${issues.length} issues`}
       </Button>
-      {results.length > 0 && (
-        <ul className="bulk-results" aria-live="polite">
-          {results.map((result) => (
-            <li
-              className={result.ok ? "success" : "inline-error"}
-              key={id(result)}
-            >
+      {failures.length > 0 && (
+        <ul
+          className="bulk-results"
+          aria-label="Failed issues"
+          aria-live="polite"
+        >
+          {failures.map((result) => (
+            <li className="inline-error" key={id(result)}>
               <strong>
                 {result.repo} #{result.number}
               </strong>{" "}
-              {result.ok ? "Saved and refreshed" : result.error}
+              {result.error}
             </li>
           ))}
         </ul>
       )}
-      {results.some((result) => !result.ok) && (
+      {failures.length > 0 && (
         <button
           className="text-button"
           disabled={busy}

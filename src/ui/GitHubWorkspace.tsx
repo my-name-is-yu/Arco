@@ -473,13 +473,6 @@ export function GitHubWorkspace({
       });
       pendingRequestIds.delete(operationKey);
       after?.(result);
-      setNotice({
-        kind: "success",
-        text:
-          connection.data?.mode === "fixture"
-            ? "Local fixture updated."
-            : "Saved to GitHub and refreshed.",
-      });
     } catch (error) {
       setNotice({ kind: "error", text: errorText(error) });
       await queryClient.invalidateQueries({ queryKey: ["issue"] });
@@ -489,14 +482,13 @@ export function GitHubWorkspace({
       setMutationBusy(false);
     }
   };
-  const hostAction = async (action: () => Promise<void>, success: string) => {
+  const hostAction = async (action: () => Promise<void>) => {
     if (hostLock.current) return;
     hostLock.current = true;
     setHostBusy(true);
     setNotice(null);
     try {
       await action();
-      setNotice({ kind: "success", text: success });
     } catch (error) {
       setNotice({ kind: "error", text: errorText(error) });
     } finally {
@@ -508,7 +500,7 @@ export function GitHubWorkspace({
     hostAction(async () => {
       rememberListScroll();
       await host.display(next);
-    }, "Display mode changed.");
+    });
   const updateDraft = (issue: IssueDetail, patch: Partial<Draft>) => {
     const current = resolveDraft(
       issue,
@@ -750,9 +742,7 @@ export function GitHubWorkspace({
         shared={retainedShared}
         busy={mutationBusy || hostBusy}
         onOpen={openRetainedDetails}
-        onOpenLink={(url) =>
-          void hostAction(() => host.openLink(url), "Opened the source link.")
-        }
+        onOpenLink={(url) => void hostAction(() => host.openLink(url))}
         onToggleTask={(line, checked) => void toggleRetainedTask(line, checked)}
         properties={
           <GitHubInlineProperties

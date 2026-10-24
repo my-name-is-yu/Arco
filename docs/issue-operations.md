@@ -52,7 +52,7 @@ Project/cycle/milestone/team administration, roadmap planning, time accounting, 
 
 ## Write correctness
 
-Validate native source, ID, repository/team, and any required Project/field/option IDs before saving. Write only the supplied attributes. For bulk actions, require compatible targets and display each outcome.
+Validate native source, ID, repository/team, and any required Project/field/option IDs before saving. Write only the supplied attributes. For bulk actions, require compatible targets, retain per-Issue outcomes, and show failed targets with failed-only retry. See the [notification policy](design/notifications.md).
 
 Keep source automation intact and re-read the result instead of reproducing or counteracting upstream automation. Distinguish successful writes, failed writes, uncertain outcomes, and successful writes whose subsequent read failed. Never automatically retry an uncertain mutation with a new request ID.
 

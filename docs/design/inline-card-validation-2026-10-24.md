@@ -71,3 +71,23 @@ Selected historical HTML hashes:
 | Property decoration | `b56c71f5021ee368443df297d9512519840542bf5478229b77720e4658146ae5` |
 
 The server hash for these stages was `976fe639641b270d56c80268f23f3f15737f7fc11b841b549e096652553131e9`. Later revisions require new checks; these hashes are not current build assertions.
+
+## Motion parity follow-up
+
+Recorded on 2026-10-24 JST against `834507e` plus the working-tree changes. Inline description expansion and collapse now use the workspace's shared 180 ms opacity reveal. The persistent chevron rotates over the shared 150 ms interval. Markdown is not remounted to replay motion, and neither reading content nor its ancestors are translated or scaled.
+
+Action hover remains 1.04 over 150 ms. Select controls keep their geometry; initial card loading, menus, and save notices continue to use the existing shared rules. Rapid toggles update the description immediately while the current reveal completes. Reduced motion skips the reveal and chevron transition; enabling it during a reveal clears that animation state, so restoring the preference does not replay a stale description animation.
+
+Verification:
+
+- `npm run check` passed, including 549 unit/service cases, production/fixture builds, 73-tool smoke, and artifact inspection. The existing CSS optimizer warning for `::highlight` remains.
+- All 33 related browser cases passed together without retries in 1.3 minutes, covering inline cards, hover, loading/motion, and selection annotations. The two new provider-specific cases observed actual animation start/end, opacity, shared timing, unchanged text transforms, action/selection hover boundaries, no whole-card replay, and live reduced-motion changes. Existing keyboard auto-expansion and narrow-layout cases also passed. The complete 175-case browser suite was not rerun for this change.
+- Manual fixture interaction checked both providers' description controls. This was a local mock host, not the Codex conversation UI; no real provider data was changed.
+- Refreshed the existing local plugin with `codex plugin add arco@arco-local --json`. The installed HTML and server matched the candidate SHA-256 values below. This does not establish that an existing Codex card or running server has reloaded.
+
+| Artifact     | SHA-256                                                            |
+| ------------ | ------------------------------------------------------------------ |
+| `arco.html`  | `3d821d7bba883337957ce20f9d677d1705fb7214dec31be2370034b92025dab7` |
+| `server.mjs` | `63831c8d6de5803c0ff518be8a80cbcbf8fbcc96ebd31cfe675a55ce5dd441dc` |
+
+After restarting Codex, the user confirmed that both action-hover enlargement and description expansion/collapse fading worked in the newly requested validation card. This completes the requested native motion check as user-reported evidence; the automation could not directly inspect the inline-only card. This confirmation does not extend native verification to Linear or reduced-motion preference changes, which retain the fixture evidence above.

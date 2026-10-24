@@ -389,11 +389,6 @@ export function GitHubRelations({
           {action.error}
         </p>
       )}
-      {action.saved && (
-        <p className="operation-saved" role="status">
-          Relationship saved and refreshed.
-        </p>
-      )}
     </details>
   );
 }

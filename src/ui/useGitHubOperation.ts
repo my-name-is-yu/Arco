@@ -10,13 +10,11 @@ export function useGitHubOperation(
 ) {
   const client = useQueryClient();
   const { busy, setBusy, lock, requests } = useCommandSession(host, "github");
-  const [outcome, setOutcome] = useSessionState<{
-    error: string | null;
-    saved: boolean;
-  }>(host, `github:operation:${JSON.stringify(scope)}`, {
-    error: null,
-    saved: false,
-  });
+  const [error, setError] = useSessionState<string | null>(
+    host,
+    `github:operation:${JSON.stringify(scope)}`,
+    null,
+  );
   const run = async <T>(
     name: string,
     args: Record<string, unknown>,
@@ -25,7 +23,7 @@ export function useGitHubOperation(
     if (lock.current) return false;
     lock.current = true;
     setBusy(true);
-    setOutcome({ error: null, saved: false });
+    setError(null);
     const key = JSON.stringify([name, args]);
     const requestId = requests.get(key) ?? crypto.randomUUID();
     requests.set(key, requestId);
@@ -81,13 +79,9 @@ export function useGitHubOperation(
       }
       after?.(result);
       await refresh();
-      setOutcome({ error: null, saved: true });
       return true;
     } catch (failure) {
-      setOutcome({
-        error: failure instanceof Error ? failure.message : String(failure),
-        saved: false,
-      });
+      setError(failure instanceof Error ? failure.message : String(failure));
       if (reaction)
         await client.invalidateQueries({ queryKey: reactionKey, exact: true });
       else {
@@ -103,5 +97,5 @@ export function useGitHubOperation(
       setBusy(false);
     }
   };
-  return { busy, ...outcome, run };
+  return { busy, error, run };
 }

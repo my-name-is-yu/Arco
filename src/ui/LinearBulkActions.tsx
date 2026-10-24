@@ -51,6 +51,7 @@ export function LinearBulkActions({
     `${sessionKey}:results`,
     [],
   );
+  const failures = results.filter((result) => !result.success);
   const labels = metadata?.labels.filter((label) => !label.isGroup) ?? [];
   const duplicate =
     metadata?.states.find((state) => state.id === value)?.type === "duplicate";
@@ -267,20 +268,20 @@ export function LinearBulkActions({
       >
         Apply to {ids.length} issues
       </Button>
-      {results.length > 0 && (
-        <ul className="bulk-results" aria-live="polite">
-          {results.map((result) => (
-            <li
-              key={result.issueId}
-              className={result.success ? "operation-saved" : "inline-error"}
-            >
-              {result.issueId}:{" "}
-              {result.success ? "Saved and refreshed" : result.error}
+      {failures.length > 0 && (
+        <ul
+          className="bulk-results"
+          aria-label="Failed issues"
+          aria-live="polite"
+        >
+          {failures.map((result) => (
+            <li key={result.issueId} className="inline-error">
+              {result.issueId}: {result.error}
             </li>
           ))}
         </ul>
       )}
-      {results.some((result) => !result.success) && (
+      {failures.length > 0 && (
         <button
           className="text-button"
           disabled={busy}

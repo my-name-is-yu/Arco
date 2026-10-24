@@ -452,7 +452,7 @@ test("focusing a link below a single-block preview expands its description witho
     name: "late source",
     exact: true,
   });
-  await expect(preview).toHaveClass("inline-description-preview");
+  await expect(preview).toHaveClass(/inline-description-preview/);
   await expect(
     description.getByRole("button", {
       name: "Expand description",
@@ -1229,3 +1229,245 @@ test("invalid source colors stay neutral and inline property menus fit 375px in 
     expect(await events(page, "message")).toEqual([]);
   }
 });
+
+type InlineMotionSample = {
+  target: "card" | "description";
+  phase: "start" | "end";
+  name: string;
+  duration: number;
+  opacity: number;
+  transform: string;
+  translate: string;
+};
+
+async function observeInlineMotion(card: Locator) {
+  await card.evaluate(async (element) => {
+    await Promise.allSettled(
+      element.getAnimations().map((item) => item.finished),
+    );
+    const samples: InlineMotionSample[] = [];
+    const record = (event: AnimationEvent, phase: "start" | "end") => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const kind =
+        target === element
+          ? "card"
+          : target.matches(".inline-description-content")
+            ? "description"
+            : null;
+      if (!kind) return;
+      const style = getComputedStyle(target);
+      samples.push({
+        target: kind,
+        phase,
+        name: event.animationName,
+        duration: Number.parseFloat(style.animationDuration) * 1000,
+        opacity: Number(style.opacity),
+        transform: style.transform,
+        translate: style.translate,
+      });
+      element.setAttribute("data-motion-samples", JSON.stringify(samples));
+    };
+    element.setAttribute("data-motion-samples", "[]");
+    element.addEventListener("animationstart", (event) => {
+      if (event instanceof AnimationEvent) record(event, "start");
+    });
+    element.addEventListener("animationend", (event) => {
+      if (event instanceof AnimationEvent) record(event, "end");
+    });
+  });
+}
+
+async function inlineMotionSamples(card: Locator) {
+  return JSON.parse(
+    (await card.getAttribute("data-motion-samples")) ?? "[]",
+  ) as InlineMotionSample[];
+}
+
+for (const source of ["github", "linear"] as const) {
+  test(`${source} inline description motion uses workspace timing without moving reading surfaces or replaying the card`, async ({
+    page,
+  }) => {
+    const session = await createSession(page);
+    await setIssueBody(page, session, source, markdown);
+    await openSource(page, session, source);
+    await page
+      .getByRole("button", { name: "Mock inline", exact: true })
+      .click();
+    await page.setViewportSize({ width: 375, height: 900 });
+    const ui = app(page);
+    const card = ui.locator(".inline-issue-card");
+    await observeInlineMotion(card);
+
+    const open = card.getByRole("button", {
+      name: "Open details",
+      exact: true,
+    });
+    await open.hover();
+    await expect(open).toHaveCSS("scale", "1.04");
+    expect(
+      await open.evaluate(
+        (element) => getComputedStyle(element).transitionDuration,
+      ),
+    ).toContain("0.15s");
+    const stateLabel =
+      source === "github" ? "Change issue state" : "Linear Workflow state";
+    const state = selectControl(card, stateLabel);
+    await state.getByRole("button").hover();
+    expect(
+      await state.getByRole("button").evaluate((element) => {
+        const scale = getComputedStyle(element).scale;
+        return scale === "none" ? 1 : Number(scale);
+      }),
+    ).toBe(1);
+
+    for (const [label, expanded] of [
+      ["Expand description", true],
+      ["Collapse description", false],
+    ] as const) {
+      const previous = (await inlineMotionSamples(card)).filter(
+        (sample) => sample.target === "description" && sample.phase === "end",
+      ).length;
+      await card.getByRole("button", { name: label, exact: true }).click();
+      await expect
+        .poll(
+          async () =>
+            (await inlineMotionSamples(card)).filter(
+              (sample) =>
+                sample.target === "description" && sample.phase === "end",
+            ).length,
+        )
+        .toBe(previous + 1);
+      const toggle = card.locator(".inline-description-toggle");
+      await expect(toggle).toHaveAttribute("aria-expanded", String(expanded));
+      await expect(toggle.locator("svg")).toHaveCSS(
+        "rotate",
+        expanded ? "180deg" : "0deg",
+      );
+      await expect(card.locator(".inline-description-content")).toHaveCSS(
+        "opacity",
+        "1",
+      );
+    }
+    const descriptionSamples = (await inlineMotionSamples(card)).filter(
+      (sample) => sample.target === "description",
+    );
+    expect(descriptionSamples).toHaveLength(4);
+    for (const sample of descriptionSamples) {
+      expect(sample.name).toBe("arco-reveal");
+      expect(sample.duration).toBe(180);
+      expect(sample.transform).toBe("none");
+      expect(sample.translate).toBe("none");
+      if (sample.phase === "start") expect(sample.opacity).toBeLessThan(1);
+      else expect(sample.opacity).toBe(1);
+    }
+
+    expect(
+      (await inlineMotionSamples(card)).filter(
+        (sample) => sample.target === "card" && sample.phase === "start",
+      ),
+    ).toEqual([]);
+    await expect(card.locator(".inline-description-toggle svg")).toHaveCSS(
+      "transition-duration",
+      "0.15s",
+    );
+
+    // Hold a real CSS animation open while the media preference changes.
+    const content = card.locator(".inline-description-content");
+    await content.evaluate((element) => {
+      element.addEventListener(
+        "animationstart",
+        () => {
+          for (const animation of element.getAnimations()) animation.pause();
+        },
+        { once: true },
+      );
+    });
+    await card
+      .getByRole("button", { name: "Expand description", exact: true })
+      .click();
+    await expect(content).toHaveAttribute("data-revealing", "true");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(content).not.toHaveAttribute("data-revealing", "true");
+    await expect(content).toHaveCSS("animation-name", "none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(content).toHaveCSS("animation-name", "none");
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const descriptionCount = (await inlineMotionSamples(card)).filter(
+      (sample) => sample.target === "description",
+    ).length;
+    await open.hover();
+    await expect(open).toHaveCSS("scale", "none");
+    await expect(open).toHaveCSS("transition-duration", "0s");
+    for (const [label, expanded] of [
+      ["Collapse description", false],
+      ["Expand description", true],
+    ] as const) {
+      await card.getByRole("button", { name: label, exact: true }).click();
+      const toggle = card.locator(".inline-description-toggle");
+      await expect(toggle).toHaveAttribute("aria-expanded", String(expanded));
+      await expect(toggle.locator("svg")).toHaveCSS(
+        "rotate",
+        expanded ? "180deg" : "0deg",
+      );
+      await expect(toggle.locator("svg")).toHaveCSS(
+        "transition-duration",
+        "0s",
+      );
+      await expect(content).toHaveCSS("animation-name", "none");
+      await expect(content).toHaveCSS("opacity", "1");
+    }
+    expect(
+      (await inlineMotionSamples(card)).filter(
+        (sample) => sample.target === "description",
+      ),
+    ).toHaveLength(descriptionCount);
+    expect(await events(page, "message")).toEqual([]);
+    await expect(page.locator("#harness-error")).toBeEmpty();
+  });
+}
+
+for (const source of ["github", "linear"] as const) {
+  test(`${source} ordinary inline saves, sharing, source links and detail navigation stay quiet`, async ({
+    page,
+  }) => {
+    const session = await createSession(page);
+    await openSource(page, session, source);
+    const ui = app(page);
+    await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
+    await expect.poll(() => events(page, "context")).toHaveLength(1);
+    await expect(ui.locator(".notice")).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Mock inline", exact: true })
+      .click();
+    const card = ui.locator(".inline-issue-card");
+    const stateLabel =
+      source === "github" ? "Change issue state" : "Linear Workflow state";
+    const value = source === "github" ? "not_planned" : "linear-state-done";
+    await choose(card, stateLabel, value);
+    await expect(selectControl(card, stateLabel)).toHaveAttribute(
+      "data-value",
+      value,
+    );
+    await expect(card.locator(".notice")).toHaveCount(0);
+    await card.getByLabel("Issue actions", { exact: true }).click();
+    await card
+      .getByRole("button", {
+        name: source === "github" ? "Open on GitHub" : "Open in Linear",
+        exact: true,
+      })
+      .click();
+    await expect.poll(() => events(page, "link")).toHaveLength(1);
+    await expect(card.locator(".notice")).toHaveCount(0);
+    await card
+      .getByRole("button", { name: "Open details", exact: true })
+      .click();
+    await expect(ui.locator(".workspace")).toBeVisible();
+    await expect(
+      ui.getByRole("heading", { name: titles[source][0], exact: true }),
+    ).toBeVisible();
+    await expect(ui.locator(".notice")).toHaveCount(0);
+    expect(await events(page, "message")).toEqual([]);
+  });
+}

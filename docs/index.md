@@ -8,6 +8,7 @@ Arco is an MIT-licensed local Codex plugin for GitHub and Linear issues. Start w
 - [Product scope](product-scope.md): responsibilities, supported workflows, and deliberate exclusions.
 - [Operation reference](issue-operations.md): provider-native operations and write semantics.
 - [Views and interactions](screen-structure.md): personal lists, project lists, detail panels, and inline cards.
+- [Notification policy](design/notifications.md): retained exceptions and feedback for ordinary successful actions.
 - [Personal and project views](project-viewers.md): repository selection and conversation scope.
 - [GitHub account discovery](github-account-discovery.md): assigned, created, mentioned, and account-wide lists.
 - [Authentication and distribution](auth-distribution.md): provider credentials and the source-distribution model.

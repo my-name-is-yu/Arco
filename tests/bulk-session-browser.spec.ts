@@ -120,13 +120,15 @@ for (const source of ["github", "linear"] as const) {
       }
       await expect.poll(() => calls.length).toBe(2);
       expect(calls[1].requestId).toBe(calls[0].requestId);
-      await expect(bulk.locator(".bulk-results")).toContainText(
-        "Saved and refreshed",
-      );
+      await expect(
+        bulk.getByRole("button", { name: "Apply to 1 issues", exact: true }),
+      ).toBeEnabled();
+      await expect(bulk.locator(".bulk-results")).toHaveCount(0);
       await switchBack();
-      await expect(bulk.locator(".bulk-results")).toContainText(
-        "Saved and refreshed",
-      );
+      await expect(
+        bulk.getByRole("button", { name: "Apply to 1 issues", exact: true }),
+      ).toBeEnabled();
+      await expect(bulk.locator(".bulk-results")).toHaveCount(0);
       expect(calls).toHaveLength(2);
       await expect(page.locator("#harness-error")).toBeEmpty();
     } finally {

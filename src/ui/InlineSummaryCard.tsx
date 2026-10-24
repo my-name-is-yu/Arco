@@ -2,7 +2,6 @@ import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
   ArrowUpRight,
   ChevronDown,
-  ChevronUp,
   DotsHorizontalMoreMenu,
 } from "@openai/apps-sdk-ui/components/Icon";
 import {
@@ -50,6 +49,7 @@ export function InlineSummaryCard({
   const descriptionId = useId();
   const utilities = useRef<HTMLDetailsElement>(null);
   const [expandedIssue, setExpandedIssue] = useState<string | null>(null);
+  const [descriptionRevealing, setDescriptionRevealing] = useState(false);
   const expanded = expandedIssue === issue.url;
   const preview = useMemo(
     () => inlineMarkdownPreview(issue.body),
@@ -58,6 +58,20 @@ export function InlineSummaryCard({
   const closeAfterCopy = (button: HTMLElement) => {
     if (utilities.current?.open) closeDetailUtility(button);
   };
+  const changeExpanded = (next: boolean) => {
+    setDescriptionRevealing(
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    );
+    setExpandedIssue(next ? issue.url : null);
+  };
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const stopReveal = () => {
+      if (preference.matches) setDescriptionRevealing(false);
+    };
+    preference.addEventListener("change", stopReveal);
+    return () => preference.removeEventListener("change", stopReveal);
+  }, []);
   useEffect(() => {
     const menu = utilities.current;
     if (!menu) return;
@@ -147,11 +161,15 @@ export function InlineSummaryCard({
       >
         <div
           id={descriptionId}
-          className={
-            preview.expandable && !expanded
-              ? "inline-description-preview"
-              : undefined
-          }
+          className={`inline-description-content${preview.expandable && !expanded ? " inline-description-preview" : ""}`}
+          data-revealing={descriptionRevealing || undefined}
+          onAnimationEnd={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              event.animationName === "arco-reveal"
+            )
+              setDescriptionRevealing(false);
+          }}
           onFocusCapture={(event) => {
             if (expanded || !preview.expandable) return;
             const previewBounds = event.currentTarget.getBoundingClientRect();
@@ -160,7 +178,7 @@ export function InlineSummaryCard({
               focusedBounds.bottom > previewBounds.bottom ||
               focusedBounds.top < previewBounds.top
             ) {
-              setExpandedIssue(issue.url);
+              changeExpanded(true);
               const focused = event.target;
               requestAnimationFrame(() =>
                 focused.scrollIntoView({ block: "nearest" }),
@@ -184,14 +202,10 @@ export function InlineSummaryCard({
             size="sm"
             aria-expanded={expanded}
             aria-controls={descriptionId}
-            onClick={() => setExpandedIssue(expanded ? null : issue.url)}
+            onClick={() => changeExpanded(!expanded)}
           >
             {expanded ? "Collapse description" : "Expand description"}
-            {expanded ? (
-              <ChevronUp aria-hidden="true" />
-            ) : (
-              <ChevronDown aria-hidden="true" />
-            )}
+            <ChevronDown aria-hidden="true" />
           </Button>
         )}
       </section>

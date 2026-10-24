@@ -1,4 +1,5 @@
 import { toolFailure } from "./tool-failure";
+import { expectDraftWrite, observeDraftWrites } from "./draft-helpers";
 import { expect, test, type Page } from "@playwright/test";
 import { choose, selectControl } from "./select-helpers";
 import { checkMarkdownSecurity } from "./markdown-security-helpers";
@@ -177,6 +178,10 @@ async function mockLinearAuthorization(
       route.fulfill({
         json: toolFailure(text),
       });
+    if (input.name === "linear_auth_begin")
+      return respond({
+        authorizationUrl: "https://linear.app/oauth/authorize",
+      });
     if (input.name === "linear_auth_disconnect") {
       state.disconnects.push(input.arguments);
       if (state.disconnectFailure)
@@ -260,6 +265,7 @@ async function disconnectLinear(page: Page) {
     .click();
 }
 test.beforeEach(async ({ page }) => {
+  observeDraftWrites(page);
   errors.set(page, []);
   page.on("pageerror", (error) => errors.get(page)!.push(error.message));
   await page.addInitScript(() =>
@@ -749,9 +755,9 @@ test("Linear retry keeps a failed request ID after an unrelated successful write
   await expect(ui.locator(".notice")).toContainText(
     "Simulated lost acknowledgement",
   );
-  await expect(
-    ui.locator(".detail-scroll > .draft-storage-status"),
-  ).toContainText("Draft saved on this device");
+  await expectDraftWrite(page, {
+    comment: "One intended comment despite a lost response",
+  });
   await choose(ui, "Issue source", "github");
   await expect(
     ui.getByRole("heading", {
@@ -1252,12 +1258,10 @@ test("Linear bulk labels, priority, estimate, and due dates preserve per-Issue r
     await bulk
       .getByRole("button", { name: "Apply to 2 issues", exact: true })
       .click();
-    await expect(bulk.locator(".bulk-results")).toContainText(
-      "fixture-linear-42: Saved and refreshed",
-    );
-    await expect(bulk.locator(".bulk-results")).toContainText(
-      "fixture-linear-43: Saved and refreshed",
-    );
+    await expect(
+      bulk.getByRole("button", { name: "Apply to 2 issues", exact: true }),
+    ).toBeEnabled();
+    await expect(bulk.locator(".bulk-results")).toHaveCount(0);
   }
   await choose(bulk, "Bulk Linear action", "due-date");
   await bulk
@@ -1314,9 +1318,7 @@ test("Linear templates preserve source defaults, permit explicit empty bodies, a
   await expect(
     dialog.getByRole("textbox", { name: "Markdown description", exact: true }),
   ).toHaveValue(/Preserve this default body/);
-  await expect(dialog.locator(".draft-storage-status")).toContainText(
-    "Draft saved on this device",
-  );
+  await expectDraftWrite(page, { title: "Template issue" });
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await ui
@@ -1499,9 +1501,7 @@ test("Linear viewport and theme updates preserve the issue and unsent comment wi
     )?.active ?? 0;
   await ui.locator(".issue-row").filter({ hasText: firstTitle }).click();
   await comment.fill(draft);
-  await expect(
-    ui.locator(".detail-scroll > .draft-storage-status"),
-  ).toContainText("Draft saved on this device");
+  await expectDraftWrite(page, { comment: draft });
   await expect.poll(active).toBe(0);
   // Let pending settings/draft timers settle before measuring presentation alone.
   await page.waitForTimeout(350);
@@ -1572,9 +1572,7 @@ test("Linear keyboard, narrow layout, filter/draft reload, and upload bounds rem
   await ui
     .getByRole("textbox", { name: "Linear comment", exact: true })
     .fill("A locally saved Linear comment");
-  await expect(
-    ui.locator(".detail-scroll > .draft-storage-status"),
-  ).toContainText("Draft saved on this device");
+  await expectDraftWrite(page, { comment: "A locally saved Linear comment" });
   await moreProperties(ui);
   await ui
     .getByText("Parent, sub-issues and relations", { exact: true })
@@ -1586,15 +1584,10 @@ test("Linear keyboard, narrow layout, filter/draft reload, and upload bounds rem
   await ui
     .getByRole("textbox", { name: "Sub-issue description", exact: true })
     .fill("A child draft before source creation");
-  await expect(
-    ui
-      .locator("details")
-      .filter({
-        has: ui.getByRole("textbox", { name: "Sub-issue title", exact: true }),
-      })
-      .last()
-      .locator(".draft-storage-status"),
-  ).toContainText("Draft saved on this device");
+  await expectDraftWrite(page, {
+    title: "A locally preserved child",
+    body: "A child draft before source creation",
+  });
   const frame = page
     .frames()
     .find((candidate) => candidate.url().endsWith("/arco.html"))!;
@@ -2159,9 +2152,10 @@ test("Linear disconnect keeps local drafts, settings, and chat context while sto
   await ui
     .getByRole("textbox", { name: "Linear Markdown description", exact: true })
     .fill("A preserved description draft");
-  await expect(
-    ui.locator(".detail-scroll > .draft-storage-status"),
-  ).toContainText("Draft saved on this device");
+  await expectDraftWrite(page, {
+    title: "A preserved issue title draft",
+    body: "A preserved description draft",
+  });
   await ui
     .getByRole("button", { name: "Close and keep draft", exact: true })
     .click();
@@ -2178,15 +2172,14 @@ test("Linear disconnect keeps local drafts, settings, and chat context while sto
   await dialog
     .getByRole("textbox", { name: "Markdown description", exact: true })
     .fill("A new description kept locally");
-  await expect(dialog.locator(".draft-storage-status")).toContainText(
-    "Draft saved on this device",
-  );
+  await expectDraftWrite(page, {
+    title: "A preserved new issue draft",
+    body: "A new description kept locally",
+  });
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await disconnectLinear(page);
   await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
-  await expect(ui.getByRole("status")).toContainText(
-    "Disconnected Linear on this device",
-  );
+  await expect(ui.locator(".notice")).toHaveCount(0);
   expect(authorization.disconnects).toEqual([
     { connectionId: "default", revoke: false },
   ]);
@@ -2283,9 +2276,7 @@ test("Linear disconnect reports credential removal failure and reconciles a lost
   authorization.loseAcknowledgement = true;
   await disconnectLinear(page);
   await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
-  await expect(ui.getByRole("status")).toContainText(
-    "Disconnected Linear on this device",
-  );
+  await expect(ui.locator(".notice")).toHaveCount(0);
   expect(authorization.disconnects).toEqual([
     { connectionId: "default", revoke: false },
     { connectionId: "default", revoke: false },
@@ -2448,9 +2439,114 @@ test("Linear disconnect stays reachable with no issues or connection errors and 
   await expect(connectionError).toContainText(
     "Check the connection and refresh.",
   );
-  await disconnectLinear(page);
-  await expect(ui.getByRole("status")).toContainText(
-    "Disconnected Linear on this device",
+  const disconnected = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/tool") &&
+      (response.request().postDataJSON() as { name: string }).name ===
+        "linear_auth_disconnect",
   );
+  await disconnectLinear(page);
+  await (await disconnected).finished();
+  await expect(ui.locator(".notice")).toHaveCount(0);
   expect(authorization.disconnects).toHaveLength(2);
+});
+
+test("Linear external authorization keeps waiting guidance until a connected workspace is available", async ({
+  page,
+}) => {
+  const authorization = await mockLinearAuthorization(page);
+  const ui = app(page);
+  await disconnectLinear(page);
+  await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
+  await ui
+    .getByLabel("OAuth client ID", { exact: true })
+    .fill("fixture-client");
+  await ui
+    .getByRole("button", { name: "Authorize in Linear", exact: true })
+    .click();
+  await expect(ui.getByRole("status")).toHaveText(
+    "Complete authorization in Linear, then return to Arco.",
+  );
+  await expect(ui.locator(".notice")).toHaveCount(0);
+  expect(await events(page, "link")).toContainEqual({
+    url: "https://linear.app/oauth/authorize",
+  });
+  authorization.connected = true;
+  await ui
+    .getByRole("button", { name: "Check connection", exact: true })
+    .click();
+  await expect(
+    ui.getByRole("heading", { name: firstTitle, exact: true }),
+  ).toBeVisible();
+  await expect(
+    ui.getByText("Complete authorization in Linear, then return to Arco.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(ui.locator(".notice")).toHaveCount(0);
+});
+
+test("Linear mixed bulk outcomes show only failed issues and retry only those failures", async ({
+  page,
+}) => {
+  const calls: string[][] = [];
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: { issueIds?: string[] };
+    };
+    if (input.name !== "linear_bulk") return route.continue();
+    calls.push(input.arguments.issueIds ?? []);
+    if (calls.length !== 1) return route.continue();
+    const response = await route.fetch({
+      postData: {
+        ...input,
+        arguments: { ...input.arguments, issueIds: ["fixture-linear-42"] },
+      },
+    });
+    const result = await response.json();
+    result.structuredContent.results.push({
+      issueId: "fixture-linear-43",
+      success: false,
+      error: "Fixture permission denied for YU-43",
+    });
+    return route.fulfill({ response, json: result });
+  });
+  const ui = app(page);
+  for (const number of [42, 43])
+    await ui
+      .getByRole("checkbox", { name: `YU-${number} — select for bulk actions` })
+      .check();
+  const bulk = ui.getByRole("region", { name: "Bulk Linear actions" });
+  await choose(bulk, "Bulk Linear action", "priority");
+  await choose(bulk, "Bulk Linear priority", "4");
+  await bulk
+    .getByRole("button", { name: "Apply to 2 issues", exact: true })
+    .click();
+  const failures = bulk.getByRole("list", {
+    name: "Failed issues",
+    exact: true,
+  });
+  await expect(failures.getByRole("listitem")).toHaveCount(1);
+  await expect(failures).toContainText(
+    "fixture-linear-43: Fixture permission denied for YU-43",
+  );
+  await expect(failures).not.toContainText("fixture-linear-42");
+  await bulk
+    .getByRole("button", { name: "Retry failed issues only", exact: true })
+    .click();
+  await expect(
+    bulk.getByRole("button", { name: "Apply to 2 issues", exact: true }),
+  ).toBeEnabled();
+  await expect(failures).toHaveCount(0);
+  expect(calls).toEqual([
+    ["fixture-linear-42", "fixture-linear-43"],
+    ["fixture-linear-43"],
+  ]);
+  await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
+  await expect(selectControl(ui, "Linear Priority")).toHaveAttribute(
+    "data-value",
+    "4",
+  );
+  await expect(ui.locator(".notice")).toHaveCount(0);
 });

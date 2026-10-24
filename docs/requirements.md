@@ -27,7 +27,7 @@ See [GitHub discovery](github-account-discovery.md) and [Project and personal vi
 - Keep GitHub issue state independent from GitHub Projects Status.
 - Reject incomplete scope or field catalogs when a write requires complete membership or option validation.
 - Preserve input on validation errors, conflicts, connection failures, and uncertain writes.
-- Report bulk outcomes per issue; do not hide partial success or guess values across incompatible selections.
+- Retain bulk outcomes per issue for failure isolation and retry selection. Show failed targets and retry only those; ordinary successful rows stay quiet. Do not guess values across incompatible selections.
 - Apply simple templates only when their supported contents can be represented without silently dropping required fields or behavior.
 - Offer source-service links for unsupported operations.
 

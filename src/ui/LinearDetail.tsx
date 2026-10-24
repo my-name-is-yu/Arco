@@ -181,7 +181,7 @@ export function LinearDetail({
   connection?: LinearConnection;
   busy: boolean;
   run: LinearRun;
-  onNotice: (message: string, kind?: "success" | "error" | "info") => void;
+  onNotice: (message: string, kind?: "error" | "info") => void;
 }) {
   const discussion = useLinearComments(host, issue);
   const [editing, setEditing] = useState(false);
@@ -262,13 +262,13 @@ export function LinearDetail({
       ...patch,
     });
   }
-  async function hostAction(action: () => Promise<void>, success: string) {
+  async function hostAction(action: () => Promise<void>) {
     if (hostLock.current) return;
     hostLock.current = true;
     setHostBusy(true);
+    onNotice("");
     try {
       await action();
-      onNotice(success);
     } catch (error) {
       onNotice(errorText(error), "error");
     } finally {
@@ -282,8 +282,7 @@ export function LinearDetail({
       expectedUpdatedAt: issue.updatedAt,
       patch,
     });
-  const share = () =>
-    hostAction(() => host.share(issue), `${issue.identifier} added to chat.`);
+  const share = () => hostAction(() => host.share(issue));
   function reactions(items: LinearIssue["reactions"], commentId?: string) {
     return (
       <LinearReactions
@@ -316,12 +315,7 @@ export function LinearDetail({
           <CopyValue value={comment.id} label="Copy comment ID" />
           <button
             className="text-button"
-            onClick={() =>
-              void hostAction(
-                () => host.openLink(comment.url),
-                "Opened comment in Linear.",
-              )
-            }
+            onClick={() => void hostAction(() => host.openLink(comment.url))}
           >
             ↗
           </button>
@@ -439,12 +433,7 @@ export function LinearDetail({
             <button
               className="utility-item"
               aria-label="Open in Linear"
-              onClick={() =>
-                void hostAction(
-                  () => host.openLink(issue.url),
-                  "Opened Linear.",
-                )
-              }
+              onClick={() => void hostAction(() => host.openLink(issue.url))}
             >
               <ExternalLink aria-hidden="true" /> Open in Linear
             </button>
@@ -622,10 +611,7 @@ export function LinearDetail({
                     <button
                       className="text-button"
                       onClick={() =>
-                        void hostAction(
-                          () => host.openLink(attachment.url),
-                          "Opened attachment.",
-                        )
+                        void hostAction(() => host.openLink(attachment.url))
                       }
                     >
                       {attachment.title} ↗
@@ -651,6 +637,7 @@ export function LinearDetail({
                   if (file.size > LINEAR_UPLOAD_MAX_BYTES) {
                     onNotice(
                       "This Arco upload route supports files up to 10 MiB. Open Linear for larger files.",
+                      "error",
                     );
                     event.target.value = "";
                     return;
@@ -671,18 +658,13 @@ export function LinearDetail({
                         base64: btoa(binary),
                       });
                     })
-                    .catch((error) => onNotice(errorText(error)));
+                    .catch((error) => onNotice(errorText(error), "error"));
                   event.target.value = "";
                 }}
               />
               <button
                 className="text-button"
-                onClick={() =>
-                  void hostAction(
-                    () => host.openLink(issue.url),
-                    "Opened Linear for file upload.",
-                  )
-                }
+                onClick={() => void hostAction(() => host.openLink(issue.url))}
               >
                 Open Linear for larger files ↗
               </button>
@@ -928,12 +910,7 @@ export function LinearDetail({
               />
               <button
                 className="text-button"
-                onClick={() =>
-                  void hostAction(
-                    () => host.openLink(issue.url),
-                    "Opened Linear.",
-                  )
-                }
+                onClick={() => void hostAction(() => host.openLink(issue.url))}
               >
                 Transfers, deletion and full history in Linear ↗
               </button>

@@ -48,7 +48,7 @@ type ContentProps = {
   ) => Promise<void>;
   host: ArcoHost;
   hostBusy: boolean;
-  hostAction: (action: () => Promise<void>, success: string) => Promise<void>;
+  hostAction: (action: () => Promise<void>) => Promise<void>;
   shared: IssueRef | null;
 };
 
@@ -84,15 +84,11 @@ export function GitHubDetail({
     ).values(),
   ];
   const openMarkdownLink = (url: string) =>
-    void hostAction(() => host.openLink(url), "Opened the source link.");
+    void hostAction(() => host.openLink(url));
   const ref = { repo: issue.repo, number: issue.number };
   const dirty = draft.title !== issue.title || draft.body !== issue.body;
   const contentConflict = draftConflict(issue, draft);
-  const share = () =>
-    hostAction(
-      () => host.share(issue),
-      "Shared the issue with the chat context.",
-    );
+  const share = () => hostAction(() => host.share(issue));
 
   return (
     <>
@@ -142,12 +138,7 @@ export function GitHubDetail({
             <button
               className="utility-item"
               aria-label="Open on GitHub"
-              onClick={() =>
-                void hostAction(
-                  () => host.openLink(issue.url),
-                  "Opened GitHub.",
-                )
-              }
+              onClick={() => void hostAction(() => host.openLink(issue.url))}
             >
               <ExternalLink aria-hidden="true" /> Open on GitHub
             </button>
@@ -351,10 +342,7 @@ export function GitHubDetail({
                       className="icon-button"
                       aria-label={`Open ${comment.author}’s comment on GitHub`}
                       onClick={() =>
-                        void hostAction(
-                          () => host.openLink(comment.url),
-                          "Opened the comment on GitHub.",
-                        )
+                        void hostAction(() => host.openLink(comment.url))
                       }
                     >
                       ↗

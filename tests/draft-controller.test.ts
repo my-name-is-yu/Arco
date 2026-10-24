@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { draftController } from "../src/ui/useDraftPersistence";
+import { draftController, DraftStatus } from "../src/ui/useDraftPersistence";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { createStateStore } from "../src/server/state";
 import type { ArcoHost } from "../src/shared/contracts";
 import type { Draft, DraftKey } from "../src/shared/state";
@@ -120,5 +122,41 @@ describe("host-lifetime draft controller", () => {
     await expect(reading).resolves.toEqual(draft("New input"));
     expect(controller.value(github)).toEqual(draft("New input"));
     controller.flush();
+  });
+});
+
+describe("draft protection messages", () => {
+  const renderStatus = (status: Parameters<typeof DraftStatus>[0]["status"]) =>
+    renderToStaticMarkup(
+      createElement(DraftStatus, {
+        status,
+        onRetry: () => {},
+        onResolve: () => {},
+      }),
+    );
+
+  it.each(["idle", "loading", "pending", "saved", "resolving"] as const)(
+    "keeps ordinary %s draft persistence quiet",
+    (state) => expect(renderStatus({ state })).toBe(""),
+  );
+  it("retains a draft error and an explicit retry", () => {
+    const html = renderStatus({
+      state: "error",
+      error: "The draft could not be stored.",
+    });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("The draft could not be stored.");
+    expect(html).toContain("Retry saving draft");
+  });
+  it("retains conflicting saved content and both resolution choices", () => {
+    const html = renderStatus({
+      state: "conflict",
+      error: "Another view changed this draft.",
+      remote: { revision: 3, draft: draft("Other screen comment") },
+    });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Other screen comment");
+    expect(html).toContain("Save this screen’s draft");
+    expect(html).toContain("Use saved draft");
   });
 });

@@ -134,7 +134,7 @@ export function LinearWorkspace({
     "linear:notice",
     null,
   );
-  const setNotice = (text: string, kind: NoticeValue["kind"] = "success") =>
+  const setNotice = (text: string, kind: NoticeValue["kind"] = "error") =>
     setNoticeValue(text ? { text, kind } : null);
   const [receipt, setReceipt] = useSessionState<
     (LinearSavedReceipt & { requestId: string }) | null
@@ -486,11 +486,6 @@ export function LinearWorkspace({
         issueCache.remember(issue);
       }
       await issueCache.refresh(true);
-      setNotice(
-        connection.data?.mode === "fixture"
-          ? "Updated and refetched Linear fixture."
-          : "Saved to Linear and refetched.",
-      );
       return result;
     } catch (error) {
       setNotice(message(error), "error");
@@ -501,10 +496,10 @@ export function LinearWorkspace({
       setBusy(false);
     }
   }
-  async function hostAction(action: () => Promise<void>, success: string) {
+  async function hostAction(action: () => Promise<void>) {
+    setNotice("");
     try {
       await action();
-      setNotice(success);
     } catch (error) {
       setNotice(message(error), "error");
     }
@@ -536,9 +531,6 @@ export function LinearWorkspace({
     setReceipt(null);
     selectionByScope.current.clear();
     selectedStateTypes.current.clear();
-    setNotice(
-      "Disconnected Linear on this device. Your drafts and chat context are preserved.",
-    );
   }
   async function disconnect() {
     if (lock.current || connection.data?.mode === "fixture") return;
@@ -580,7 +572,7 @@ export function LinearWorkspace({
     capturePosition();
     return hostAction(async () => {
       await host.display(value);
-    }, "Display mode updated.");
+    });
   };
   const openRetainedDetails = () => {
     if (retained) {
@@ -756,9 +748,7 @@ export function LinearWorkspace({
               : detail.isFetching)
         }
         onOpen={openRetainedDetails}
-        onOpenLink={(url) =>
-          void hostAction(() => host.openLink(url), "Opened the source link.")
-        }
+        onOpenLink={(url) => void hostAction(() => host.openLink(url))}
         onToggleTask={(line, checked) => void toggleRetainedTask(line, checked)}
         notice={notice}
         properties={
@@ -864,12 +854,22 @@ export function LinearWorkspace({
                   );
                   await host.openLink(result.authorizationUrl);
                   setAuthPending(true);
-                }, "Opened Linear authorization. Review the workspace and permissions.")
+                })
               }
             >
               Authorize in Linear
             </Button>
-            <p>{auth.data?.message}</p>
+            {auth.data?.state === "failed" ? (
+              <p className="inline-error" role="alert">
+                {auth.data.message}
+              </p>
+            ) : authPending ? (
+              <p role="status">
+                Complete authorization in Linear, then return to Arco.
+              </p>
+            ) : (
+              auth.data?.message && <p>{auth.data.message}</p>
+            )}
             <Notice
               notice={notice}
               onDismiss={() => setNoticeValue(null)}

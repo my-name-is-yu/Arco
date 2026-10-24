@@ -185,27 +185,8 @@ export function DraftStatus({
   onRetry: () => void;
   onResolve: (choice: "keep-local" | "use-saved") => void;
 }) {
-  if (!status || status.state === "idle") return null;
-  if (status.state === "saved")
-    return (
-      <p className="draft-storage-status" role="status">
-        Draft saved on this device
-      </p>
-    );
-  if (
-    status.state === "pending" ||
-    status.state === "loading" ||
-    status.state === "resolving"
-  )
-    return (
-      <p className="draft-storage-status" role="status">
-        {status.state === "loading"
-          ? "Checking local draft…"
-          : status.state === "resolving"
-            ? "Resolving draft conflict…"
-            : "Saving draft on this device…"}
-      </p>
-    );
+  if (!status || (status.state !== "error" && status.state !== "conflict"))
+    return null;
   return (
     <section className="draft-storage-conflict" role="alert">
       <p>{status.error}</p>

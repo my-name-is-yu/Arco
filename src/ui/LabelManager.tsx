@@ -217,11 +217,6 @@ export function LabelManager({ host, repo }: { host: ArcoHost; repo: string }) {
           {action.error}
         </p>
       )}
-      {action.saved && (
-        <p className="operation-saved" role="status">
-          Label definition updated.
-        </p>
-      )}
     </details>
   );
 }
