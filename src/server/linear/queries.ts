@@ -1,7 +1,6 @@
-import { PaginationOrderBy } from "@linear/sdk";
 import { linearIssueUrl } from "../../shared/issue-url";
 import { readIssueImage } from "../images";
-import type { IssueFilter } from "./operation";
+import { createLinearIssueReader } from "./issue-list";
 
 import { type LinearHandlers, type LinearOperation } from "./operation";
 export function createQueriesHandlers(operation: LinearOperation) {
@@ -12,11 +11,11 @@ export function createQueriesHandlers(operation: LinearOperation) {
     context,
     checkedIssue,
     metadata,
-    summary,
     commentsPage,
     detail,
     templates,
   } = operation;
+  const listIssues = createLinearIssueReader(operation);
 
   const handlers = {
     linear_metadata: async (input) => {
@@ -91,46 +90,7 @@ export function createQueriesHandlers(operation: LinearOperation) {
     linear_templates: async (input) => {
       return templates(input);
     },
-    linear_list_issues: async (input) => {
-      const { client } = await context(input);
-      const meta = await metadata(input);
-      const filter: IssueFilter = {
-        team: { id: { eq: input.teamId } },
-        ...(input.stateId ? { state: { id: { eq: input.stateId } } } : {}),
-        ...(input.assigneeId
-          ? { assignee: { id: { eq: input.assigneeId } } }
-          : {}),
-        ...(input.labelId
-          ? { labels: { some: { id: { eq: input.labelId } } } }
-          : {}),
-        ...(input.projectId
-          ? { project: { id: { eq: input.projectId } } }
-          : {}),
-      };
-      const parameters = {
-        filter,
-        first: 30,
-        after: input.cursor,
-        orderBy:
-          input.order === "createdAt"
-            ? PaginationOrderBy.CreatedAt
-            : PaginationOrderBy.UpdatedAt,
-      };
-      const page = input.query.trim()
-        ? await client.searchIssues(input.query, {
-            ...parameters,
-            teamId: input.teamId,
-            includeComments: true,
-          })
-        : await client.issues(parameters);
-      return {
-        issues: await Promise.all(
-          page.nodes.map((issue) => summary(input, issue, meta)),
-        ),
-        hasMore: page.pageInfo.hasNextPage,
-        cursor: page.pageInfo.endCursor ?? null,
-      };
-    },
+    linear_list_issues: listIssues,
   } satisfies Pick<
     LinearHandlers,
     | "linear_metadata"

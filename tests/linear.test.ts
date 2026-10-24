@@ -5,10 +5,70 @@ import {
   LINEAR_FIXTURE_SCOPE,
 } from "../src/server/linear/fixture";
 import { describeTemplate, estimateValues } from "../src/server/linear/service";
-import { type LinearIssue, type LinearMetadata } from "../src/shared/linear";
+import {
+  type LinearIssue,
+  type LinearMetadata,
+  type LinearPage,
+} from "../src/shared/linear";
 
 const ref = { ...LINEAR_FIXTURE_SCOPE, issueId: "fixture-linear-42" };
 describe("Linear source contracts", () => {
+  it("keeps body and comment search while returning only list fields", async () => {
+    const service = createLinearFixtureService();
+    const detail = (await service.call("linear_get_issue", ref)) as LinearIssue;
+    await service.call("linear_comment", {
+      ...ref,
+      requestId: randomUUID(),
+      action: "create",
+      body: "comment-only-list-keyword",
+    });
+    const page = (await service.call("linear_list_issues", {
+      ...LINEAR_FIXTURE_SCOPE,
+      query: "comment-only-list-keyword",
+      stateId: detail.state.id,
+    })) as LinearPage;
+    expect(page.issues.map((issue) => issue.issueId)).toEqual([ref.issueId]);
+    expect(page.issues[0]).not.toHaveProperty("body");
+    expect(page.issues[0]).not.toHaveProperty("comments");
+    const loaded = (await service.call("linear_get_issue", ref)) as LinearIssue;
+    expect(loaded.body).toBe(detail.body);
+    expect(
+      loaded.comments.some(
+        (comment) => comment.body === "comment-only-list-keyword",
+      ),
+    ).toBe(true);
+  });
+  it("continues a lightweight list after its first 100 issues without duplicates", async () => {
+    const service = createLinearFixtureService();
+    for (let index = 0; index < 100; index++)
+      await service.call("linear_create_issue", {
+        ...LINEAR_FIXTURE_SCOPE,
+        requestId: randomUUID(),
+        title: `Page issue ${index}`,
+      });
+    const first = (await service.call(
+      "linear_list_issues",
+      LINEAR_FIXTURE_SCOPE,
+    )) as LinearPage;
+    expect(first.issues).toHaveLength(100);
+    expect(first.hasMore).toBe(true);
+    const second = (await service.call("linear_list_issues", {
+      ...LINEAR_FIXTURE_SCOPE,
+      cursor: first.cursor,
+    })) as LinearPage;
+    expect(second.issues).toHaveLength(2);
+    expect(second.hasMore).toBe(false);
+    expect(
+      new Set([...first.issues, ...second.issues].map((issue) => issue.issueId))
+        .size,
+    ).toBe(102);
+    await expect(
+      service.call("linear_list_issues", {
+        ...LINEAR_FIXTURE_SCOPE,
+        cursor: "missing-cursor",
+      }),
+    ).rejects.toThrow("cursor");
+  });
   it("pages comments and returns a newly acknowledged reply even beyond the first page", async () => {
     const service = createLinearFixtureService();
     for (let index = 0; index < 64; index++)

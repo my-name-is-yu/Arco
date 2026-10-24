@@ -217,18 +217,18 @@ export interface LinearMetadata {
   milestones: (LinearNamed & { projectId: string })[];
   estimateValues: number[];
 }
-export type LinearIssueSummary = Omit<
+export type LinearIssueSummary = Pick<
   LinearIssue,
-  | "parent"
-  | "children"
-  | "comments"
-  | "commentsHasMore"
-  | "commentsCursor"
-  | "changedComment"
-  | "deletedCommentId"
-  | "attachments"
-  | "relations"
-  | "reactions"
+  | "source"
+  | "connectionId"
+  | "workspaceId"
+  | "teamId"
+  | "issueId"
+  | "identifier"
+  | "title"
+  | "url"
+  | "updatedAt"
+  | "state"
 >;
 export interface LinearPage {
   issues: LinearIssueSummary[];

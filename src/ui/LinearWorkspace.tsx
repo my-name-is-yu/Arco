@@ -6,6 +6,7 @@ import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
+  type InfiniteData,
 } from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
@@ -54,6 +55,7 @@ import { LinearCreateIssue } from "./LinearCreateIssue";
 import { InlineSummaryCard } from "./InlineSummaryCard";
 import { isIssueUrlInput, linearIssueUrl } from "../shared/issue-url";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { useIssueListContinuation } from "./useIssueListContinuation";
 import {
   linearCommentChangesKey,
   type LinearCommentChanges,
@@ -289,19 +291,42 @@ export function LinearWorkspace({
     enabled: canRead && Boolean(scope),
   });
   const pageScope = JSON.stringify([scope, query, filters]);
-  const issues = useInfiniteQuery({
+  const issues = useInfiniteQuery<
+    LinearPage,
+    Error,
+    InfiniteData<LinearPage>,
+    readonly unknown[],
+    string | undefined
+  >({
     queryKey: ["linear-issues", pageScope],
-    refetchInterval: canRead && mode === "fullscreen" ? 30_000 : false,
+    // Replaying a scrolled list grows with every loaded page. Refresh still
+    // updates the complete list when more than one page has been opened.
+    refetchInterval: (query) =>
+      canRead &&
+      mode === "fullscreen" &&
+      query.state.data?.pages.length === 1 &&
+      query.state.status !== "error"
+        ? 30_000
+        : false,
+    refetchOnWindowFocus: (query) =>
+      canRead &&
+      mode === "fullscreen" &&
+      query.state.data?.pages.length === 1 &&
+      query.state.status !== "error",
     initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) =>
-      host.call<LinearPage>("linear_list_issues", {
-        ...scope,
-        query,
-        ...Object.fromEntries(
-          Object.entries(filters).filter(([, value]) => value),
-        ),
-        ...(pageParam ? { cursor: pageParam } : {}),
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      host.call<LinearPage>(
+        "linear_list_issues",
+        {
+          ...scope,
+          query,
+          ...Object.fromEntries(
+            Object.entries(filters).filter(([, value]) => value),
+          ),
+          ...(pageParam ? { cursor: pageParam } : {}),
+        },
+        { signal },
+      ),
     getNextPageParam: (last) =>
       last.hasMore ? (last.cursor ?? undefined) : undefined,
     enabled: canRead && Boolean(scope) && !settings.query.isPending,
@@ -310,6 +335,16 @@ export function LinearWorkspace({
     () => issues.data?.pages.flatMap((page) => page.issues) ?? [],
     [issues.data],
   );
+  const loadMoreIssues = useIssueListContinuation({
+    listRef: list,
+    scope: pageScope,
+    enabled: canRead && mode === "fullscreen",
+    hasNextPage: issues.hasNextPage,
+    isFetching: issues.isFetching,
+    isError: issues.isError,
+    pageCount: issues.data?.pages.length ?? 0,
+    loadNext: () => issues.fetchNextPage({ cancelRefetch: false }),
+  });
   const matchesConnection = (ref: LinearRef | null) =>
     ref?.connectionId === connection.data?.connectionId &&
     ref?.workspaceId === connection.data?.workspace?.id;
@@ -1159,7 +1194,7 @@ export function LinearWorkspace({
                   </button>
                 </div>
               ))}
-              {issues.isError && (
+              {issues.isError && !issues.isFetchNextPageError && (
                 <AsyncState kind="error" className="list-message">
                   <p className="inline-error">{message(issues.error)}</p>
                   <button
@@ -1176,11 +1211,16 @@ export function LinearWorkspace({
                   No matching Issues.
                 </AsyncState>
               )}
+              {issues.isFetchNextPageError && (
+                <p className="list-message inline-error" role="alert">
+                  Could not load more issues: {message(issues.error)}
+                </p>
+              )}
               {issues.hasNextPage && (
                 <button
                   className="load-more"
-                  disabled={issues.isFetchingNextPage}
-                  onClick={() => void issues.fetchNextPage()}
+                  disabled={issues.isFetching}
+                  onClick={loadMoreIssues}
                 >
                   {issues.isFetchingNextPage ? "Loading…" : "Load more"}
                 </button>

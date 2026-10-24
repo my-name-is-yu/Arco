@@ -77,6 +77,7 @@ async function source() {
     operation: string;
     variables: Record<string, unknown>;
     bearer: boolean;
+    query: string;
   }[] = [];
   const controls = {
     partialError: false,
@@ -112,6 +113,7 @@ async function source() {
         operation,
         variables: input.variables,
         bearer: request.headers.authorization === "Bearer fake-sdk-token",
+        query: input.query,
       });
       const organization = {
         id: "workspace",
@@ -138,6 +140,27 @@ async function source() {
       });
       let data: object;
       switch (operation) {
+        case "ArcoLinearIssueList":
+        case "ArcoLinearIssueSearch":
+          data = {
+            organization,
+            team: { ...team, organization: { id: "workspace" } },
+            issuePage: connection(
+              [
+                {
+                  ...issue,
+                  state: {
+                    id: "state",
+                    name: "In progress",
+                    type: "started",
+                    color: "#ffcc00",
+                  },
+                },
+              ],
+              true,
+            ),
+          };
+          break;
         case "organization":
           data = { organization };
           break;
@@ -365,7 +388,8 @@ async function source() {
       response.end(
         JSON.stringify({
           data,
-          ...(controls.partialError && operation === "updateIssue"
+          ...(controls.partialError &&
+          (operation === "updateIssue" || operation.startsWith("ArcoLinear"))
             ? {
                 errors: [
                   {
@@ -573,14 +597,23 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
     expect(page.hasMore).toBe(true);
     expect(page.issues[0].identifier).toBe("TST-1");
     expect(
-      calls.find((call) => call.operation === "searchIssues")?.variables,
+      calls.find((call) => call.operation === "ArcoLinearIssueSearch")
+        ?.variables,
     ).toMatchObject({
       term: "source text",
+      first: 100,
       after: "previous-page",
       filter: { team: { id: { eq: "team" } }, state: { id: { eq: "state" } } },
     });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].query).toContain("includeComments: true");
+    expect(calls[0].query).not.toMatch(/description|reactions|sharedAccess/);
+    expect(page.issues[0]).not.toHaveProperty("body");
     await service.call("linear_list_issues", { ...scope });
-    expect(calls.some((call) => call.operation === "issues")).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls.some((call) => call.operation === "ArcoLinearIssueList")).toBe(
+      true,
+    );
     expect(calls.some((call) => call.operation === "issueSearch")).toBe(false);
     await expect(
       service.call("linear_update_issue", {
@@ -591,6 +624,17 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
       }),
     ).rejects.toThrow("Merge duplicate");
     expect(calls.some((call) => call.operation === "updateIssue")).toBe(false);
+  });
+  it("rejects partial list data through the SDK without leaking the source response or falling back", async () => {
+    const { service, controls, calls } = await source();
+    controls.partialError = true;
+    await expect(
+      service.call("linear_list_issues", { ...scope, query: "private search" }),
+    ).rejects.toThrow(
+      /^Unable to load Linear issues\. Check access and refresh\.$/,
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].operation).toBe("ArcoLinearIssueSearch");
   });
   it("shares checked context and metadata within one call and reads back a labeled bulk member once", async () => {
     const { service, calls } = await source();

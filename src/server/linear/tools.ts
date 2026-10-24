@@ -26,9 +26,11 @@ export function registerLinearTools(server: McpServer, service: LinearService) {
       {
         title: name,
         description:
-          name === "linear_resolve_issue"
-            ? "Resolve an official Linear issue URL through the authorized connection and return its native workspace, team, and issue IDs. Read-only; rejects a different workspace or canonical issue."
-            : `Linear native Issue operation: ${name}. Uses the selected connection, workspace and team. Workflow state is never synthesized from GitHub.`,
+          name === "linear_list_issues"
+            ? "List up to 100 lightweight Linear issue summaries in the selected workspace and team. Search includes issue text and comments; filters and ordering are native Linear. Pass cursor to continue; use linear_get_issue for full detail."
+            : name === "linear_resolve_issue"
+              ? "Resolve an official Linear issue URL through the authorized connection and return its native workspace, team, and issue IDs. Read-only; rejects a different workspace or canonical issue."
+              : `Linear native Issue operation: ${name}. Uses the selected connection, workspace and team. Workflow state is never synthesized from GitHub.`,
         inputSchema: linearSchemas[name].shape,
         annotations: {
           readOnlyHint: linearReadOnly.has(name),

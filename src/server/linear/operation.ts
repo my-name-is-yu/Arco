@@ -16,7 +16,6 @@ import {
   type LinearComment,
   type LinearCommentPage,
   type LinearIssue,
-  type LinearIssueSummary,
   type LinearLabel,
   type LinearMetadata,
   type LinearRef,
@@ -285,7 +284,21 @@ export function createLinearOperation(options: {
     scope: LinearScope,
     issue: Issue | IssueSearchResult,
     meta: LinearMetadata,
-  ): Promise<LinearIssueSummary> {
+  ): Promise<
+    Omit<
+      LinearIssue,
+      | "parent"
+      | "children"
+      | "comments"
+      | "commentsHasMore"
+      | "commentsCursor"
+      | "changedComment"
+      | "deletedCommentId"
+      | "attachments"
+      | "relations"
+      | "reactions"
+    >
+  > {
     const state =
       meta.states.find((value) => value.id === issue.stateId) ??
       (await issue.state);

@@ -11,6 +11,8 @@
 - `fixture.ts`: 架空のLinear workspace/team/Issue。実サービスを呼ばず、接続表示もfixtureと区別する。
 - `src/shared/linear.ts`: source固有の入力schemaとDTO。workspace/team/接続ID、本文/コメントの親子、ラベルscope、既存Project/cycle/milestone等を保持する。
 
+2026-10-24の一覧軽量化では、`linear/issue-list.ts`の専用GraphQLで一覧用の識別子・タイトル・URL・更新日時・状態を100件ずつ取得する。workspace/team確認も同じクエリ内で行い、一覧から本文と全編集metadataの取得を外した。検索は従来の`searchIssues`と`includeComments:true`、各filter・order・cursorを維持する。詳細・編集・コメント・画像の契約は従来どおり。検証の範囲と数値は[一覧の検証記録](linear-list-validation-2026-10-24.md)を参照。
+
 採用操作の保存後には元サービスを再取得する。ラベルは`addedLabelIds` / `removedLabelIds`だけを送り、無関係なラベルを全置換しない。single-select groupで明示されていない兄弟ラベルを暗黙に外さない。属性は明示したteam/workspaceの既存値を検証する。
 
 会話・UIのtool呼出しは同じadapterを使用する。Arcoの独自backend、Issue mirror、agent queueは追加していない。

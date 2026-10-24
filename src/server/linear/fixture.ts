@@ -5,6 +5,7 @@ import {
   linearSchemas,
   type LinearComment,
   type LinearIssue,
+  type LinearIssueSummary,
   type LinearMetadata,
   type LinearRef,
   type LinearScope,
@@ -361,7 +362,7 @@ export function createLinearFixtureService(): LinearService {
       const matches = [...issues.values()]
         .filter(
           (issue) =>
-            `${issue.identifier}\n${issue.title}\n${issue.body}`.includes(
+            `${issue.identifier}\n${issue.title}\n${issue.body}\n${issue.comments.map((comment) => comment.body).join("\n")}`.includes(
               input.query,
             ) &&
             (!input.stateId || issue.state.id === input.stateId) &&
@@ -371,7 +372,30 @@ export function createLinearFixtureService(): LinearService {
             (!input.projectId || issue.project?.id === input.projectId),
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      return { issues: structuredClone(matches), hasMore: false, cursor: null };
+      const start = input.cursor
+        ? matches.findIndex((issue) => issue.issueId === input.cursor) + 1
+        : 0;
+      if (input.cursor && start === 0)
+        throw new Error(
+          "The issue cursor is no longer available. Refresh and try again.",
+        );
+      const page = matches.slice(start, start + 100);
+      return {
+        issues: page.map((issue): LinearIssueSummary => ({
+          source: "linear",
+          connectionId: issue.connectionId,
+          workspaceId: issue.workspaceId,
+          teamId: issue.teamId,
+          issueId: issue.issueId,
+          identifier: issue.identifier,
+          title: issue.title,
+          url: issue.url,
+          updatedAt: issue.updatedAt,
+          state: structuredClone(issue.state),
+        })),
+        hasMore: start + page.length < matches.length,
+        cursor: page.at(-1)?.issueId ?? null,
+      };
     }
     if (name === "linear_create_issue") {
       const input = linearSchemas[name].parse(raw);
