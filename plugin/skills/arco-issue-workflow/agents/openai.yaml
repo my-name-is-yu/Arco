@@ -1,0 +1,8 @@
+interface:
+  display_name: "Arco Issue Workflow"
+  short_description: "Read, show, and update issues with Arco"
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "arco"
+      description: "Arco's bundled local MCP server"

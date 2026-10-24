@@ -1,0 +1,8 @@
+interface:
+  display_name: "Arco Setup"
+  short_description: "Connect Arco to GitHub or Linear"
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "arco"
+      description: "Arco's bundled local MCP server"

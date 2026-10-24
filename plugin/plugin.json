@@ -6,6 +6,7 @@
   "mcpServers": "./mcp.json",
   "extensions": {
     "com.openai": {
+      "onboardingSkill": "./skills/arco-setup/SKILL.md",
       "interface": {
         "displayName": "Arco",
         "shortDescription": "GitHub and Linear Issues beside your Codex chat.",

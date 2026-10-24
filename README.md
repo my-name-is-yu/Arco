@@ -4,6 +4,13 @@ GitHub・LinearのIssueをCodex内で閲覧・編集し、選択した文脈を�
 
 実装と受入確認を進めています。操作ごとの実装先と確認範囲は[実装・受入確認](docs/implementation-status.md)を参照してください。完成条件は[要件定義](docs/requirements.md)、[最終スコープ](docs/product-scope.md)、[操作対応表](docs/issue-operations.md)です。現在の責務と保存形式は[技術スタック](docs/technical-stack.md)、今回の変更とローカル検証は[構造整理の確認記録](docs/refactor-validation-2026-10-24.md)を参照してください。
 
+## 同梱スキル
+
+- [arco-setup](plugin/skills/arco-setup/SKILL.md): 初回接続と接続エラーの案内。manifestの`onboardingSkill`から起動する。
+- [arco-issue-workflow](plugin/skills/arco-issue-workflow/SKILL.md): Issueの特定、データ取得と表示の使い分け、依頼された更新と結果確認。
+
+スキルとMCP serverは同じpluginへ同梱します。`npm run build`で`dist/plugin/skills/`にもコピーします。
+
 ## 開発と検証
 
 開発基準はNode `24.22.1`、npm。一つのpackageとlockfileを使います。
