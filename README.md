@@ -13,15 +13,13 @@ Arco runs a local Node.js MCP server and an embedded React interface. It connect
 - Show an issue as an inline card or open its full details in a panel.
 - Add an entire issue or several numbered selections, with optional comments, to the Codex composer.
 
-GitHub and Linear remain the sources of truth. Arco preserves each provider's native fields and does not synchronize the two services. See the [product scope](docs/product-scope.md) and [operation reference](docs/issue-operations.md).
-
-![Arco GitHub inline card with fictional fixture data](docs/design/references/2026-10-24-inline/operations-github.png)
-
-The screenshot shows the local fixture interface, not a live provider connection or native Codex verification.
+GitHub and Linear remain the sources of truth. Arco preserves each provider's native fields and does not synchronize the two services.
 
 ## Install from source
 
-You need a Codex desktop environment with local plugin support, Git, npm, and Node.js **24.22.1 or later within Node 24**. GitHub integration also requires the [`gh` CLI](https://cli.github.com/). Linear requires an OAuth application client ID that you configure for your own installation.
+You need a Codex desktop environment with local plugin and interactive MCP UI support, the `codex` CLI, Git, npm, and Node.js **24.22.1 or later within Node 24**. The desktop app must be able to find `node` and, for GitHub, the [`gh` CLI](https://cli.github.com/) on its executable search path. The GitHub CLI must support `gh auth token --no-refresh`.
+
+Build on the target OS and architecture: the package includes a native keyring binding and cannot be copied across platforms. Windows and Linux require native validation before support can be claimed. Linear requires a working OS credential store; Linux needs an unlocked Secret Service. There is no plaintext credential fallback.
 
 ```sh
 git clone https://github.com/my-name-is-yu/Arco.git
@@ -32,37 +30,67 @@ codex plugin marketplace add .
 codex plugin add arco@arco-local
 ```
 
-Restart the desktop app, start a new conversation, and run Arco's setup skill. Connect the service you want to use; both services are optional individually.
+The local catalog points to generated `dist/plugin/`, so build before installing and keep the checkout for updates. Codex installs a cached copy. Restart the desktop app, start a new conversation, and run Arco's setup skill. Connect the service you want to use; either service can be used independently.
 
-The local catalog is an installation mechanism for the source build. Arco's OSS distribution does not depend on listing in the official public plugin directory. The catalog points to `dist/plugin`, so build before installing and reinstall after rebuilding. See [installation and updates](docs/installation.md) for provider setup, platform requirements, and troubleshooting.
+## Connect your providers
 
-Native behavior has been exercised on **macOS arm64**. Windows and Linux need separate builds and native desktop validation; this Mac's keyring binary cannot be reused across platforms. See the [platform matrix](docs/platform-validation.md) for evidence and limitations.
+For GitHub, authenticate with the CLI:
+
+```sh
+gh auth login --web
+gh auth status
+```
+
+Arco uses the selected GitHub.com account and its existing permissions. For GitHub Projects, review and grant the additional scope with `gh auth refresh --hostname github.com --scopes project`. Open **My issues** for the initial **Assigned to me** list, or **Project issues** to choose a repository for the conversation.
+
+For Linear:
+
+1. Create or use a [Linear OAuth application](https://linear.app/developers/oauth-2-0-authentication) that your account and workspace can authorize.
+2. Register the exact callback `http://127.0.0.1:53187/oauth/linear/callback`.
+3. Open Arco's Linear view, enter the client ID, and select **Authorize in Linear**. No client secret is needed.
+4. Finish browser authorization, verify the connected account and workspace in Arco, and select a team.
+
+Linear tokens are stored in the OS credential store. Your application's access settings determine who can connect; the maintainer's development application is not a shared public connection.
+
+## Update or remove
+
+Preserve local changes before updating, then refresh the source build and installed copy:
+
+```sh
+git pull --ff-only
+npm ci
+npm run build
+codex plugin add arco@arco-local
+```
+
+Restart the desktop app and start a new conversation to load the update. If native keyring loading fails, reinstall dependencies and rebuild on that OS and architecture. If Linear authorization fails, check the registered callback, available port 53187, and unlocked credential store.
+
+To uninstall:
+
+```sh
+codex plugin remove arco@arco-local
+codex plugin marketplace remove arco-local
+```
+
+Disconnect Linear in Arco first if you want to remove its stored credential. Uninstalling leaves local settings and drafts separate from provider grants; revoke Linear authorization through Linear when needed. Shared GitHub CLI credentials remain managed by `gh`.
 
 ## Develop locally
 
 ```sh
 npm ci
-npm run check
-npm run test:browser:smoke
-npm run dev:fixture
+npm run dev
 ```
 
-`check` runs static and documentation checks, unit tests, builds, MCP smoke checks, and artifact validation. `test:browser:smoke` runs the critical browser flows used by routine CI; `test:browser` runs the complete regression suite. Full browser checks also run nightly, manually, and for shared host, storage, or dependency changes. The fixture host uses fictional issues and does not fall back to live provider APIs. It is a browser preview, not proof of Codex desktop behavior.
+The fixture host builds and displays fictional issues without live provider access. It is a browser preview; actual Codex desktop behavior and live writes require separate checks. The build produces `dist/plugin/` for installation and `dist/dev/` for fixture development. Rebuild after source changes; `npm run dev:fixture` starts an existing build without hot reload.
 
-Documentation-only pushes and pull requests do not start CI. Run `npm run check:docs` locally for those changes; the [development guide](docs/development.md#continuous-integration) lists the documentation paths.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for validation commands and contribution policy. Repository documentation, comments, and authored examples are written in English; provider content is displayed in its original language.
 
-The build produces `dist/plugin/` for installation and `dist/dev/` for fixture development. The plugin includes the project license, third-party notices, and the native keyring binding installed on the build machine.
+## Specifications
 
-See the [development guide](docs/development.md), [architecture](docs/technical-stack.md), and [contribution guide](CONTRIBUTING.md). Repository documentation, comments, and authored examples are written in English; provider content is displayed in its original language.
-
-## Documentation
-
-- [Documentation index](docs/index.md): user guides, architecture, and dated validation records.
-- [Installation](docs/installation.md): build, install, connect, update, and remove.
-- [Security and privacy](docs/security-and-privacy.md): data flow, credentials, and shared context.
-- [Local data](docs/local-data-boundary.md): settings, drafts, retention, and invalid-data handling.
-- [Implementation status](docs/implementation-status.md): implemented behavior and remaining validation.
-- [Design and accessibility checks](design-qa.md): interaction and presentation guidance.
+- [Requirements](docs/requirements.md)
+- [Issue operations](docs/issue-operations.md)
+- [Screen behavior](docs/screen-structure.md)
+- [Security and privacy](docs/security-and-privacy.md)
 
 ## Contributing and support
 

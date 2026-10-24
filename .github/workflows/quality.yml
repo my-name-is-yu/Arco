@@ -7,7 +7,6 @@ on:
       - "README.md"
       - "CONTRIBUTING.md"
       - "SECURITY.md"
-      - "design-qa.md"
       - "LICENSE"
       - ".github/**/*.md"
   push:
@@ -17,7 +16,6 @@ on:
       - "README.md"
       - "CONTRIBUTING.md"
       - "SECURITY.md"
-      - "design-qa.md"
       - "LICENSE"
       - ".github/**/*.md"
   schedule:

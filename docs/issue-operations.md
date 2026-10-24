@@ -1,6 +1,6 @@
 # Issue operations
 
-This table defines Arco's issue-client boundary. It is not a promise that every operation has the same validation history; see [implementation status](implementation-status.md). All operations require the source service to expose the capability and the connected user to have access.
+This table defines Arco's issue-client boundary. All operations require the source service to expose the capability and the connected user to have access.
 
 ## Supported categories
 
@@ -27,8 +27,6 @@ This table defines Arco's issue-client boundary. It is not a promise that every 
 | O19 | Codex context                  | Whole issue, selected passages, mentions, refresh after tools       | Same                                              | Explicit sharing; no automatic message sending                                |
 | O20 | Source handoff                 | Copy issue/comment URL or identifier; open GitHub                   | Same for Linear                                   | Preserve access to unsupported native operations                              |
 
-The source-specific tool contracts are defined in [`src/shared/contracts.ts`](../src/shared/contracts.ts), [`src/shared/github-operations.ts`](../src/shared/github-operations.ts), and [`src/shared/linear.ts`](../src/shared/linear.ts). The packaged [issue workflow skill](../plugin/skills/arco-issue-workflow/SKILL.md) explains tool selection.
-
 ## Supported attribute types
 
 - GitHub issue: an existing issue type.
@@ -42,7 +40,7 @@ Organization issue fields and Project fields are separate storage locations. Mat
 
 Inline cards support reading, checklist changes, native issue state, assignees, existing labels, Linear priority, and copying/opening native references. Free-form title/body editing, comments, project membership and fields, relationships, and bulk operations belong in the expanded workspace. See [Screen structure](screen-structure.md#inline-cards).
 
-For 2–4 explicitly selected issues, `arco_show_issues` provides compact rounded inline tabs with identifiers and titles. Native state is available through the tooltip and accessible description rather than a tab icon. It preserves order, removes duplicate references, and does not fetch a broader list or add cross-provider operations. All fetched issue bodies and properties are cached for tab switching; **Open details** opens the same issue in the existing workspace. The model-facing presentation result contains lightweight summaries without bodies or comments. The app receives the already-fetched details separately in result metadata, without additional provider reads. The leading body image of each issue is prefetched; remaining images load when needed.
+For 2–4 explicitly selected issues, inline tabs preserve the supplied order and remove duplicate native references. They do not broaden the requested set or introduce cross-provider operations. **Open details** opens the same issue in the expanded workspace.
 
 Checklist writes edit the source Markdown line. A conflicting draft or unavailable draft state must lead to review in details rather than silently overwriting work.
 
@@ -54,8 +52,8 @@ Project/cycle/milestone/team administration, roadmap planning, time accounting, 
 
 ## Write correctness
 
-Validate native source, ID, repository/team, and any required Project/field/option IDs before saving. Write only the supplied attributes. For bulk actions, require compatible targets, retain per-Issue outcomes, and show failed targets with failed-only retry. See the [notification policy](design/notifications.md).
+Validate native source, ID, repository/team, and any required Project/field/option IDs before saving. Write only the supplied attributes. For bulk actions, require compatible targets, retain per-Issue outcomes, and show failed targets with failed-only retry. See [Screen structure](screen-structure.md) for feedback requirements.
 
 Keep source automation intact and re-read the result instead of reproducing or counteracting upstream automation. Distinguish successful writes, failed writes, uncertain outcomes, and successful writes whose subsequent read failed. Never automatically retry an uncertain mutation with a new request ID.
 
-For implementation guidance, see [Technical architecture](technical-stack.md), [Security design](security-and-privacy.md), and [Development](development.md).
+See [Product requirements](requirements.md) and [Security and privacy](security-and-privacy.md) for the surrounding boundaries.

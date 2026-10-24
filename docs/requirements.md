@@ -1,24 +1,27 @@
 # Product requirements
 
-These requirements describe the behavior contributors should preserve. They are separate from proof that every operation, host surface, or operating system has been validated. Use [implementation status](implementation-status.md) for that evidence.
+These requirements define Arco's product boundary and the behavior contributors should preserve.
 
 ## Purpose and distribution
 
 Arco lets a user find, read, and update GitHub and Linear issues while discussing the same work in Codex. It is distributed as MIT-licensed source with a manually installed local MCP plugin. Official public-directory submission is outside the current distribution plan.
 
-The complete responsibility boundary is documented in [Product scope](product-scope.md); operation categories are in [Issue operations](issue-operations.md).
+GitHub and Linear own issue records and permissions. Codex owns the conversation, message sending, and AI execution. Arco owns issue interaction, local preferences and drafts, and the handoff of explicitly selected context. Operation categories are defined in [Issue operations](issue-operations.md).
+
+Arco can select existing projects, milestones, cycles, and supported native field values, and manage supported label definitions. It does not administer projects, teams, workflows, field definitions, or access permissions.
+
+Arco does not provide an independent issue tracker, generic project-management platform, cross-service synchronization, migration service, notification inbox, autonomous triage, or agent execution service. It does not introduce an Arco account, hosted issue backend, billing service, entitlement server, or paid feature tiers. Transfers, duplicate merges, destructive issue lifecycle operations, complex issue forms, and source-service administration remain upstream.
 
 ## Browsing and discovery
 
 - The personal GitHub entry initially shows open issues assigned to the connected user, ordered by last update. **Created by me**, **Mentioned me**, and **All account repositories** require an explicit switch.
 - An empty personal list stays empty. It must not silently widen to all repositories or public search.
 - The project entry chooses a GitHub repository explicitly when the host cannot supply usable workspace roots. Keep this selection separate from personal browsing preferences.
+- Ambiguous workspace roots require a repository choice. Never infer the chat's project from the MCP process's working directory or select an arbitrary repository or Linear team.
 - Preserve native repository/workspace/team identity on every row, including when issue numbers or names coincide.
 - Provide source-native search, filters, pagination, refresh, and direct issue-URL navigation without building an independent full-text index.
 - Show the number of loaded issues accurately; do not present it as the account's total issue count.
 - Keep list position, filters, draft input, and in-flight work across issue and provider switches.
-
-See [GitHub discovery](github-account-discovery.md) and [Project and personal viewers](project-viewers.md).
 
 ## Issue interaction
 
@@ -48,7 +51,7 @@ Whole-issue sharing, selected passages with optional annotations, `@Arco` issue 
 
 ## Local data and authorization
 
-The local MCP process connects directly to GitHub and Linear. Credentials stay outside the UI and model-facing results. Settings and unsent drafts use local JSON with revision checks, atomic replacement, and process locks. Linear credentials use the OS credential store with no plaintext fallback. See [Local data](local-data-boundary.md) and [Security design](security-and-privacy.md).
+Credentials stay outside the UI and model-facing results. Preserve local settings and unsent drafts without maintaining a persistent issue mirror. See [Security and privacy](security-and-privacy.md).
 
 Only explicit user-authorized operations may mutate source data. Reusing a request ID is valid only for the identical operation. An uncertain write must be inspected before retrying; a read failure after a successful write must not be presented as a failed write.
 
@@ -60,10 +63,4 @@ Only explicit user-authorized operations may mutate source data. Reusing a reque
 - Distinguish loading, empty, error, saved, and partially completed states. A failed request is not an empty list.
 - Display original issue text faithfully. Repository-maintained documentation, comments, and interface copy use English; user content retains its source language.
 
-See [Screen structure](screen-structure.md) and [Design QA](../design-qa.md).
-
-## Acceptance evidence
-
-Run the documented [development checks](development.md) for code changes. Fixture tests establish behavior against fictional providers and a mock host. Protocol checks establish MCP registration and tool behavior. Real provider writes, desktop rendering, composer context receipt, and other native platforms each need separate evidence.
-
-Do not infer broad platform support from source branches or a successful build on one Mac. A manually installed local plugin is not proof of official directory publication.
+See [Screen structure](screen-structure.md) for presentation and interaction requirements. Contribution and verification requirements are in [CONTRIBUTING.md](../CONTRIBUTING.md).

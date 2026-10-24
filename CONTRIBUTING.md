@@ -4,7 +4,7 @@ This guide keeps contributions focused and reviewable. Read it before opening an
 
 ## Keep the project small
 
-Arco is an issue client inside Codex. GitHub and Linear own the issue records; Codex owns the conversation and model execution. Keep changes within the [product scope](docs/product-scope.md).
+Arco is an issue client inside Codex. GitHub and Linear own the issue records; Codex owns the conversation and model execution. Keep changes within the [requirements](docs/requirements.md).
 
 Solve a concrete problem with the smallest useful change. A new abstraction, dependency, provider, or configuration option needs a reason beyond a possible future use. Cross-provider synchronization, a hosted issue backend, and a separate agent runtime are outside Arco's scope.
 
@@ -15,6 +15,8 @@ Solve a concrete problem with the smallest useful change. A new abstraction, dep
 AI assistance is welcome. Review the output, check its assumptions, and test the result yourself. Do not submit unreviewed agent output, speculative diagnoses presented as facts, or batches of automatically generated issues and PRs.
 
 Write issue descriptions and PR explanations in your own words. If generated analysis is useful, add it as a separate comment clearly labeled as AI-generated, and verify its claims. Write repository documentation, comments, and authored examples in English. Provider content retains its original language; tests may use non-ASCII input to exercise Unicode or input-method behavior.
+
+Keep `docs/` for specifications and contracts. Do not add work logs, test-result snapshots, agent handoffs, or code inventories. Use Git history, source code, and test output for that information; keep setup and contribution instructions in the root guides.
 
 ## Start with an issue
 
@@ -38,18 +40,18 @@ Do not include access tokens, OAuth callback codes, private issue content, or cr
 
 ## Before opening a PR
 
-Follow the [development guide](docs/development.md). Use the Node.js version in `.node-version` and install locked dependencies with `npm ci`.
-
-For code changes, run:
+Use the Node.js version in `.node-version`. Install locked dependencies and the browser needed by Playwright, then run the code checks:
 
 ```sh
+npm ci
+npx --no-install playwright install chromium
 npm run check
 npm run test:browser:smoke
 ```
 
-Both must pass. Run `npm run test:browser` as well for shared host, storage-contract, or dependency changes, and before a release. Documentation-only pushes and pull requests do not start CI: run `npm run check:docs` locally and verify any commands you changed. See the [development guide](docs/development.md) for the documentation paths and full-suite triggers. State exactly what you checked and disclose anything you could not verify.
+`check` runs static and documentation checks, unit/service tests, builds, MCP smoke checks, and production artifact validation. The browser smoke suite covers critical interactions. Both must pass. Run `npm run test:browser` as well for shared host, storage-contract, or dependency changes, and before a release. Documentation-only pushes and pull requests do not start CI: run `npm run check:docs` locally and verify any commands you changed. State exactly what you checked and disclose anything you could not verify.
 
-Use the fictional fixture host for routine development. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering.
+Use `npm run dev` to build and start the fictional fixture host for routine development. `npm run dev:fixture` starts an existing build; rebuild after source changes. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering. Native credential tests can skip when an OS credential store is unavailable; report skipped checks.
 
 ## Keep PRs easy to review
 

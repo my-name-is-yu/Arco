@@ -1,6 +1,6 @@
 # Security policy
 
-Arco handles issue content and provider authorization on the user's machine. Review the [security architecture](docs/security-and-privacy.md) and [local data boundary](docs/local-data-boundary.md) when investigating a problem.
+Arco handles issue content and provider authorization on the user's machine. Review the [security and privacy boundaries](docs/security-and-privacy.md) when investigating a problem.
 
 ## Report a vulnerability
 
