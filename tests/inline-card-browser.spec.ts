@@ -3,6 +3,7 @@ import type { IssueDetail } from "../src/shared/contracts";
 import type { LinearIssue } from "../src/shared/linear";
 import type { SettingsRecord } from "../src/shared/state";
 import { choose, selectControl } from "./select-helpers";
+import { sharedContextFromText } from "./shared-context-helpers";
 
 type Source = "github" | "linear";
 type ToolCall = { name: string; arguments: Record<string, unknown> };
@@ -1397,6 +1398,23 @@ for (const source of ["github", "linear"] as const) {
     const ui = app(page);
     await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
     await expect.poll(() => events(page, "context")).toHaveLength(1);
+    const shared = (await events(page, "context"))[0];
+    const label = source === "github" ? "Arco #42" : "YU-42";
+    expect(shared).toMatchObject({
+      content: [
+        {
+          _meta: {
+            "openai/title": label,
+            "openai/group": { title: label },
+          },
+        },
+        { _meta: { "openai/group": { title: label } } },
+      ],
+    });
+    expect(sharedContextFromText(shared)).toMatchObject({
+      source,
+      title: titles[source][0],
+    });
     await expect(ui.locator(".notice")).toHaveCount(0);
     await page
       .getByRole("button", { name: "Mock inline", exact: true })

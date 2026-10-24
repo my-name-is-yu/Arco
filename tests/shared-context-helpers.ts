@@ -120,13 +120,17 @@ export function sharedContextFromText(value: unknown) {
       });
     }
   } else {
+    const title =
+      context.source === "github"
+        ? `${String(context.repo).split("/")[1]} #${context.number}`
+        : context.identifier;
     expect(update.content).toHaveLength(2);
     expect(visible[0]).toMatchObject({
       type: "text",
       text: expect.any(String),
       _meta: {
-        "openai/title": expect.any(String),
-        "openai/group": { title: "Arco" },
+        "openai/title": title,
+        "openai/group": { title },
       },
     });
   }

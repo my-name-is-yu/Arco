@@ -34,7 +34,7 @@ export function contextAttachment(
   text: string,
   title: string,
 ) {
-  return attachment(context, [{ text, title }], "Arco");
+  return attachment(context, [{ text, title }], title);
 }
 
 export function annotationAttachment(

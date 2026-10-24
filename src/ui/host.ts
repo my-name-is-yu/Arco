@@ -376,7 +376,9 @@ export async function connectHost(): Promise<ArcoHost> {
         contextAttachment(
           context,
           `${identifier} ${issue.title}\n${issue.url}`,
-          `${identifier} ${issue.title}`,
+          issue.source === "github"
+            ? `${issue.repo.split("/")[1]} #${issue.number}`
+            : issue.identifier,
         ),
       );
     },

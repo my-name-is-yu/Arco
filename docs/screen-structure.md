@@ -63,7 +63,7 @@ GitHub and Linear can appear together without sharing a workflow or synthesizing
 
 Arco owns context selection and annotations; Codex owns the conversation composer, attachment UI, and sending. Neither browsing a row nor selecting text shares anything automatically.
 
-Whole-issue **Add to chat** retains the source reference and relevant issue content. Passage sharing includes the selected text rather than silently adding the complete body or comment history.
+Whole-issue **Add to chat** labels the attachment with the GitHub repository name and issue number (for example, `Arco #42`) or the native Linear identifier (for example, `ARC-42`). It retains the issue title, source reference, and relevant issue content. Passage sharing includes the selected text rather than silently adding the complete body or comment history.
 
 Selecting text reveals a small **Add to chat** action. Adding it preserves earlier annotations, highlights the passage, gives it a number, and optionally opens a comment editor. Each annotation keeps its own selected text and optional comment. Saving a comment updates that annotation; Escape or outside click discards only the unsaved comment edit, keeping the attachment and marker.
 
