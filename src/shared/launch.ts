@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { repoSchema } from "./contracts";
+import { issueRefSchema, repoSchema } from "./contracts";
+import { linearRefSchema } from "./linear";
+
+export const nativeIssueTargetSchema = z.discriminatedUnion("source", [
+  issueRefSchema.extend({ source: z.literal("github") }).strict(),
+  linearRefSchema.extend({ source: z.literal("linear") }).strict(),
+]);
+
+export type NativeIssueTarget = z.infer<typeof nativeIssueTargetSchema>;
 
 export const launchContextSchema = z
   .object({
@@ -18,6 +26,8 @@ export const launchContextSchema = z
       "ambiguous",
       "no-github-repository",
     ]),
+    target: nativeIssueTargetSchema.optional(),
+    source: z.enum(["github", "linear"]).optional(),
   })
   .strict();
 

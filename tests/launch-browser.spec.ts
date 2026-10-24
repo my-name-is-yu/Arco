@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type { Settings, SettingsRecord } from "../src/shared/state";
+import type { NativeIssueTarget } from "../src/shared/launch";
 import { choose, selectControl } from "./select-helpers";
 
 const firstTitle = "Preserve issue selection and scroll position";
@@ -57,6 +58,36 @@ async function calls(page: Page, name: string) {
     .map((event) => event.value.arguments!);
 }
 
+async function hostEvents(page: Page, type: string) {
+  const events = JSON.parse(
+    (await page.locator("#events").textContent()) ?? "[]",
+  ) as { type: string; value: unknown }[];
+  return events
+    .filter((event) => event.type === type)
+    .map((event) => event.value);
+}
+
+const nativeTarget = (
+  source: "github" | "linear",
+  number: number,
+): NativeIssueTarget =>
+  source === "github"
+    ? { source, repo: "yu/Arco", number }
+    : {
+        source,
+        connectionId: "default",
+        workspaceId: "fixture-linear-workspace",
+        teamId: "fixture-linear-team",
+        issueId: `fixture-linear-${number}`,
+      };
+const issueTitles = {
+  github: { 42: firstTitle, 43: mentionedTitle },
+  linear: {
+    42: "Keep Linear workflow states intact",
+    43: "Share a Linear issue with the Codex chat",
+  },
+};
+
 async function open(page: Page, session: string, query = "") {
   await page.goto(`/?session=${session}${query}`);
   await expect(page.locator("#bridge-status")).toHaveText("ready");
@@ -85,6 +116,8 @@ test("the global entry starts My issues despite a saved repository", async ({
   });
   await open(page, session);
   const ui = app(page);
+  expect(await hostEvents(page, "display")).toEqual(["fullscreen"]);
+  expect(await hostEvents(page, "display-request")).toEqual([]);
   await expect(ui.locator("[data-viewer]")).toHaveAttribute(
     "data-viewer",
     "personal",
@@ -113,6 +146,8 @@ test("the project entry uses its detected repository instead of personal setting
   });
   await open(page, session, "&entry=project");
   const ui = app(page);
+  expect(await hostEvents(page, "display")).toEqual(["fullscreen"]);
+  expect(await hostEvents(page, "display-request")).toEqual([]);
   await expect(ui.locator("[data-viewer]")).toHaveAttribute(
     "data-viewer",
     "project",
@@ -434,7 +469,7 @@ test("external issue results and host presentation changes preserve the project 
     .click();
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   await expect(ui.locator(".compact-mode")).toBeVisible();
-  await expect(ui.locator(".issue-kicker")).toContainText("yu/Arco #42");
+  await expect(ui.locator(".inline-card-top")).toContainText("yu/Arco #42");
   await expect(
     ui.getByRole("heading", {
       name: "Issue updated by a Codex tool",
@@ -461,3 +496,240 @@ test("external issue results and host presentation changes preserve the project 
   ).toBeVisible();
   expect(await calls(page, "arco_account_issues")).toEqual([]);
 });
+
+for (const source of ["github", "linear"] as const) {
+  test(`${source} show uses its inline metadata and keeps the exact issue across details and browsing`, async ({
+    page,
+  }) => {
+    const session = await sessionWithSettings(page, {
+      activeSource: source === "github" ? "linear" : "github",
+    });
+    const sharedSource = source === "github" ? "linear" : "github";
+    await page.goto(
+      `/?session=${session}&entry=issue&source=${source}&number=43&shared=${sharedSource}&sharedRepo=yu/Arco`,
+    );
+    await expect(page.locator("#bridge-status")).toHaveText("ready");
+    const ui = app(page);
+    const card = ui.locator(".inline-issue-card");
+    await expect(
+      card.getByRole("heading", { name: issueTitles[source][43], exact: true }),
+    ).toBeVisible();
+    expect(await hostEvents(page, "presentation")).toEqual([
+      {
+        tool: "arco_show_issue",
+        resourceUri: "ui://arco/issue-card",
+        preferredMode: "inline",
+        availableDisplayModes: ["inline", "fullscreen"],
+      },
+    ]);
+    expect(await hostEvents(page, "display")).toEqual(["inline"]);
+    expect(await hostEvents(page, "display-request")).toEqual([]);
+    expect((await hostEvents(page, "launch")).at(-1)).toMatchObject({
+      target: nativeTarget(source, 43),
+    });
+    expect(await calls(page, "arco_update_settings")).toEqual([]);
+
+    await card
+      .getByRole("button", { name: "Open details", exact: true })
+      .click();
+
+    await expect
+      .poll(async () => (await hostEvents(page, "display")).at(-1))
+      .toBe("fullscreen");
+    await expect(
+      ui.getByRole("heading", { name: issueTitles[source][43], exact: true }),
+    ).toBeVisible();
+    await ui
+      .locator(".issue-row")
+      .filter({ hasText: issueTitles[source][42] })
+      .click();
+    await expect(
+      ui.getByRole("heading", { name: issueTitles[source][42], exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Mock inline", exact: true })
+      .click();
+    await expect(
+      card.getByRole("heading", { name: issueTitles[source][43], exact: true }),
+    ).toBeVisible();
+    expect(await hostEvents(page, "context")).toEqual([]);
+    expect(await hostEvents(page, "message")).toEqual([]);
+    await expect(page.locator("#harness-error")).toBeEmpty();
+  });
+
+  test(`${source} explicit issue details start fullscreen from metadata without substituting the first list row`, async ({
+    page,
+  }) => {
+    const session = await sessionWithSettings(page);
+    await page.goto(
+      `/?session=${session}&entry=detail&source=${source}&number=43`,
+    );
+    await expect(page.locator("#bridge-status")).toHaveText("ready");
+    const ui = app(page);
+    await expect(
+      ui.getByRole("heading", { name: issueTitles[source][43], exact: true }),
+    ).toBeVisible();
+    await expect(ui.locator(".inline-mode")).toHaveCount(0);
+    expect(await hostEvents(page, "presentation")).toEqual([
+      {
+        tool: "arco_open_issue",
+        resourceUri: "ui://arco/issues",
+        preferredMode: "fullscreen",
+        availableDisplayModes: ["inline", "fullscreen"],
+      },
+    ]);
+    expect(await hostEvents(page, "display")).toEqual(["fullscreen"]);
+    expect(await hostEvents(page, "display-request")).toEqual([]);
+    expect((await hostEvents(page, "launch")).at(-1)).toMatchObject({
+      target: nativeTarget(source, 43),
+    });
+    expect(await calls(page, "arco_update_settings")).toEqual([]);
+    expect(await hostEvents(page, "context")).toEqual([]);
+    expect(await hostEvents(page, "message")).toEqual([]);
+    await expect(page.locator("#harness-error")).toBeEmpty();
+  });
+}
+
+test("a dedicated issue card preserves another project's browsing, filter, shared target and unsent draft", async ({
+  page,
+  context,
+}) => {
+  const session = await sessionWithSettings(page);
+  await open(page, session, "&entry=project");
+  const workspace = app(page);
+  await workspace
+    .getByRole("textbox", { name: "Search issues", exact: true })
+    .fill("Separate");
+  await workspace
+    .locator(".issue-row")
+    .filter({ hasText: mentionedTitle })
+    .click();
+  await expect(
+    workspace.getByRole("heading", { name: mentionedTitle, exact: true }),
+  ).toBeVisible();
+  const comment = "Keep this unsent comment in the existing project panel.";
+  await workspace
+    .getByRole("textbox", { name: "Comment on GitHub", exact: true })
+    .fill(comment);
+  await workspace
+    .getByRole("button", { name: "Add to chat", exact: true })
+    .click();
+  await expect.poll(() => hostEvents(page, "context")).toHaveLength(1);
+  const shared = await hostEvents(page, "context");
+  await expect
+    .poll(
+      async () =>
+        (await tool<SettingsRecord>(page, session, "arco_get_settings"))
+          .settings.githubFilters["yu/Arco"]?.query,
+    )
+    .toBe("Separate");
+  const before = await tool<SettingsRecord>(page, session, "arco_get_settings");
+  const cardPage = await context.newPage();
+
+  await cardPage.goto(
+    `/?session=${session}&entry=issue&source=github&number=42&shared=github&sharedRepo=yu/Arco&sharedNumber=43`,
+  );
+
+  await expect(
+    app(cardPage)
+      .locator(".inline-issue-card")
+      .getByRole("heading", { name: firstTitle, exact: true }),
+  ).toBeVisible();
+  await expect(
+    workspace.getByRole("heading", { name: mentionedTitle, exact: true }),
+  ).toBeVisible();
+  await expect(
+    workspace.getByRole("textbox", { name: "Search issues", exact: true }),
+  ).toHaveValue("Separate");
+  await expect(
+    workspace.getByRole("textbox", { name: "Comment on GitHub", exact: true }),
+  ).toHaveValue(comment);
+  expect(
+    await tool<SettingsRecord>(page, session, "arco_get_settings"),
+  ).toEqual(before);
+  expect(await calls(cardPage, "arco_update_settings")).toEqual([]);
+  expect(await hostEvents(page, "context")).toEqual(shared);
+  expect(await hostEvents(cardPage, "context")).toEqual([]);
+  expect(await hostEvents(cardPage, "message")).toEqual([]);
+});
+
+test("a dedicated Linear issue reports a different connected workspace without falling back to its issue list", async ({
+  page,
+}) => {
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as { name: string };
+    if (input.name !== "linear_connection") return route.fallback();
+    const response = await route.fetch();
+    const result = await response.json();
+    result.structuredContent.workspace = {
+      id: "other-workspace",
+      name: "Other workspace",
+    };
+    return route.fulfill({ response, json: result });
+  });
+  const session = await sessionWithSettings(page);
+  await page.goto(`/?session=${session}&entry=issue&source=linear&number=43`);
+  const ui = app(page);
+  await expect(ui.getByRole("alert")).toHaveText(
+    "The connected Linear workspace does not match this issue.",
+  );
+  await expect(ui.locator(".inline-issue-card")).toHaveCount(0);
+  await expect(
+    ui.getByRole("heading", { name: issueTitles.linear[42], exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    ui.getByRole("heading", { name: issueTitles.linear[43], exact: true }),
+  ).toHaveCount(0);
+  expect(await calls(page, "linear_get_issue")).toEqual([]);
+  expect(await calls(page, "linear_list_issues")).toEqual([]);
+  expect(await calls(page, "arco_update_settings")).toEqual([]);
+  expect(await hostEvents(page, "context")).toEqual([]);
+  expect(await hostEvents(page, "message")).toEqual([]);
+});
+
+for (const source of ["github", "linear"] as const) {
+  test(`the common workspace opens requested ${source} ahead of saved and shared source without locking later switches`, async ({
+    page,
+  }) => {
+    const other = source === "github" ? "linear" : "github";
+    const session = await sessionWithSettings(page, { activeSource: other });
+    const before = await tool<SettingsRecord>(
+      page,
+      session,
+      "arco_get_settings",
+    );
+
+    await page.goto(
+      `/?session=${session}&source=${source}&shared=${other}&sharedRepo=yu/Arco`,
+    );
+
+    await expect(page.locator("#bridge-status")).toHaveText("ready");
+    const ui = app(page);
+    const sourceControl = selectControl(ui, "Issue source");
+    await expect(sourceControl).toHaveAttribute("data-value", source);
+    await expect(
+      ui.getByRole("heading", { name: issueTitles[source][42], exact: true }),
+    ).toBeVisible();
+    expect((await hostEvents(page, "launch")).at(-1)).toMatchObject({
+      view: "personal",
+      source,
+    });
+    expect(await hostEvents(page, "display")).toEqual(["fullscreen"]);
+    expect(await hostEvents(page, "display-request")).toEqual([]);
+    expect(await calls(page, "arco_update_settings")).toEqual([]);
+    expect(
+      await tool<SettingsRecord>(page, session, "arco_get_settings"),
+    ).toEqual(before);
+    expect(await hostEvents(page, "context")).toEqual([]);
+
+    await choose(ui, "Issue source", other);
+
+    await expect(sourceControl).toHaveAttribute("data-value", other);
+    await expect(
+      ui.getByRole("heading", { name: issueTitles[other][42], exact: true }),
+    ).toBeVisible();
+    expect(await hostEvents(page, "context")).toEqual([]);
+    expect(await hostEvents(page, "message")).toEqual([]);
+    await expect(page.locator("#harness-error")).toBeEmpty();
+  });
+}

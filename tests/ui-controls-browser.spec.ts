@@ -130,6 +130,9 @@ test("Linear title-only conflict compares the latest title and unchanged Markdow
   });
   await openSource(page, "linear");
   const ui = app(page);
+  await expect(
+    ui.getByRole("img", { name: "Fixture illustration", exact: true }),
+  ).toBeVisible();
   const body = await ui.locator(".body-content .issue-markdown").innerText();
   await ui.locator(".detail-utilities > summary").click();
   await ui
@@ -152,6 +155,11 @@ test("Linear title-only conflict compares the latest title and unchanged Markdow
   await expect(ui.locator(".latest-content > strong")).toHaveText(
     "Remote title changed only",
   );
+  await expect(
+    ui
+      .locator(".latest-content")
+      .getByRole("img", { name: "Fixture illustration", exact: true }),
+  ).toBeVisible();
   await expect(ui.locator(".latest-content .issue-markdown")).toHaveText(body);
   await expect(
     ui.getByRole("textbox", { name: "Linear title", exact: true }),

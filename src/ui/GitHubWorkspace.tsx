@@ -29,11 +29,13 @@ import { selectionIssueData, isTextSelectionClick } from "./SelectionShare";
 import { SingleSelect, type SingleSelectHandle } from "./SingleSelect";
 import {
   DraftStatus,
+  draftController,
   draftStorageId,
   useDraftPersistence,
 } from "./useDraftPersistence";
 import { GitHubCreateIssue } from "./GitHubCreateIssue";
 import { InlineSummaryCard } from "./InlineSummaryCard";
+import { GitHubInlineProperties } from "./InlineIssueProperties";
 import {
   InlineSkeleton,
   IssueDetailSkeleton,
@@ -65,6 +67,7 @@ import type {
 import { DisclosureSummary } from "./DisclosureSummary";
 import type { LaunchContext } from "../shared/launch";
 import { resolveContentDraft as resolveDraft } from "./content-drafts";
+import { toggleMarkdownTask } from "./markdown-tasks";
 import type { Draft } from "../shared/state";
 import {
   useCommandSession,
@@ -157,6 +160,8 @@ export function GitHubWorkspace({
 }) {
   const projectView = launch.view === "project";
   const { mode, sharedIssue } = useHostView();
+  const target = launch.target?.source === "github" ? launch.target : null;
+  const targetedInline = Boolean(target) && mode === "inline";
   const [restoredShared] = useState(() => host.sharedIssue?.() ?? null);
   const restoredGithub =
     restoredShared?.source === "github" ? restoredShared : null;
@@ -178,7 +183,8 @@ export function GitHubWorkspace({
   const [repoOverride, setRepoOverride] = useSessionState<string | null>(
     host,
     "github:repoOverride",
-    restoreSharedView ? (restoredGithub?.repo ?? launch.repo) : launch.repo,
+    target?.repo ??
+      (restoreSharedView ? (restoredGithub?.repo ?? launch.repo) : launch.repo),
   );
   const [accountViewOverride, setAccountViewOverride] = useSessionState<
     AccountIssuesInput["filter"] | null
@@ -239,12 +245,12 @@ export function GitHubWorkspace({
   const [selected, setSelected] = useSessionState<IssueRef | null>(
     host,
     "github:selected",
-    restoredSelection,
+    target ?? restoredSelection,
   );
   const [showDetail, setShowDetail] = useSessionState(
     host,
     "github:showDetail",
-    false,
+    Boolean(target),
   );
   const shared = sharedIssue?.source === "github" ? sharedIssue : null;
   const [createOpen, setCreateOpen] = useSessionState(
@@ -308,7 +314,7 @@ export function GitHubWorkspace({
       host.call<RepositoryPage>("arco_repositories", { page: pageParam }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.hasMore ? last.page + 1 : undefined),
-    enabled: connection.data?.connected === true,
+    enabled: connection.data?.connected === true && !targetedInline,
   });
   const filter = localFilters[filterKey] ??
     (repo
@@ -431,6 +437,7 @@ export function GitHubWorkspace({
           }),
     enabled:
       source === "github" &&
+      !targetedInline &&
       connection.data?.connected === true &&
       (!projectView || Boolean(repo)) &&
       !settings.query.isPending,
@@ -490,7 +497,7 @@ export function GitHubWorkspace({
         },
         { signal, priority: "background" },
       ),
-    enabled: source === "github" && Boolean(activeRef),
+    enabled: source === "github" && !targetedInline && Boolean(activeRef),
   });
   const sharedDetail = useQuery({
     queryKey: shared ? issueKey(shared) : ["issue", "shared-none"],
@@ -504,9 +511,24 @@ export function GitHubWorkspace({
         },
         { signal, priority: "background" },
       ),
-    enabled: source === "github" && Boolean(shared),
+    enabled: source === "github" && !targetedInline && Boolean(shared),
   });
-  const metadataRepo = activeRef?.repo ?? repo;
+  const targetDetail = useQuery({
+    queryKey: target ? issueKey(target) : ["issue", "target-none"],
+    refetchInterval: 30_000,
+    queryFn: ({ signal }) =>
+      host.call<IssueDetail>(
+        "arco_get_issue",
+        { repo: target!.repo, number: target!.number },
+        { signal, priority: "background" },
+      ),
+    enabled: targetedInline,
+  });
+  const metadataRepo = targetedInline
+    ? target!.repo
+    : mode === "inline" && shared
+      ? (sharedDetail.data?.repo ?? shared.repo)
+      : (activeRef?.repo ?? repo);
   const metadata = useQuery({
     queryKey: ["metadata", metadataRepo],
     queryFn: () =>
@@ -746,19 +768,63 @@ export function GitHubWorkspace({
     !selectedDetail &&
     ((detail.isPending && Boolean(activeRef)) ||
       (initialIssuesLoading && !activeRef));
-  const retainedIssue =
-    sharedDetail.data ?? (!shared ? selectedDetail : undefined);
-  const compactError = sharedDetail.isError
-    ? errorText(sharedDetail.error)
-    : detail.isError
-      ? errorText(detail.error)
-      : connection.isError
-        ? errorText(connection.error)
-        : settings.query.isError
-          ? errorText(settings.query.error)
-          : issues.isError
-            ? errorText(issues.error)
-            : null;
+  const retainedIssue = target
+    ? targetDetail.data
+    : (sharedDetail.data ?? (!shared ? selectedDetail : undefined));
+  const retainedShared = Boolean(
+    shared &&
+    (!target ||
+      (shared.repo.toLowerCase() === target.repo.toLowerCase() &&
+        shared.number === target.number)),
+  );
+  const toggleRetainedTask = async (line: number, checked: boolean) => {
+    if (!retainedIssue) return;
+    const body = toggleMarkdownTask(retainedIssue.body, line, checked);
+    if (body === retainedIssue.body) return;
+    const key: DraftKey = {
+      source: "github",
+      repo: retainedIssue.repo,
+      issue: String(retainedIssue.number),
+    };
+    const controller = draftController(host);
+    const draft = resolveDraft(retainedIssue, await controller.load(key));
+    const status = controller.get()[draftStorageId(key)];
+    if (
+      status?.state === "error" ||
+      status?.state === "conflict" ||
+      status?.state === "resolving"
+    ) {
+      setNotice({
+        kind: "error",
+        text: "Open details to review the local draft before changing checklist items.",
+      });
+      return;
+    }
+    if (
+      draft.title !== retainedIssue.title ||
+      draft.body !== retainedIssue.body
+    ) {
+      setNotice({
+        kind: "info",
+        text: "Open details to save or discard your title or description draft before changing checklist items.",
+      });
+      return;
+    }
+    void save("arco_update_issue", {
+      repo: retainedIssue.repo,
+      number: retainedIssue.number,
+      expectedUpdatedAt: retainedIssue.updatedAt,
+      patch: { body },
+    });
+  };
+  const compactFailure = targetedInline
+    ? (targetDetail.error ?? connection.error ?? settings.query.error)
+    : (sharedDetail.error ??
+      detail.error ??
+      connection.error ??
+      settings.query.error ??
+      issues.error);
+  const compactError = compactFailure ? errorText(compactFailure) : null;
   const compactReady =
     connection.data?.connected === true && settings.query.isSuccess;
   const emptyIssueList =
@@ -769,7 +835,10 @@ export function GitHubWorkspace({
     rows.length === 0;
   const openRetainedDetails = () => {
     if (retainedIssue) {
-      if (retainedIssue.repo !== repo) changeRepo(retainedIssue.repo);
+      if (retainedIssue.repo !== repo) {
+        if (target) setRepoOverride(retainedIssue.repo);
+        else changeRepo(retainedIssue.repo);
+      }
       setSelected({ repo: retainedIssue.repo, number: retainedIssue.number });
       setShowDetail(true);
     }
@@ -829,18 +898,37 @@ export function GitHubWorkspace({
     !retainedIssue &&
     !compactError &&
     connection.data?.connected &&
-    (initialIssuesLoading ||
-      (detail.isPending && Boolean(activeRef)) ||
-      (sharedDetail.isPending && Boolean(shared)))
+    (targetedInline
+      ? targetDetail.isPending
+      : initialIssuesLoading ||
+        (detail.isPending && Boolean(activeRef)) ||
+        (sharedDetail.isPending && Boolean(shared)))
   )
     return <InlineSkeleton />;
 
   if (mode === "inline" && retainedIssue)
     return (
       <InlineSummaryCard
+        host={host}
         issue={retainedIssue}
-        shared={Boolean(shared)}
+        shared={retainedShared}
+        busy={mutationBusy || hostBusy}
         onOpen={openRetainedDetails}
+        onOpenLink={(url) =>
+          void hostAction(() => host.openLink(url), "Opened the source link.")
+        }
+        onToggleTask={(line, checked) => void toggleRetainedTask(line, checked)}
+        properties={
+          <GitHubInlineProperties
+            issue={retainedIssue}
+            currentUser={connection.data?.account}
+            metadata={metadata.data}
+            metadataError={metadata.error}
+            busy={mutationBusy || hostBusy}
+            onRetry={() => void metadata.refetch()}
+            onSave={(name, args) => void save(name, args)}
+          />
+        }
         notice={notice}
         footer={
           connection.data?.mode === "fixture"
@@ -860,7 +948,9 @@ export function GitHubWorkspace({
       >
         <div className="compact-top">
           <strong className="wordmark">Arco</strong>
-          <span className="muted">{shared ? "Shared issue" : "Browsing"}</span>
+          <span className="muted">
+            {retainedShared ? "Shared issue" : "Browsing"}
+          </span>
           <button
             className="icon-button"
             aria-label="Expand"

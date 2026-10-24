@@ -444,8 +444,8 @@ test("GitHub navigation, disclosures, content actions, and native fields have ho
   );
   await hoverFeedback(
     page,
-    "inline Expand action",
-    ui.getByRole("button", { name: "Expand", exact: true }),
+    "inline description expansion action",
+    ui.getByRole("button", { name: "Expand description", exact: true }),
     { scale: hoverScale, duration: 150 },
   );
 });

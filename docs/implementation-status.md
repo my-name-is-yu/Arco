@@ -2,6 +2,18 @@
 
 更新日: 2026-10-24。完成範囲は [要件定義](requirements.md) と [操作対応表](issue-operations.md) に従う。実装済み、fixtureでの確認、実サービスでの確認、Codex実画面での確認を分ける。
 
+Linearも会話内表示・明示的な詳細起動・カード操作に共通の入口と部品を使う。一覧入口の`arco_open`へ任意のsource指定を追加し、「Linearの一覧」が共有中・保存済みのGitHub選択に左右されないようにした。初期表示では設定・共有contextを変えず、その後の手動source切替は保持する。共通にする表示・起動・下書きの基盤と、provider固有のworkflow・権限・保存処理の境界を[技術スタック](technical-stack.md#github--linearの共通基盤)に記録した。今回の最終ソースはunit／adapter411件、launch＋inline browser33件と型・lint・format・build・73 tools smoke・artifact検査が成功。ローカルpluginを再更新し、実Codexへの新しい表示経路の反映は次回再起動後の確認として残す。[追補記録](design/presentation-policy-validation-2026-10-24.md#追補-linearと共通の一覧起動)。
+
+「Issueを見せて」を会話内の標準にし、明示的な詳細・一覧だけ広い表示へ開く経路を分けた。`arco_show_issue`は入口を持たないinline希望のresource、`arco_open_issue`は指定Issueの詳細、既存openツールは明示的な一覧・管理の入口とする。表示対象は厳密なnative refで初期化し、共有内容や保存済みのsource／対象範囲を変更しない。カードから詳細を開き、別Issueを閲覧して戻っても元のカードを保持する。399件のunit／adapter、launch＋inline browser31件、73 tools smokeとartifact検査が成功し、ローカルpluginを更新した。最終buildの全browser159件も一括実行で成功した。新しい表示経路の実Codex反映とホストのパネル復元は、再起動後の確認として分ける。[確認記録](design/presentation-policy-validation-2026-10-24.md)。
+
+会話内カードの状態・ラベルを色と形で識別できるようにし、担当者のイニシャル／未割当、Linear優先度の棒アイコンも追加した。属性ボタンとメニューで同じ表示を使い、元の名前・色・値と選択／保存動作を保持する。色が欠落・不正なら中立色にする。inline browser 15件、関連8件（1件は画像ロード待ちを修正して再実行）、unit／adapter 365件、型・lint・format・build・smoke・artifact検査が成功。明暗テーマ・375px幅と手動fixtureも確認し、導入済みpluginを更新した。色・アイコン版の実Codex反映は次の再起動後に確認する。[確認記録](design/inline-card-validation-2026-10-24.md#状態ラベルの色と担当者優先度のアイコン)。
+
+会話内カードの「…」を、メニュー外のクリック・tap、Tabによるfocus移動、iframe外へfocusが移った場合にも閉じるよう修正した。押した先のfocus・操作とメニュー内の手動コピーを保持し、遅れてコピーが完了しても閉じたメニューへfocusを戻さない。12件のinline browserと365件のunit／adapter、型・lint・format・build・smoke・artifact検査が成功し、導入済みpluginも更新済み。この修正の実Codex反映は次の再起動後に確認する。[確認記録](design/inline-card-validation-2026-10-24.md#補助メニューの外側操作で閉じる修正)。
+
+2026-10-24、会話内カードをユーザー選択の「属性を上に」へ更新した。タイトル直下の担当者・ラベル変更、Markdownの段落単位プレビューと展開／折りたたみ、カード内スクロールなしに対応。両sourceのfixture保存と共有中のIssueへの更新先保持、375px幅、キーボード操作を確認した。導入済みローカルpluginも更新し、buildとのHTML／serverのhash一致を確認した。再起動後、新しい会話内カードが見えることをユーザーが確認した。実Codexでの展開・折りたたみ操作と実サービスへのカード内保存は未確認。[確認記録](design/inline-card-validation-2026-10-24.md)と[最新の画面比較](../design-qa.md)を参照。
+
+同日、合意したカードの責務に沿って、GitHubの理由付きclose／reopen、Linearのnative workflowと優先度、本文チェック項目の更新、Issue URL／識別子コピーと元サービスへの導線を追加した。候補内の自分を先頭に表示し、close後も対象カードを保持する。タイトル・本文の下書きがある場合はチェック更新を止め、詳細での確認へ案内する。自由編集、コメント、関係、Project等の管理は詳細表示へ置く。この追加版の11件のinline browserと365件のunit／adapter、型・lint・format・build・smoke・artifact検査が成功し、両sourceの手動fixture操作と375px幅も確認した。全browserは148件が成功し、旧DOM参照のテスト1件を更新して個別再実行も成功したため、149ケースを確認済み。導入済みpluginを更新しbuildとのhash一致を確認した。続く再起動後、実ArcoパネルのDOMに追加版固有のカード操作用CSSを確認し、実Issueの詳細取得も成功した。ユーザー回答と提供スクリーンショットで、追加版の会話内State／補助メニューの表示も確認済み。inlineからの保存は引き続き未確認。
+
 2026-10-24、ローカルの構造整理でアプリ入口・source別画面・下書きと設定・MCP / 通信 / 操作を分離し、通知・作成・本文編集・競合比較・inline cardを共通化した。旧依頼欄の保存項目、旧設定の補完、selectionだけの旧添付復元、初期inline probeを削除した。現在の責務と互換範囲は[技術スタック](technical-stack.md)、実行した検証と配布候補は[構造整理の確認記録](refactor-validation-2026-10-24.md)にまとめる。この変更を実Codexへの反映・実サービス操作の確認として扱わない。以下の実績は各変更時点の履歴である。
 
 UIの文言・日付・エラーは英語。元サービスから取得したタイトルや本文は翻訳しない。GitHubとLinearはsource切替で扱い、各source内でrepo／teamを切り替える。元のID・workflow・属性を保持し、共通workflowやサービス間同期は作らない。

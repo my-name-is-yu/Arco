@@ -12,11 +12,7 @@ import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/typ
 import { z } from "zod";
 import { imageDataSchema } from "../shared/images";
 import { annotationSnapshotIdSchema } from "../shared/annotation-state";
-import {
-  launchContextSchema,
-  personalLaunchContext,
-  type LaunchContext,
-} from "../shared/launch";
+import { launchContextSchema, type LaunchContext } from "../shared/launch";
 import {
   readSharedContext,
   type SharedContextSnapshot,
@@ -75,6 +71,7 @@ export async function connectHost(): Promise<ArcoHost> {
   const tools = createToolQueue();
   let displayMode = app.getHostContext()?.displayMode ?? "inline";
   let launchContext: LaunchContext | null = null;
+  let launchError: string | null = null;
   const listeners = new Set<
     (event: "data" | "display" | "context" | "launch") => void
   >();
@@ -104,10 +101,6 @@ export async function connectHost(): Promise<ArcoHost> {
   };
   const applyContext = (change?: Record<string, unknown>) => {
     const context = app.getHostContext();
-    if (!launchContext && context?.toolInfo?.tool.name === "arco_open") {
-      launchContext = personalLaunchContext;
-      notify("launch");
-    }
     if (context?.theme) applyDocumentTheme(context.theme);
     if (context?.styles?.variables)
       applyHostStyleVariables(context.styles.variables);
@@ -138,13 +131,20 @@ export async function connectHost(): Promise<ArcoHost> {
     }
   };
   app.ontoolresult = (result) => {
-    if (!launchContext && !result.isError) {
-      const parsed = launchContextSchema.safeParse(
-        result.structuredContent?.launch,
-      );
-      if (parsed.success) {
-        launchContext = parsed.data;
+    if (!launchContext) {
+      if (result.isError) {
+        launchError =
+          "Arco could not be opened. Retry the request in the conversation.";
         notify("launch");
+      } else {
+        const parsed = launchContextSchema.safeParse(
+          result.structuredContent?.launch,
+        );
+        if (parsed.success) {
+          launchContext = parsed.data;
+          launchError = null;
+          notify("launch");
+        }
       }
     }
     dataChanged();
@@ -190,6 +190,9 @@ export async function connectHost(): Promise<ArcoHost> {
   return {
     launch() {
       return launchContext;
+    },
+    launchError() {
+      return launchError;
     },
     annotationSnapshotId() {
       return attachment.snapshotId;

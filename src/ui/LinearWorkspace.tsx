@@ -16,6 +16,8 @@ import {
   MagnifyingGlassSearch,
 } from "@openai/apps-sdk-ui/components/Icon";
 import type { ArcoHost } from "../shared/contracts";
+import type { DraftKey } from "../shared/state";
+import type { LaunchContext } from "../shared/launch";
 import type {
   LinearConnection,
   LinearIssue,
@@ -53,6 +55,10 @@ import { useHostView } from "./HostProvider";
 import { Notice, type NoticeValue } from "./Notice";
 import { LinearCreateIssue } from "./LinearCreateIssue";
 import { InlineSummaryCard } from "./InlineSummaryCard";
+import { LinearInlineProperties } from "./InlineIssueProperties";
+import { draftController, draftStorageId } from "./useDraftPersistence";
+import { resolveContentDraft } from "./content-drafts";
+import { toggleMarkdownTask } from "./markdown-tasks";
 import { isIssueUrlInput, linearIssueUrl } from "../shared/issue-url";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { useIssueListContinuation } from "./useIssueListContinuation";
@@ -81,17 +87,21 @@ const linearDataKeys = new Set([
 
 export function LinearWorkspace({
   host,
+  launch,
   onSourceChange,
 }: {
   host: ArcoHost;
+  launch: LaunchContext;
   onSourceChange: (source: "github" | "linear") => void;
 }) {
   const cache = useQueryClient();
   const settings = useLinearSettings(host);
+  const target = launch.target?.source === "linear" ? launch.target : null;
   const [teamOverride, setTeamOverride] = useSessionState(
     host,
     "linear:teamOverride",
     () => {
+      if (target) return target.teamId;
       const shared = host.sharedIssue?.();
       return shared?.source === "linear" ? shared.teamId : "";
     },
@@ -100,11 +110,13 @@ export function LinearWorkspace({
     host,
     "linear:selected",
     () => {
+      if (target) return linearRef(target);
       const shared = host.sharedIssue?.();
       return shared?.source === "linear" ? linearRef(shared) : null;
     },
   );
   const { mode, sharedIssue: sharedContext } = useHostView();
+  const targetedInline = Boolean(target) && mode !== "fullscreen";
   const shared =
     sharedContext?.source === "linear" ? linearRef(sharedContext) : null;
   const [localFilters, setLocalFilters] = useSessionState<
@@ -123,7 +135,7 @@ export function LinearWorkspace({
   const [showDetail, setShowDetail] = useSessionState(
     host,
     "linear:showDetail",
-    false,
+    Boolean(target),
   );
   const [notice, setNoticeValue] = useSessionState<NoticeValue | null>(
     host,
@@ -190,17 +202,36 @@ export function LinearWorkspace({
     "linear:authPending",
     false,
   );
+  const connectionKey = target
+    ? ["linear-connection", target.connectionId]
+    : ["linear-connection"];
+  const authKey = target
+    ? ["linear-auth", target.connectionId]
+    : ["linear-auth"];
+  const connectionInput = target ? { connectionId: target.connectionId } : {};
   const connection = useQuery({
-    queryKey: ["linear-connection"],
-    queryFn: () => host.call<LinearConnection>("linear_connection", {}),
+    queryKey: connectionKey,
+    queryFn: () =>
+      host.call<LinearConnection>("linear_connection", connectionInput),
     enabled: !disconnecting,
   });
-  const connected = connection.data?.connected === true;
+  const targetConnectionError =
+    target &&
+    connection.data?.connected &&
+    (connection.data.connectionId !== target.connectionId ||
+      connection.data.workspace?.id !== target.workspaceId)
+      ? new Error("The connected Linear workspace does not match this issue.")
+      : null;
+  const connected =
+    connection.data?.connected === true && !targetConnectionError;
   const canRead = connected && !disconnecting;
   const auth = useQuery({
-    queryKey: ["linear-auth"],
+    queryKey: authKey,
     queryFn: () =>
-      host.call<{ state: string; message: string }>("linear_auth_status", {}),
+      host.call<{ state: string; message: string }>(
+        "linear_auth_status",
+        connectionInput,
+      ),
     enabled: !disconnecting,
     refetchInterval: authPending && !disconnecting ? 2000 : false,
   });
@@ -221,7 +252,7 @@ export function LinearWorkspace({
       host.call<LinearScopes>("linear_scopes", {
         connectionId: connection.data!.connectionId,
       }),
-    enabled: canRead,
+    enabled: canRead && !targetedInline,
   });
   const savedTeam = settings.query.data?.settings.activeLinearTeam;
   const teamId =
@@ -288,7 +319,7 @@ export function LinearWorkspace({
   const metadata = useQuery({
     queryKey: ["linear-metadata", scope],
     queryFn: () => host.call<LinearMetadata>("linear_metadata", { ...scope }),
-    enabled: canRead && Boolean(scope),
+    enabled: canRead && !targetedInline && Boolean(scope),
   });
   const pageScope = JSON.stringify([scope, query, filters]);
   const issues = useInfiniteQuery<
@@ -329,7 +360,8 @@ export function LinearWorkspace({
       ),
     getNextPageParam: (last) =>
       last.hasMore ? (last.cursor ?? undefined) : undefined,
-    enabled: canRead && Boolean(scope) && !settings.query.isPending,
+    enabled:
+      canRead && !targetedInline && Boolean(scope) && !settings.query.isPending,
   });
   const rows = useMemo(
     () => issues.data?.pages.flatMap((page) => page.issues) ?? [],
@@ -351,9 +383,11 @@ export function LinearWorkspace({
   const active = connected
     ? matchesConnection(selected)
       ? selected
-      : rows[0]
-        ? linearRef(rows[0])
-        : null
+      : target
+        ? null
+        : rows[0]
+          ? linearRef(rows[0])
+          : null
     : null;
   const detail = useQuery({
     queryKey: ["linear-issue", active],
@@ -365,7 +399,7 @@ export function LinearWorkspace({
         { ...active },
         { signal, priority: "background" },
       ),
-    enabled: canRead && Boolean(active),
+    enabled: canRead && !targetedInline && Boolean(active),
   });
   const sharedIssue = useQuery({
     queryKey: ["linear-issue", shared],
@@ -379,18 +413,86 @@ export function LinearWorkspace({
         { ...shared },
         { signal, priority: "background" },
       ),
-    enabled: canRead && Boolean(shared) && matchesConnection(shared),
+    enabled:
+      canRead &&
+      !targetedInline &&
+      Boolean(shared) &&
+      matchesConnection(shared),
   });
+  const targetIssue = useQuery({
+    queryKey: ["linear-issue", target ? linearRef(target) : null],
+    refetchInterval: 30_000,
+    queryFn: ({ signal }) =>
+      host.call<LinearIssue>(
+        "linear_get_issue",
+        { ...linearRef(target!) },
+        { signal, priority: "background" },
+      ),
+    enabled: canRead && targetedInline,
+  });
+  const retained = target
+    ? targetIssue.data
+    : shared
+      ? matchesConnection(shared)
+        ? sharedIssue.data
+        : undefined
+      : detail.data;
+  const retainedShared = Boolean(
+    shared &&
+    (!target ||
+      (shared.connectionId === target.connectionId &&
+        shared.workspaceId === target.workspaceId &&
+        shared.teamId === target.teamId &&
+        shared.issueId === target.issueId)),
+  );
+  const toggleRetainedTask = async (line: number, checked: boolean) => {
+    if (!retained) return;
+    const body = toggleMarkdownTask(retained.body, line, checked);
+    if (body === retained.body) return;
+    const key: DraftKey = {
+      source: "linear",
+      workspaceId: retained.workspaceId,
+      teamId: retained.teamId,
+      issue: retained.issueId,
+    };
+    const controller = draftController(host);
+    const draft = resolveContentDraft(retained, await controller.load(key));
+    const status = controller.get()[draftStorageId(key)];
+    if (
+      status?.state === "error" ||
+      status?.state === "conflict" ||
+      status?.state === "resolving"
+    ) {
+      setNotice(
+        "Open details to review the local draft before changing checklist items.",
+        "error",
+      );
+      return;
+    }
+    if (draft.title !== retained.title || draft.body !== retained.body) {
+      setNotice(
+        "Open details to save or discard your title or description draft before changing checklist items.",
+        "info",
+      );
+      return;
+    }
+    void run("linear_update_issue", {
+      ...linearRef(retained),
+      expectedUpdatedAt: retained.updatedAt,
+      patch: { body },
+    });
+  };
+  const metadataIssue = mode !== "fullscreen" ? retained : active;
   const detailScope = useMemo(
     () =>
-      active
+      metadataIssue
         ? {
-            connectionId: active.connectionId,
-            workspaceId: active.workspaceId,
-            teamId: active.teamId,
+            connectionId: metadataIssue.connectionId,
+            workspaceId: metadataIssue.workspaceId,
+            teamId: metadataIssue.teamId,
           }
         : null,
-    [active],
+    [metadataIssue],
   );
   const detailMetadata = useQuery({
     queryKey: ["linear-metadata", detailScope],
@@ -398,11 +500,6 @@ export function LinearWorkspace({
       host.call<LinearMetadata>("linear_metadata", { ...detailScope }),
     enabled: canRead && Boolean(detailScope),
   });
-  const retained = shared
-    ? matchesConnection(shared)
-      ? sharedIssue.data
-      : undefined
-    : detail.data;
   useEffect(() => {
     if (canRead && !selected && rows[0]) setSelected(linearRef(rows[0]));
   }, [canRead, selected, rows, setSelected]);
@@ -539,7 +636,7 @@ export function LinearWorkspace({
     }
   }
   function disconnected(connectionId: string) {
-    cache.setQueryData<LinearConnection>(["linear-connection"], {
+    cache.setQueryData<LinearConnection>(connectionKey, {
       connectionId,
       connected: false,
       mode: "linear",
@@ -548,7 +645,7 @@ export function LinearWorkspace({
       workspace: null,
       message: "Authorize Arco with Linear to connect.",
     });
-    cache.setQueryData(["linear-auth"], {
+    cache.setQueryData(authKey, {
       state: "idle",
       connected: false,
       message: "",
@@ -613,6 +710,7 @@ export function LinearWorkspace({
   };
   const openRetainedDetails = () => {
     if (retained) {
+      if (target) setTeamOverride(retained.teamId);
       setSelected(linearRef(retained));
       setShowDetail(true);
     }
@@ -675,6 +773,11 @@ export function LinearWorkspace({
 
   const detailFeedback = (
     <>
+      {targetConnectionError && (
+        <p className="inline-error" role="alert">
+          {targetConnectionError.message}
+        </p>
+      )}
       {connection.data?.mode === "fixture" && (
         <div className="fixture-banner">
           LOCAL LINEAR FIXTURE · No writes to Linear
@@ -744,7 +847,9 @@ export function LinearWorkspace({
     ((Boolean(active) && detail.isPending) ||
       (!active && Boolean(scope) && issues.isPending));
   const resolvingWorkspace =
-    canRead && ((scopes.isPending && !scopes.data) || settings.query.isPending);
+    canRead &&
+    ((!targetedInline && scopes.isPending && !scopes.data) ||
+      settings.query.isPending);
   if (checkingConnection || resolvingWorkspace)
     return (
       <WorkspaceSkeleton
@@ -761,25 +866,51 @@ export function LinearWorkspace({
     mode !== "fullscreen" &&
     connected &&
     !retained &&
-    ((shared && matchesConnection(shared) && sharedIssue.isPending) ||
-      (!shared && active && detail.isPending) ||
-      (!active && scope && issues.isPending))
+    (targetedInline
+      ? targetIssue.isPending
+      : (shared && matchesConnection(shared) && sharedIssue.isPending) ||
+        (!shared && active && detail.isPending) ||
+        (!active && scope && issues.isPending))
   )
     return <InlineSkeleton />;
 
-  if (mode !== "fullscreen" && connection.data?.connected && retained)
+  if (mode !== "fullscreen" && connected && retained)
     return (
       <InlineSummaryCard
+        host={host}
         issue={retained}
-        shared={Boolean(shared)}
-        busy={shared ? sharedIssue.isFetching : detail.isFetching}
+        shared={retainedShared}
+        busy={
+          busy ||
+          (target
+            ? targetIssue.isFetching
+            : shared
+              ? sharedIssue.isFetching
+              : detail.isFetching)
+        }
         onOpen={openRetainedDetails}
-        expandLabel="Expand Linear view"
+        onOpenLink={(url) =>
+          void hostAction(() => host.openLink(url), "Opened the source link.")
+        }
+        onToggleTask={(line, checked) => void toggleRetainedTask(line, checked)}
         notice={notice}
+        properties={
+          <LinearInlineProperties
+            issue={retained}
+            currentUserId={connection.data?.userId}
+            metadata={detailMetadata.data}
+            metadataError={detailMetadata.error}
+            busy={busy}
+            onRetry={() => void detailMetadata.refetch()}
+            onSave={(name, args) => void run(name, args)}
+          />
+        }
       />
     );
   if (mode !== "fullscreen") {
     const failure =
+      targetConnectionError ||
+      (target ? targetIssue.error : null) ||
       connection.error ||
       scopes.error ||
       sharedIssue.error ||
@@ -859,7 +990,10 @@ export function LinearWorkspace({
                 void hostAction(async () => {
                   const result = await host.call<{ authorizationUrl: string }>(
                     "linear_auth_begin",
-                    { connectionId: "default", clientId },
+                    {
+                      connectionId: target?.connectionId ?? "default",
+                      clientId,
+                    },
                   );
                   await host.openLink(result.authorizationUrl);
                   setAuthPending(true);

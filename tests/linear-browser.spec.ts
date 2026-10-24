@@ -1225,9 +1225,7 @@ test("a single Linear selection retains its inline target without sending a mess
     .click();
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   await expect(ui.locator(".inline-mode")).toContainText("YU-42");
-  await ui
-    .getByRole("button", { name: "Expand Linear view", exact: true })
-    .click();
+  await ui.getByRole("button", { name: "Open details", exact: true }).click();
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();

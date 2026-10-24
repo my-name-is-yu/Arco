@@ -228,6 +228,7 @@ export type SharedIssueRef =
   ({ source: "github" } & IssueRef) | ({ source: "linear" } & LinearRef);
 export interface ArcoHost {
   launch?(): LaunchContext | null;
+  launchError?(): string | null;
   sharedIssue?(): SharedIssueRef | null;
   sharedAnnotations?(): SelectionAnnotationContext[] | null;
   annotationSnapshotId?(): string | null;

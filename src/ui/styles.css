@@ -104,6 +104,98 @@
   flex-shrink: 0;
   border-radius: 50%;
 }
+:root {
+  --property-state-open: #78c596;
+  --property-state-completed: #bca4f5;
+  --property-neutral: #b0b0b0;
+  --property-urgent: #e8ad6e;
+  --property-initials-bg: #ffffff1a;
+}
+:root[data-theme="light"],
+:root.light {
+  --property-state-open: #1a7f37;
+  --property-state-completed: #8250df;
+  --property-neutral: #6f6f6f;
+  --property-urgent: #aa5b00;
+  --property-initials-bg: #0000000f;
+}
+.source-select-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.source-select-leading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.source-select-text {
+  min-width: 0;
+}
+.source-single-value > .source-select-text,
+.source-multi-values > .source-select-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.property-state-icon,
+.property-priority-icon,
+.property-assignee-unassigned {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--property-neutral);
+}
+.property-state-icon svg,
+.property-priority-icon svg,
+.property-assignee-unassigned svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+.property-state-icon[data-source="github"][data-state="open"] {
+  color: var(--property-state-open);
+}
+.property-state-icon[data-source="github"][data-state="completed"] {
+  color: var(--property-state-completed);
+}
+.property-priority-icon[data-priority="1"] {
+  color: var(--property-urgent);
+}
+.property-assignee-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--property-initials-bg);
+  color: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
+.property-assignee-mark.property-assignee-unassigned {
+  width: 14px;
+  height: 14px;
+  background: none;
+  color: var(--property-neutral);
+}
+.property-label-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--property-neutral);
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent);
+}
 .arco input {
   min-width: 0;
   padding: 7px 9px;
@@ -1269,6 +1361,111 @@
 .compact-mode .fixture-tag {
   display: block;
   margin-top: 12px;
+}
+.inline-issue-card {
+  max-width: 680px;
+  padding: 20px 23px 17px;
+  border-radius: 14px;
+}
+.inline-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+}
+.inline-card-top > span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.inline-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.inline-card-utilities .detail-utility-menu {
+  max-width: min(220px, calc(100vw - 32px));
+}
+.inline-card-top svg,
+.inline-description-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.inline-issue-card h1 {
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.5;
+  margin: 12px 0 15px;
+  overflow-wrap: anywhere;
+}
+.inline-properties {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+}
+.inline-property {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.inline-property-label {
+  color: var(--arco-muted);
+  flex-shrink: 0;
+}
+.inline-properties-error {
+  flex-basis: 100%;
+}
+.inline-description {
+  border-top: 1px solid var(--arco-border);
+  margin-top: 17px;
+  padding-top: 16px;
+  min-width: 0;
+}
+.inline-description-preview {
+  max-height: 13.6em;
+  overflow: clip;
+  font-size: 14px;
+}
+.inline-description .issue-markdown h1,
+.inline-description .issue-markdown h2,
+.inline-description .issue-markdown h3 {
+  font-size: 14px;
+  font-weight: 500;
+}
+.inline-description .issue-markdown pre {
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.inline-description .issue-markdown table {
+  table-layout: fixed;
+}
+.inline-description .issue-markdown th,
+.inline-description .issue-markdown td {
+  overflow-wrap: anywhere;
+}
+.inline-description-toggle {
+  margin-top: 8px;
+}
+.inline-issue-card .compact-bottom {
+  margin-top: 17px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+@media (max-width: 440px) {
+  .inline-issue-card {
+    padding: 17px 16px 15px;
+  }
+  .inline-issue-card h1 {
+    font-size: 17px;
+  }
 }
 @container detail-pane (max-width: 799px) {
   .issue-columns {

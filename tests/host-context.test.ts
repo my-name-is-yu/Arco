@@ -17,6 +17,7 @@ const fixture = vi.hoisted(() => ({
       }) => void)
     | undefined,
   connecting: undefined as (() => void) | undefined,
+  display: vi.fn<(params: { mode: string }) => Promise<{ mode: string }>>(),
   update:
     vi.fn<
       (params: Record<string, unknown>) => Promise<Record<string, unknown>>
@@ -40,6 +41,7 @@ vi.mock("@modelcontextprotocol/ext-apps", () => ({
       fixture.toolResult = handler;
     }
     connect = async () => fixture.connecting?.();
+    requestDisplayMode = fixture.display;
     setNotificationHandler = () => undefined;
     updateModelContext(params: Record<string, unknown>) {
       return fixture.update(params);
@@ -109,6 +111,8 @@ beforeEach(() => {
   fixture.change = undefined;
   fixture.toolResult = undefined;
   fixture.connecting = undefined;
+  fixture.display.mockReset();
+  fixture.display.mockImplementation(async (params) => params);
   fixture.update.mockReset();
 });
 
@@ -123,7 +127,7 @@ describe("host launch context", () => {
   };
 
   it.each(["inline", "fullscreen", "pip"])(
-    "opens the global tool as personal regardless of %s display mode",
+    "waits for the global result and opens personal regardless of %s display mode",
     async (displayMode) => {
       fixture.context = {
         "openai/modelContext": null,
@@ -131,6 +135,10 @@ describe("host launch context", () => {
         displayMode,
       };
       const host = await connectHost();
+      expect(host.launch?.()).toBeNull();
+      fixture.toolResult!({
+        structuredContent: { launch: personalLaunchContext },
+      });
       expect(host.launch?.()).toEqual(personalLaunchContext);
       fixture.toolResult!({ structuredContent: { launch: projectLaunch } });
       expect(host.launch?.()).toEqual(personalLaunchContext);
@@ -156,11 +164,13 @@ describe("host launch context", () => {
       structuredContent: { launch: projectLaunch },
     });
     expect(host.launch?.()).toBeNull();
-    expect(events).toEqual([]);
+    expect(host.launchError?.()).toBeTruthy();
+    expect(events).toEqual(["launch"]);
 
     fixture.toolResult!({ structuredContent: { launch: projectLaunch } });
     expect(host.launch?.()).toEqual(projectLaunch);
-    expect(events).toEqual(["launch"]);
+    expect(host.launchError?.()).toBeNull();
+    expect(events).toEqual(["launch", "launch"]);
     fixture.toolResult!({
       structuredContent: {
         launch: { ...projectLaunch, repo: "yu/Other" },
@@ -173,7 +183,7 @@ describe("host launch context", () => {
     changed({ theme: "dark", displayMode: "fullscreen" });
     changed({ toolInfo: { tool: { name: "arco_open" } } });
     expect(host.launch?.()).toEqual(projectLaunch);
-    expect(events).toEqual(["launch", "display"]);
+    expect(events).toEqual(["launch", "launch", "display"]);
   });
 
   it("registers the launch receiver before connecting and does not infer project scope from fullscreen", async () => {
@@ -189,7 +199,7 @@ describe("host launch context", () => {
     expect(host.launch?.()).toEqual(projectLaunch);
   });
 
-  it("can recognize the global entrypoint when tool information arrives after connecting", async () => {
+  it("waits for the global result when tool information arrives after connecting", async () => {
     const host = await connectHost();
     const events: string[] = [];
     host.subscribe((event) => events.push(event));
@@ -197,8 +207,182 @@ describe("host launch context", () => {
     changed({ displayMode: "fullscreen", theme: "light" });
     expect(host.launch?.()).toBeNull();
     changed({ toolInfo: { tool: { name: "arco_open" } } });
+    expect(host.launch?.()).toBeNull();
+    expect(events).toEqual(["display"]);
+    fixture.toolResult!({
+      structuredContent: { launch: personalLaunchContext },
+    });
     expect(host.launch?.()).toEqual(personalLaunchContext);
     expect(events).toEqual(["display", "launch"]);
+  });
+
+  it.each([
+    {
+      tool: "arco_show_issue",
+      displayMode: "inline",
+      target: { source: "github" as const, repo: "yu/Target", number: 42 },
+    },
+    {
+      tool: "arco_open_issue",
+      displayMode: "fullscreen",
+      target: {
+        source: "linear" as const,
+        connectionId: "secondary",
+        workspaceId: "target-workspace",
+        teamId: "target-team",
+        issueId: "target-issue",
+      },
+    },
+  ])(
+    "latches $tool target without changing shared context or host display mode",
+    async ({ tool, displayMode, target }) => {
+      fixture.context = {
+        "openai/modelContext": {
+          updateId: "shared-other-issue",
+          structuredContent: {
+            source: "github",
+            repo: "yu/Shared",
+            number: 7,
+            arcoSharedIssue: 1,
+          },
+        },
+        toolInfo: { tool: { name: tool } },
+        displayMode,
+      };
+      const launch = { ...personalLaunchContext, target };
+      fixture.connecting = () => {
+        fixture.toolResult!({ structuredContent: { launch } });
+      };
+      const host = await connectHost();
+      expect(host.launch?.()).toEqual(launch);
+      expect(host.mode()).toBe(displayMode);
+      expect(host.sharedIssue?.()).toEqual({
+        source: "github",
+        repo: "yu/Shared",
+        number: 7,
+      });
+      fixture.toolResult!({
+        structuredContent: {
+          launch: {
+            ...personalLaunchContext,
+            target: { source: "github", repo: "yu/Later", number: 99 },
+          },
+        },
+      });
+      expect(host.launch?.()).toEqual(launch);
+      expect(fixture.update).not.toHaveBeenCalled();
+      expect(fixture.display).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["arco_open", "arco_open_project"])(
+    "does not retarget an existing %s panel from a later issue-show result",
+    async (tool) => {
+      fixture.context = {
+        "openai/modelContext": null,
+        toolInfo: { tool: { name: tool } },
+        displayMode: "fullscreen",
+      };
+      fixture.connecting = () =>
+        fixture.toolResult!({
+          structuredContent: {
+            launch:
+              tool === "arco_open_project"
+                ? projectLaunch
+                : personalLaunchContext,
+          },
+        });
+      const host = await connectHost();
+      const initial = host.launch?.();
+      fixture.toolResult!({
+        structuredContent: {
+          launch: {
+            ...personalLaunchContext,
+            target: { source: "github", repo: "yu/Other", number: 88 },
+          },
+        },
+      });
+      expect(host.launch?.()).toEqual(initial);
+      expect(host.mode()).toBe("fullscreen");
+      expect(fixture.update).not.toHaveBeenCalled();
+      expect(fixture.display).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { source: "github" as const, displayMode: "inline" },
+    { source: "github" as const, displayMode: "fullscreen" },
+    { source: "linear" as const, displayMode: "inline" },
+    { source: "linear" as const, displayMode: "fullscreen" },
+  ])(
+    "uses the first validated $source list launch in $displayMode mode without a context-name fallback",
+    async ({ source, displayMode }) => {
+      fixture.context = {
+        "openai/modelContext": null,
+        toolInfo: { tool: { name: "arco_open" } },
+        displayMode,
+      };
+      const host = await connectHost();
+      expect(host.launch?.()).toBeNull();
+      const launch = { ...personalLaunchContext, source };
+      fixture.toolResult!({ structuredContent: { launch } });
+      expect(host.launch?.()).toEqual(launch);
+      changed({ toolInfo: { tool: { name: "arco_open" } } });
+      fixture.toolResult!({
+        structuredContent: {
+          launch: {
+            ...personalLaunchContext,
+            source: source === "github" ? "linear" : "github",
+          },
+        },
+      });
+      fixture.toolResult!({
+        structuredContent: { launch: personalLaunchContext },
+      });
+      expect(host.launch?.()).toEqual(launch);
+      expect(host.mode()).toBe(displayMode);
+      expect(fixture.update).not.toHaveBeenCalled();
+      expect(fixture.display).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reports an initial tool failure without accepting its target and recovers only from a valid launch", async () => {
+    fixture.context = {
+      "openai/modelContext": null,
+      toolInfo: { tool: { name: "arco_show_issue" } },
+      displayMode: "inline",
+    };
+    const host = await connectHost();
+    const events: string[] = [];
+    host.subscribe((event) => events.push(event));
+    const launch = {
+      ...personalLaunchContext,
+      target: { source: "github", repo: "yu/Target", number: 42 },
+    };
+    fixture.toolResult!({ isError: true, structuredContent: { launch } });
+    expect(host.launch?.()).toBeNull();
+    expect(host.launchError?.()).toBe(
+      "Arco could not be opened. Retry the request in the conversation.",
+    );
+    fixture.toolResult!({
+      structuredContent: {
+        launch: {
+          ...launch,
+          target: { source: "github", repo: "../bad", number: 42 },
+        },
+      },
+    });
+    expect(host.launch?.()).toBeNull();
+    expect(host.launchError?.()).toBeTruthy();
+    fixture.toolResult!({ structuredContent: { launch } });
+    expect(host.launch?.()).toEqual(launch);
+    expect(host.launchError?.()).toBeNull();
+    fixture.toolResult!({ isError: true });
+    expect(host.launch?.()).toEqual(launch);
+    expect(host.launchError?.()).toBeNull();
+    expect(events).toEqual(["launch", "launch"]);
+    expect(fixture.update).not.toHaveBeenCalled();
+    expect(fixture.display).not.toHaveBeenCalled();
   });
 });
 

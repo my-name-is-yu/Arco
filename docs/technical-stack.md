@@ -24,6 +24,14 @@ GitHubとLinearのIssueを取得・操作し、選んだ文脈をCodexへ渡す�
 
 共通部品は元サービスへ直接アクセスしない。GitHubのOpen / ClosedとProjects Status、Linearのworkflow、native ID、権限とページ取得の意味を共通型に押し込めない。
 
+### GitHub / Linearの共通基盤
+
+会話内表示は両source共通の`arco_show_issue`、明示的な詳細表示は`arco_open_issue`を使う。厳密なnative targetのschema、UI resourceの表示方針、起動情報の受取りとhost単位の状態を共通化する。一覧も共通の`arco_open`に任意の`source`指定を渡し、サービス専用の表示ツールを増やさない。最初のサービスはtarget、明示的なsource、共有・保存済み選択の順で決め、起動しただけでは保存設定を変更しない。初期化後のsource切替は通常の明示操作として扱う。
+
+会話内カード、Markdown、補助メニュー、コピー、属性の色・アイコン、単一／複数選択、下書きの永続化と保存失敗・競合の扱いは共通部品を使う。provider別Workspaceにはscope・connectionの検証、取得と更新の組合せ、元サービス固有の属性や権限制約を残す。共通の挙動を変更する際は、同じテストを両sourceへ適用し、各providerに一方だけの修正を積み重ねない。
+
+GitHubの複数担当者・close理由・Projects Statusと、Linearの単一担当者・team固有workflow・優先度を一つの業務モデルへ変換しない。共通化は起動・表示・操作の基盤を対象とし、サービス固有の意味と保存APIはそれぞれの境界に保持する。
+
 MarkdownはApps SDK UIを使い、raw HTMLと能動的なdirectiveを許可しない。描画部品のidentityを固定して画像の取得状態を保つ。画像はviewport付近で認証付きserver toolから読み、未開始の不要な取得はqueueから除く。tokenをiframeへ渡さない。
 
 ## MCPと元サービス

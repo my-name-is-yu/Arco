@@ -23,6 +23,8 @@ function Workspace({
     () => {
       const restore = launch?.view !== "project" || mode === "inline";
       return (
+        launch.target?.source ??
+        launch.source ??
         (restore ? sharedIssue?.source : null) ??
         (launch?.view === "project" ? "github" : null)
       );
@@ -30,7 +32,10 @@ function Workspace({
   );
   if (settings.query.isPending) return <WorkspaceSkeleton mode={mode} />;
   const source =
-    override ?? settings.query.data?.settings.activeSource ?? "github";
+    (mode === "inline" ? launch.target?.source : undefined) ??
+    override ??
+    settings.query.data?.settings.activeSource ??
+    "github";
   const changeSource = (next: "github" | "linear") => {
     setOverride(next);
     if (launch.view !== "project")
@@ -43,13 +48,23 @@ function Workspace({
       onSourceChange={changeSource}
     />
   ) : (
-    <LinearWorkspace host={host} onSourceChange={changeSource} />
+    <LinearWorkspace
+      host={host}
+      launch={launch}
+      onSourceChange={changeSource}
+    />
   );
 }
 function LaunchWorkspace({ host }: { host: ArcoHost }) {
   const { launch, mode } = useHostView();
+  const error = host.launchError?.();
   return launch ? (
     <Workspace host={host} launch={launch} />
+  ) : error ? (
+    <main className="arco empty-state" role="alert">
+      <h1>Could not open Arco</h1>
+      <p>{error}</p>
+    </main>
   ) : (
     <WorkspaceSkeleton mode={mode} />
   );

@@ -41,6 +41,7 @@ const toolInput = z.object({
   name: z.string(),
   arguments: z.record(z.string(), z.unknown()).default({}),
 });
+const presentationInput = toolInput.pick({ session: true, name: true });
 async function body(request) {
   let value = "";
   for await (const chunk of request) {
@@ -89,6 +90,25 @@ const server = createServer(async (request, response) => {
       const session = randomUUID();
       sessions.set(session, client);
       return json(response, { session });
+    }
+    if (request.method === "POST" && path === "/presentation") {
+      const input = presentationInput.parse(await body(request));
+      const client = sessions.get(input.session);
+      if (!client)
+        return json(response, { error: "Unknown fixture session" }, 404);
+      const listing = await client.listTools();
+      const tool = listing.tools.find((tool) => tool.name === input.name);
+      const uri = tool?._meta?.ui?.resourceUri;
+      if (typeof uri !== "string")
+        throw new Error("The fixture launch tool has no UI resource.");
+      const resource = await client.readResource({ uri });
+      const content = resource.contents.find((content) => content.uri === uri);
+      if (!content)
+        throw new Error("The fixture UI resource was not returned.");
+      return json(response, {
+        tool,
+        resource: { uri, mimeType: content.mimeType, _meta: content._meta },
+      });
     }
     if (request.method === "POST" && path === "/tool") {
       const input = toolInput.parse(await body(request));

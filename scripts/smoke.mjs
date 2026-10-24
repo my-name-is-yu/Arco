@@ -39,6 +39,8 @@ try {
   for (const name of [
     "arco_open",
     "arco_open_project",
+    "arco_show_issue",
+    "arco_open_issue",
     "arco_get_issue",
     "arco_comments",
     "arco_account_issues",
@@ -65,12 +67,54 @@ try {
   assert.deepEqual(projectOpen._meta["openai/ui"].entrypoints, [
     { type: "thread" },
   ]);
+  for (const tool of [open, projectOpen])
+    assert.equal(
+      tool._meta["openai/ui"].preferredModelDisplayMode,
+      "fullscreen",
+    );
+  for (const [name, uri, mode] of [
+    ["arco_show_issue", "ui://arco/issue-card", "inline"],
+    ["arco_open_issue", "ui://arco/issues", "fullscreen"],
+  ]) {
+    const tool = tools.tools.find((item) => item.name === name);
+    assert.equal(tool._meta.ui.resourceUri, uri);
+    assert.equal(tool._meta["openai/ui"].preferredModelDisplayMode, mode);
+    assert.equal(tool._meta["openai/ui"].entrypoints, undefined);
+    assert.equal(tool.annotations.readOnlyHint, true);
+    assert.equal(tool.annotations.destructiveHint, false);
+    for (const target of [
+      { source: "github", repo: "yu/Arco", number: 42 },
+      {
+        source: "linear",
+        connectionId: "default",
+        workspaceId: "fixture-linear-workspace",
+        teamId: "fixture-linear-team",
+        issueId: "fixture-linear-42",
+      },
+    ]) {
+      const shown = await client.callTool({ name, arguments: { target } });
+      assert(!shown.isError);
+      assert.deepEqual(shown.structuredContent.launch.target, target);
+      assert.equal(shown.structuredContent.issue.source, target.source);
+      assert(shown.structuredContent.issue.body);
+    }
+  }
   const personalLaunch = await client.callTool({
     name: "arco_open",
     arguments: {},
   });
   assert.equal(personalLaunch.structuredContent.launch.view, "personal");
   assert.equal(personalLaunch.structuredContent.launch.repo, null);
+  for (const source of ["github", "linear"]) {
+    const explicitList = await client.callTool({
+      name: "arco_open",
+      arguments: { source },
+    });
+    assert(!explicitList.isError);
+    assert.equal(explicitList.structuredContent.launch.view, "personal");
+    assert.equal(explicitList.structuredContent.launch.source, source);
+    assert.equal(explicitList.structuredContent.launch.target, undefined);
+  }
   const personalInThread = await client.callTool({
     name: "arco_open",
     arguments: {},
@@ -115,6 +159,21 @@ try {
     "fullscreen",
   ]);
   assert(html.contents[0].text.includes("<!doctype html>"));
+  assert.equal(
+    html.contents[0]._meta["openai/ui"].preferredDisplayMode,
+    "fullscreen",
+  );
+  const card = await client.readResource({ uri: "ui://arco/issue-card" });
+  assert.equal(card.contents[0].mimeType, "text/html;profile=mcp-app");
+  assert.equal(
+    card.contents[0]._meta["openai/ui"].preferredDisplayMode,
+    "inline",
+  );
+  assert.deepEqual(card.contents[0]._meta["openai/ui"].availableDisplayModes, [
+    "inline",
+    "fullscreen",
+  ]);
+  assert.equal(card.contents[0].text, html.contents[0].text);
   const search = await client.callTool({
     name: "search_mentions",
     arguments: { query: "repo:yu/Arco" },

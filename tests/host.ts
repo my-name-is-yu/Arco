@@ -4,8 +4,14 @@ import {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   CallToolResultSchema,
+  ToolSchema,
   type CallToolResult,
+  type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  OpenAIUiResourceMetadataSchema,
+  OpenAIUiToolMetadataSchema,
+} from "@openai/mcp-extensions";
 import {
   OPENAI_MESSAGE_KEY,
   OPENAI_MODEL_CONTEXT_KEY,
@@ -14,11 +20,43 @@ import {
 } from "@openai/mcp-extensions/app";
 import { z } from "zod";
 import type { DisplayMode } from "../src/shared/contracts";
-import { type LaunchContext } from "../src/shared/launch";
+import {
+  nativeIssueTargetSchema,
+  type LaunchContext,
+} from "../src/shared/launch";
 
 const parameters = new URL(location.href).searchParams;
 const projectEntry = parameters.get("entry") === "project";
-const launchTool = projectEntry ? "arco_open_project" : "arco_open";
+const issueEntry = ["issue", "detail"].includes(parameters.get("entry") ?? "");
+const launchTool = issueEntry
+  ? parameters.get("entry") === "detail"
+    ? "arco_open_issue"
+    : "arco_show_issue"
+  : projectEntry
+    ? "arco_open_project"
+    : "arco_open";
+const launchArguments = issueEntry
+  ? {
+      target: nativeIssueTargetSchema.parse(
+        parameters.get("source") === "linear"
+          ? {
+              source: "linear",
+              connectionId: parameters.get("connectionId") ?? "default",
+              workspaceId:
+                parameters.get("workspaceId") ?? "fixture-linear-workspace",
+              teamId: parameters.get("teamId") ?? "fixture-linear-team",
+              issueId: `fixture-linear-${parameters.get("number") ?? "42"}`,
+            }
+          : {
+              source: "github",
+              repo: parameters.get("issueRepo") ?? "yu/Arco",
+              number: Number(parameters.get("number") ?? "42"),
+            },
+      ),
+    }
+  : !projectEntry && parameters.has("source")
+    ? { source: z.enum(["github", "linear"]).parse(parameters.get("source")) }
+    : {};
 const projectKey = "1".repeat(64);
 
 const frame = document.querySelector<HTMLIFrameElement>("#arco")!;
@@ -61,8 +99,11 @@ const bridge = new AppBridge(
     experimental: { [OPENAI_MESSAGE_KEY]: {}, [OPENAI_MODEL_CONTEXT_KEY]: {} },
   },
 );
-let displayMode: DisplayMode = "fullscreen";
+let displayMode: DisplayMode;
+let availableDisplayModes: DisplayMode[];
+let launchToolInfo: Tool;
 const sharedFixture = parameters.get("shared");
+const sharedNumber = Number(parameters.get("sharedNumber") ?? "42");
 let sharedContext: OpenAIModelContextHostState =
   sharedFixture === "github" || sharedFixture === "linear"
     ? {
@@ -72,8 +113,8 @@ let sharedContext: OpenAIModelContextHostState =
           sharedFixture === "github"
             ? {
                 source: "github",
-                repo: "yu/Other",
-                number: 42,
+                repo: parameters.get("sharedRepo") ?? "yu/Other",
+                number: sharedNumber,
                 arcoSharedIssue: 1,
               }
             : {
@@ -81,7 +122,7 @@ let sharedContext: OpenAIModelContextHostState =
                 connectionId: "default",
                 workspaceId: "fixture-linear-workspace",
                 teamId: "fixture-linear-team",
-                id: "fixture-linear-42",
+                id: `fixture-linear-${sharedNumber}`,
                 arcoSharedIssue: 1,
               },
       }
@@ -95,10 +136,10 @@ function display(mode: DisplayMode) {
   displayMode = mode;
   bridge.setHostContext({
     theme: "dark",
-    toolInfo: { tool: { name: launchTool, inputSchema: { type: "object" } } },
+    toolInfo: { tool: launchToolInfo },
     [OPENAI_MODEL_CONTEXT_KEY]: sharedContext,
     displayMode,
-    availableDisplayModes: ["inline", "fullscreen"],
+    availableDisplayModes,
     containerDimensions: {
       width: frame.clientWidth,
       maxHeight: frame.clientHeight,
@@ -171,15 +212,18 @@ bridge.onopenlink = async (params) => {
   return {};
 };
 bridge.onrequestdisplaymode = async ({ mode }) => {
-  const actual = displayFallback.checked ? displayMode : mode;
+  const actual =
+    displayFallback.checked || !availableDisplayModes.includes(mode)
+      ? displayMode
+      : mode;
   record("display-request", { requested: mode, actual });
   display(actual);
   return { mode: actual };
 };
 bridge.oninitialized = async () => {
   statusElement.textContent = "ready";
-  await bridge.sendToolInput({ arguments: {} });
-  const result = await tool(launchTool, {});
+  await bridge.sendToolInput({ arguments: launchArguments });
+  const result = await tool(launchTool, launchArguments);
   if (projectEntry) {
     const unresolved = parameters.get("repo") === "none";
     const ambiguous = parameters.get("repo") === "ambiguous";
@@ -274,6 +318,42 @@ async function start() {
       throw new Error("Fixture MCP session could not start");
     session = result.session;
   }
+  const presentationResponse = await fetch("/presentation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session, name: launchTool }),
+  });
+  const presentation = z
+    .object({
+      tool: ToolSchema,
+      resource: z.object({
+        uri: z.string(),
+        _meta: z.record(z.string(), z.unknown()),
+      }),
+    })
+    .parse(await presentationResponse.json());
+  launchToolInfo = presentation.tool;
+  const resourceMetadata = OpenAIUiResourceMetadataSchema.parse(
+    presentation.resource._meta["openai/ui"],
+  );
+  const toolMetadata = OpenAIUiToolMetadataSchema.parse(
+    launchToolInfo._meta?.["openai/ui"],
+  );
+  if (!resourceMetadata.availableDisplayModes?.length)
+    throw new Error("The fixture resource must declare display modes.");
+  availableDisplayModes = resourceMetadata.availableDisplayModes;
+  displayMode =
+    toolMetadata.preferredModelDisplayMode ??
+    resourceMetadata.preferredDisplayMode ??
+    availableDisplayModes[0];
+  if (!availableDisplayModes.includes(displayMode))
+    throw new Error("The fixture preferred display mode is not available.");
+  record("presentation", {
+    tool: launchToolInfo.name,
+    resourceUri: presentation.resource.uri,
+    preferredMode: displayMode,
+    availableDisplayModes,
+  });
   await bridge.connect(
     new PostMessageTransport(frame.contentWindow!, frame.contentWindow!),
   );

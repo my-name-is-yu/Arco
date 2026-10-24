@@ -1,10 +1,17 @@
-import { useId, useImperativeHandle, useRef, type Ref } from "react";
+import {
+  useId,
+  useImperativeHandle,
+  useRef,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { Select } from "@openai/apps-sdk-ui/components/Select";
 
 export interface SingleSelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  leading?: ReactNode;
 }
 
 export interface SingleSelectGroup {
@@ -25,12 +32,30 @@ const sdkOption = (option: SingleSelectOption): SdkOption => ({
   nativeValue: option.value,
 });
 
-function SelectedValue({ label }: SingleSelectOption) {
-  return <span className="source-single-value">{label}</span>;
+function SelectedValue({ label, leading }: SingleSelectOption) {
+  return (
+    <span className="source-single-value source-select-content">
+      {leading != null && (
+        <span className="source-select-leading" aria-hidden="true">
+          {leading}
+        </span>
+      )}
+      <span className="source-select-text">{label}</span>
+    </span>
+  );
 }
 
-function OptionView({ label, nativeValue }: SdkOption) {
-  return <span data-select-value={nativeValue}>{label}</span>;
+function OptionView({ label, leading, nativeValue }: SdkOption) {
+  return (
+    <span className="source-select-content" data-select-value={nativeValue}>
+      {leading != null && (
+        <span className="source-select-leading" aria-hidden="true">
+          {leading}
+        </span>
+      )}
+      <span className="source-select-text">{label}</span>
+    </span>
+  );
 }
 
 export function SingleSelect({

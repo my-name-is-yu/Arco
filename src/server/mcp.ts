@@ -17,7 +17,11 @@ import { z } from "zod";
 import iconDark from "../../plugin/assets/icon-dark.svg";
 import iconLight from "../../plugin/assets/icon.svg";
 import { issueRefSchema } from "../shared/contracts";
-import { personalLaunchContext } from "../shared/launch";
+import {
+  nativeIssueTargetSchema,
+  personalLaunchContext,
+  type NativeIssueTarget,
+} from "../shared/launch";
 import { linearRefSchema } from "../shared/linear";
 import type { ArcoBackend } from "./composition";
 import { registerGitHubOperationTools } from "./github-operation-tools";
@@ -62,6 +66,7 @@ export function createArcoServer({
     },
   );
   const uri = "ui://arco/issues";
+  const cardUri = "ui://arco/issue-card";
   registerStateTools(server, stateStore);
   registerGitHubImageTool(server, service, { fixture });
   registerGitHubOperationTools(server, operations);
@@ -82,42 +87,143 @@ export function createArcoServer({
     "search_mentions",
   ]);
 
-  registerAppResource(
-    server,
-    "arco",
-    uri,
-    {
-      description:
-        "GitHub and Linear Issues with explicit Codex context sharing",
-    },
-    async () => ({
-      contents: [
-        {
-          uri,
-          mimeType: RESOURCE_MIME_TYPE,
-          text: await readFile(new URL("./arco.html", import.meta.url), "utf8"),
-          _meta: {
-            "openai/ui": OpenAIUiResourceMetadataSchema.parse({
-              availableDisplayModes: ["inline", "fullscreen"],
-              preferredDisplayMode: "fullscreen",
-            }),
-            ui: {
-              csp: { connectDomains: [], resourceDomains: [] },
-              prefersBorder: false,
+  for (const resource of [
+    { name: "arco", uri, preferredDisplayMode: "fullscreen" },
+    { name: "arco-issue-card", uri: cardUri, preferredDisplayMode: "inline" },
+  ] as const) {
+    registerAppResource(
+      server,
+      resource.name,
+      resource.uri,
+      {
+        description:
+          "GitHub and Linear Issues with explicit Codex context sharing",
+      },
+      async () => ({
+        contents: [
+          {
+            uri: resource.uri,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: await readFile(
+              new URL("./arco.html", import.meta.url),
+              "utf8",
+            ),
+            _meta: {
+              "openai/ui": OpenAIUiResourceMetadataSchema.parse({
+                availableDisplayModes: ["inline", "fullscreen"],
+                preferredDisplayMode: resource.preferredDisplayMode,
+              }),
+              ui: {
+                csp: { connectDomains: [], resourceDomains: [] },
+                prefersBorder: false,
+              },
             },
           },
+        ],
+      }),
+    );
+  }
+
+  const issuePresentationInput = z
+    .object({ target: nativeIssueTargetSchema })
+    .strict();
+  const presentIssue = async (raw: unknown) => {
+    try {
+      const { target } = issuePresentationInput.parse(raw);
+      let issue: object;
+      let canonical: NativeIssueTarget;
+      if (target.source === "github") {
+        issue = await service.get({ repo: target.repo, number: target.number });
+        canonical = z
+          .object({ source: z.literal("github"), ...issueRefSchema.shape })
+          .parse(issue);
+        if (
+          canonical.repo.toLowerCase() !== target.repo.toLowerCase() ||
+          canonical.number !== target.number
+        )
+          throw new Error(
+            "GitHub returned a different issue than the requested target.",
+          );
+      } else {
+        issue = await linearService.call("linear_get_issue", {
+          connectionId: target.connectionId,
+          workspaceId: target.workspaceId,
+          teamId: target.teamId,
+          issueId: target.issueId,
+        });
+        canonical = z
+          .object({ source: z.literal("linear"), ...linearRefSchema.shape })
+          .parse(issue);
+        if (
+          canonical.connectionId !== target.connectionId ||
+          canonical.workspaceId !== target.workspaceId ||
+          canonical.teamId !== target.teamId ||
+          canonical.issueId !== target.issueId
+        )
+          throw new Error(
+            "Linear returned a different issue or scope. Use linear_resolve_issue with the official issue URL, then pass its native IDs.",
+          );
+      }
+      return result({
+        launch: { ...personalLaunchContext, target: canonical },
+        issue,
+      });
+    } catch (error) {
+      return failure(error);
+    }
+  };
+  for (const presentation of [
+    {
+      name: "arco_show_issue",
+      title: "Show issue",
+      uri: cardUri,
+      mode: "inline",
+      description:
+        "Show one explicit GitHub or Linear issue as an inline conversation card. Use by default when the user asks to see an issue. Requires its native reference; resolve unknown or ambiguous targets first. Use data tools for analysis or updates, and arco_open_issue only for an explicitly requested detail panel. Does not change issues or chat attachments.",
+    },
+    {
+      name: "arco_open_issue",
+      title: "Open issue details",
+      uri,
+      mode: "fullscreen",
+      description:
+        "Open one explicit GitHub or Linear issue in the detail panel only when the user requests that panel. Requires its native reference. For a normal request to see an issue, use arco_show_issue; for analysis or updates, use data tools. Does not change issues or chat attachments.",
+    },
+  ] as const) {
+    registerAppTool(
+      server,
+      presentation.name,
+      {
+        title: presentation.title,
+        description: presentation.description,
+        inputSchema: issuePresentationInput,
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
         },
-      ],
-    }),
-  );
+        _meta: {
+          ui: { resourceUri: presentation.uri },
+          "openai/ui": OpenAIUiToolMetadataSchema.parse({
+            preferredModelDisplayMode: presentation.mode,
+          }),
+        },
+      },
+      presentIssue,
+    );
+  }
+  const workspaceOpenInput = z
+    .object({ source: z.enum(["github", "linear"]).optional() })
+    .strict();
   registerAppTool(
     server,
     "arco_open",
     {
       title: "Arco",
       description:
-        "Open your personal Arco Issue tracker. Browsing does not send messages or change issues.",
-      inputSchema: {},
+        "Open the personal issue list and management workspace in the side panel only when explicitly requested. Set source to github or linear for an explicitly requested provider list. To show one issue, use arco_show_issue; for analysis or updates, use data tools. Browsing does not send messages or change issues.",
+      inputSchema: workspaceOpenInput,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -127,15 +233,27 @@ export function createArcoServer({
         ui: { resourceUri: uri },
         "openai/ui": OpenAIUiToolMetadataSchema.parse({
           entrypoints: [{ type: "global" }],
-          preferredModelDisplayMode: "inline",
+          preferredModelDisplayMode: "fullscreen",
         }),
       },
     },
-    async () =>
-      result({
-        ...(await service.connection()),
-        launch: personalLaunchContext,
-      }),
+    async (raw) => {
+      try {
+        const { source } = workspaceOpenInput.parse(raw);
+        const connection =
+          source === "linear"
+            ? await linearService.call("linear_connection", {})
+            : await service.connection();
+        return result({
+          ...connection,
+          launch: source
+            ? { ...personalLaunchContext, source }
+            : personalLaunchContext,
+        });
+      } catch (error) {
+        return failure(error);
+      }
+    },
   );
 
   registerAppTool(
@@ -144,7 +262,7 @@ export function createArcoServer({
     {
       title: "Arco",
       description:
-        "Open the project Issue viewer. Uses explicit client workspace roots when available; otherwise choose a repository for this chat. Browsing does not change files or issues.",
+        "Open the GitHub repository issue list and management workspace in the side panel only when explicitly requested. Uses client workspace roots when available; otherwise choose a repository for this chat. For a Linear list, use arco_open with source linear. To show one issue, use arco_show_issue; for analysis or updates, use data tools. Browsing does not change files or issues.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -155,7 +273,7 @@ export function createArcoServer({
         ui: { resourceUri: uri },
         "openai/ui": OpenAIUiToolMetadataSchema.parse({
           entrypoints: [{ type: "thread" }],
-          preferredModelDisplayMode: "inline",
+          preferredModelDisplayMode: "fullscreen",
         }),
       },
     },

@@ -813,7 +813,7 @@ export function LinearDetail({
                 label="Linear Priority"
                 disabled={busy}
                 value={String(issue.priority)}
-                options={["No priority", "Urgent", "High", "Normal", "Low"].map(
+                options={["No priority", "Urgent", "High", "Medium", "Low"].map(
                   (label, value) => ({ value: String(value), label }),
                 )}
                 onChange={(value) => void update({ priority: Number(value) })}
