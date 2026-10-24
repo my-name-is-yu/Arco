@@ -242,11 +242,16 @@ export interface SelectionAnnotationContext extends TextSelectionContext {
   number: number;
 }
 export type ConversationIssue = IssueDetail | LinearIssue;
+export interface PresentationIssues {
+  issues: ConversationIssue[];
+  receivedAt: number;
+}
 export type SharedIssueRef =
   ({ source: "github" } & IssueRef) | ({ source: "linear" } & LinearRef);
 export interface ArcoHost {
   launch(): LaunchContext | null;
   launchError(): string | null;
+  presentationIssues?(): PresentationIssues | null;
   sharedIssue(): SharedIssueRef | null;
   sharedAnnotations(): SelectionAnnotationContext[] | null;
   annotationSnapshotId(): string | null;

@@ -22,6 +22,7 @@ import {
 import { z } from "zod";
 import type { DisplayMode } from "../src/shared/contracts";
 import {
+  MAX_PRESENTED_ISSUES,
   nativeIssueTargetSchema,
   type LaunchContext,
 } from "../src/shared/launch";
@@ -44,7 +45,7 @@ const launchArguments = issuesEntry
       targets: z
         .array(nativeIssueTargetSchema)
         .min(2)
-        .max(10)
+        .max(MAX_PRESENTED_ISSUES)
         .parse(
           parameters.has("targets")
             ? JSON.parse(parameters.get("targets")!)

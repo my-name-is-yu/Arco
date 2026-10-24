@@ -1,5 +1,5 @@
 import { useId, useRef, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
 import {
   launchContextSchema,
@@ -8,6 +8,8 @@ import {
 } from "../shared/launch";
 import { Notice } from "./Notice";
 import { isTextSelectionClick, selectionIssueData } from "./selection-context";
+import { seedPresentationCache } from "./presentation-cache";
+import { usePresentationImagePrefetch } from "./presentation-images";
 import "./inline-issue-tabs.css";
 
 export function presentationTarget(
@@ -68,13 +70,14 @@ export function InlineIssueTabs({
   children: ReactNode;
 }) {
   const prefix = useId();
+  const client = useQueryClient();
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const targets = issues.map(presentationTarget);
   const activeKey = presentationIdentity(activeTarget);
   const query = useQuery({
     queryKey: ["issue-set", targets],
     initialData: issues,
-    refetchOnMount: "always",
+    initialDataUpdatedAt: host.presentationIssues?.()?.receivedAt,
     queryFn: async ({ signal }) => {
       const response = await host.call<{ launch: unknown }>(
         "arco_show_issues",
@@ -93,9 +96,14 @@ export function InlineIssueTabs({
         throw new Error(
           "The issue tabs returned different targets. Try refreshing again.",
         );
+      seedPresentationCache(client, host);
       return refreshed;
     },
   });
+  usePresentationImagePrefetch(
+    host,
+    query.dataUpdatedAt ? (host.presentationIssues?.()?.issues ?? []) : [],
+  );
   const activeIndex = query.data.findIndex(
     (issue) => presentationIdentity(issue) === activeKey,
   );

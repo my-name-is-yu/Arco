@@ -12,6 +12,7 @@ import { createArcoServer } from "../src/server/mcp";
 import {
   issuePresentationSummarySchema,
   launchContextSchema,
+  MAX_PRESENTED_ISSUES,
   nativeIssueTargetSchema,
   personalLaunchContext,
 } from "../src/shared/launch";
@@ -465,6 +466,11 @@ describe("grouped inline issue presentation", () => {
     });
     expect(tool.inputSchema.required).toEqual(["targets"]);
     expect(tool.inputSchema.additionalProperties).toBe(false);
+    expect(tool.inputSchema.properties?.targets).toMatchObject({
+      minItems: 2,
+      maxItems: MAX_PRESENTED_ISSUES,
+    });
+    expect(tool.description).toContain("2–4");
   });
 
   it("preserves mixed-provider order and canonical native scope while omitting bodies and comments", async () => {
@@ -511,6 +517,9 @@ describe("grouped inline issue presentation", () => {
       expect(issue).not.toHaveProperty("projects");
     }
     expect(Object.keys(response.structuredContent ?? {})).toEqual(["launch"]);
+    expect(response.content).toEqual([
+      { type: "text", text: JSON.stringify(response.structuredContent) },
+    ]);
     expect(githubRead).toHaveBeenCalledExactlyOnceWith({
       repo: github.repo,
       number: github.number,
@@ -519,8 +528,60 @@ describe("grouped inline issue presentation", () => {
       "linear_get_issue",
       linearRef,
     );
+    expect(response._meta).toEqual({
+      issueDetails: [
+        await linearRead.mock.results[0].value,
+        await githubRead.mock.results[0].value,
+      ],
+    });
+    expect(response._meta?.issueDetails).toEqual([
+      expect.objectContaining({ ...linear, body: expect.any(String) }),
+      expect.objectContaining({ ...github, body: expect.any(String) }),
+    ]);
     for (const untouched of [list, settings, draft, annotations])
       expect(untouched).not.toHaveBeenCalled();
+  });
+
+  it("returns all four fetched details only to the app without additional reads", async () => {
+    const githubRead = vi.spyOn(backend.service, "get");
+    const linearRead = vi.spyOn(backend.linearService, "call");
+    const targets = [
+      linear,
+      github,
+      { ...linear, issueId: "fixture-linear-43" },
+      { ...github, number: 43 },
+    ];
+    const response = await client.callTool({
+      name: "arco_show_issues",
+      arguments: { targets },
+    });
+    expect(response.isError).not.toBe(true);
+    const launch = launchContextSchema.parse(
+      (response.structuredContent as { launch?: unknown } | undefined)?.launch,
+    );
+    expect(launch.issues).toHaveLength(MAX_PRESENTED_ISSUES);
+    expect(response._meta?.issueDetails).toEqual([
+      await linearRead.mock.results[0].value,
+      await githubRead.mock.results[0].value,
+      await linearRead.mock.results[1].value,
+      await githubRead.mock.results[1].value,
+    ]);
+    expect(githubRead.mock.calls).toEqual([
+      [{ repo: github.repo, number: 42 }],
+      [{ repo: github.repo, number: 43 }],
+    ]);
+    expect(linearRead.mock.calls).toEqual([
+      ["linear_get_issue", linearRef],
+      ["linear_get_issue", { ...linearRef, issueId: "fixture-linear-43" }],
+    ]);
+    expect(response.structuredContent).not.toHaveProperty("issueDetails");
+    expect(response.content).toEqual([
+      { type: "text", text: JSON.stringify({ launch }) },
+    ]);
+    for (const issue of launch.issues ?? []) {
+      expect(issue).not.toHaveProperty("body");
+      expect(issue).not.toHaveProperty("comments");
+    }
   });
 
   it.each([
@@ -528,7 +589,7 @@ describe("grouped inline issue presentation", () => {
     { targets: [] },
     { targets: [github] },
     {
-      targets: Array.from({ length: 11 }, (_, index) => ({
+      targets: Array.from({ length: MAX_PRESENTED_ISSUES + 1 }, (_, index) => ({
         ...github,
         number: index + 1,
       })),
@@ -609,6 +670,7 @@ describe("grouped inline issue presentation", () => {
       });
       expect(response.structuredContent).not.toHaveProperty("launch");
       expect(response.structuredContent).not.toHaveProperty("issues");
+      expect(response._meta?.issueDetails).toBeUndefined();
     },
   );
 
@@ -629,6 +691,7 @@ describe("grouped inline issue presentation", () => {
       },
     });
     expect(response.structuredContent).not.toHaveProperty("launch");
+    expect(response._meta?.issueDetails).toBeUndefined();
     expect(list).not.toHaveBeenCalled();
     expect(account).not.toHaveBeenCalled();
   });
@@ -647,6 +710,15 @@ describe("grouped inline issue presentation", () => {
     expect(
       launchContextSchema.safeParse({ ...launch, issues: [launch.issues?.[0]] })
         .success,
+    ).toBe(false);
+    expect(
+      launchContextSchema.safeParse({
+        ...launch,
+        issues: Array.from(
+          { length: MAX_PRESENTED_ISSUES + 1 },
+          () => launch.issues?.[0],
+        ),
+      }).success,
     ).toBe(false);
     expect(
       issuePresentationSummarySchema.safeParse({

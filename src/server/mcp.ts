@@ -17,15 +17,16 @@ import { z } from "zod";
 import { OperationError } from "../shared/errors";
 import iconDark from "../../plugin/assets/icon-dark.svg";
 import iconLight from "../../plugin/assets/icon.svg";
-import { issueRefSchema } from "../shared/contracts";
+import { issueRefSchema, type ConversationIssue } from "../shared/contracts";
 import {
   issuePresentationSummarySchema,
+  MAX_PRESENTED_ISSUES,
   nativeIssueTargetSchema,
   personalLaunchContext,
   type IssuePresentationSummary,
   type NativeIssueTarget,
 } from "../shared/launch";
-import { linearRefSchema } from "../shared/linear";
+import { linearRefSchema, type LinearIssue } from "../shared/linear";
 import type { ArcoBackend } from "./composition";
 import { registerGitHubOperationTools } from "./github-operation-tools";
 import { registerGitHubImageTool } from "./images";
@@ -131,7 +132,7 @@ export function createArcoServer({
     .object({ target: nativeIssueTargetSchema })
     .strict();
   const readPresentationIssue = async (target: NativeIssueTarget) => {
-    let issue: object;
+    let issue: ConversationIssue;
     let canonical: NativeIssueTarget;
     if (target.source === "github") {
       issue = await service.get({ repo: target.repo, number: target.number });
@@ -147,12 +148,12 @@ export function createArcoServer({
           "invalid-response",
         );
     } else {
-      issue = await linearService.call("linear_get_issue", {
+      issue = (await linearService.call("linear_get_issue", {
         connectionId: target.connectionId,
         workspaceId: target.workspaceId,
         teamId: target.teamId,
         issueId: target.issueId,
-      });
+      })) as LinearIssue;
       canonical = z
         .object({ source: z.literal("linear"), ...linearRefSchema.shape })
         .parse(issue);
@@ -223,15 +224,19 @@ export function createArcoServer({
     );
   }
   const issuesPresentationInput = z
-    .object({ targets: z.array(nativeIssueTargetSchema).min(2).max(10) })
+    .object({
+      targets: z
+        .array(nativeIssueTargetSchema)
+        .min(2)
+        .max(MAX_PRESENTED_ISSUES),
+    })
     .strict();
   registerAppTool(
     server,
     "arco_show_issues",
     {
       title: "Show issues",
-      description:
-        "Show 2–10 explicit GitHub or Linear issues together with compact inline conversation tabs. Selecting a tab shows that issue's existing card. Preserve the supplied order and native references. Resolve unknown or ambiguous targets first. Use arco_show_issue for one issue, and data tools for analysis or updates. Does not change issues, open a panel, or attach chat context.",
+      description: `Show 2–${MAX_PRESENTED_ISSUES} explicit GitHub or Linear issues together with compact inline conversation tabs. Selecting a tab shows that issue's existing card. Preserve the supplied order and native references. Resolve unknown or ambiguous targets first. Use arco_show_issue for one issue, and data tools for analysis or updates. Does not change issues, open a panel, or attach chat context.`,
       inputSchema: issuesPresentationInput,
       annotations: {
         readOnlyHint: true,
@@ -273,9 +278,10 @@ export function createArcoServer({
             "invalid-input",
           );
         const issues: IssuePresentationSummary[] = [];
+        const issueDetails: ConversationIssue[] = [];
         for (const target of unique.values()) {
           const { issue } = await readPresentationIssue(target);
-          // Keep only presentation fields; bodies and comments stay in details.
+          // Model-facing fields stay compact; fetched details are app-only.
           const summarySchema =
             issuePresentationSummarySchema.options[
               target.source === "github" ? 0 : 1
@@ -287,8 +293,12 @@ export function createArcoServer({
               "invalid-response",
             );
           issues.push(summary.data);
+          issueDetails.push(issue);
         }
-        return result({ launch: { ...personalLaunchContext, issues } });
+        return {
+          ...result({ launch: { ...personalLaunchContext, issues } }),
+          _meta: { issueDetails },
+        };
       } catch (error) {
         return failure(error);
       }

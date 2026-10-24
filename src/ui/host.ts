@@ -12,14 +12,74 @@ import { z } from "zod";
 import { readToolFailure, ToolCallError } from "../shared/errors";
 import { imageDataSchema } from "../shared/images";
 import { annotationSnapshotIdSchema } from "../shared/annotation-state";
-import { launchContextSchema, type LaunchContext } from "../shared/launch";
+import {
+  issuePresentationSummarySchema,
+  launchContextSchema,
+  nativeIssueTargetSchema,
+  type LaunchContext,
+  type NativeIssueTarget,
+} from "../shared/launch";
 import {
   readSharedContext,
   type SharedContextSnapshot,
 } from "./shared-context";
 import { createToolQueue } from "./tool-queue";
 import { annotationAttachment, contextAttachment } from "./context-attachment";
-import type { ArcoHost, ConversationIssue } from "../shared/contracts";
+import type {
+  ArcoHost,
+  ConversationIssue,
+  PresentationIssues,
+} from "../shared/contracts";
+
+function presentationKey(target: NativeIssueTarget) {
+  return JSON.stringify(
+    target.source === "github"
+      ? [target.source, target.repo.toLowerCase(), target.number]
+      : [
+          target.source,
+          target.connectionId,
+          target.workspaceId,
+          target.teamId,
+          target.issueId,
+        ],
+  );
+}
+
+function presentationIssues(
+  metadata: Record<string, unknown> | undefined,
+  launch: LaunchContext,
+): PresentationIssues | null {
+  if (metadata?.issueDetails === undefined || !launch.issues) return null;
+  const details = metadata.issueDetails;
+  if (
+    !Array.isArray(details) ||
+    details.length !== launch.issues.length ||
+    details.some((detail, index) => {
+      const summary = issuePresentationSummarySchema.options[
+        detail?.source === "github" ? 0 : 1
+      ]
+        .strip()
+        .safeParse(detail);
+      return (
+        !summary.success ||
+        JSON.stringify(summary.data) !==
+          JSON.stringify(launch.issues![index]) ||
+        typeof detail.body !== "string" ||
+        typeof detail.updatedAt !== "string" ||
+        !Number.isFinite(Date.parse(detail.updatedAt)) ||
+        !Array.isArray(detail.labels) ||
+        !Array.isArray(detail.comments) ||
+        (detail.source === "github" &&
+          (!Array.isArray(detail.assignees) || !Array.isArray(detail.projects)))
+      );
+    })
+  )
+    throw new ToolCallError(
+      "invalid-response",
+      "The server returned different or invalid issue details. Refresh to try again.",
+    );
+  return { issues: details as ConversationIssue[], receivedAt: Date.now() };
+}
 
 function issueContext(issue: ConversationIssue) {
   if (issue.source === "linear")
@@ -72,6 +132,7 @@ export async function connectHost(): Promise<ArcoHost> {
   let displayMode = app.getHostContext()?.displayMode ?? "inline";
   let launchContext: LaunchContext | null = null;
   let launchError: string | null = null;
+  let presentedIssues: PresentationIssues | null = null;
   const listeners = new Set<
     (event: "data" | "display" | "context" | "launch") => void
   >();
@@ -140,9 +201,21 @@ export async function connectHost(): Promise<ArcoHost> {
           result.structuredContent?.launch,
         );
         if (parsed.success) {
+          try {
+            presentedIssues = presentationIssues(result._meta, parsed.data);
+          } catch (error) {
+            launchError = (error as Error).message;
+            notify("launch");
+            return;
+          }
           launchContext = parsed.data;
           launchError = null;
+          if (refreshTimer !== undefined) {
+            clearTimeout(refreshTimer);
+            refreshTimer = undefined;
+          }
           notify("launch");
+          return;
         }
       }
     }
@@ -206,6 +279,9 @@ export async function connectHost(): Promise<ArcoHost> {
     launchError() {
       return launchError;
     },
+    presentationIssues() {
+      return presentedIssues;
+    },
     annotationSnapshotId() {
       return attachment.snapshotId;
     },
@@ -264,6 +340,30 @@ export async function connectHost(): Promise<ArcoHost> {
           "invalid-response",
           "The server response contains no data.",
         );
+      if (name === "arco_show_issues") {
+        const launch = launchContextSchema.parse(
+          result.structuredContent.launch,
+        );
+        const requested = z
+          .array(nativeIssueTargetSchema)
+          .safeParse(args.targets);
+        const keys = requested.success
+          ? [...new Set(requested.data.map(presentationKey))]
+          : [];
+        if (
+          !launch.issues ||
+          keys.length !== launch.issues.length ||
+          launch.issues.some(
+            (issue, index) => presentationKey(issue) !== keys[index],
+          )
+        )
+          throw new ToolCallError(
+            "invalid-response",
+            "The server returned different issue targets. Refresh to try again.",
+          );
+        const details = presentationIssues(result._meta, launch);
+        if (details) presentedIssues = details;
+      }
       return result.structuredContent as T;
     },
     async share(issue) {

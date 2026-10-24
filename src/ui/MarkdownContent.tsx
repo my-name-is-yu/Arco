@@ -11,6 +11,10 @@ import rehypeSanitize from "rehype-sanitize";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { markdownTaskAtLine } from "./markdown-tasks";
 import { useNearViewport } from "./useNearViewport";
+import {
+  safeMarkdownUrl,
+  sourceImageQueryOptions,
+} from "./presentation-images";
 
 type ImageContext = {
   host: ArcoHost;
@@ -30,30 +34,14 @@ function SourceImage({
   onOpen: (url: string) => void;
 }) {
   const { ref, near } = useNearViewport<HTMLSpanElement>();
-  const issue = image?.issue;
-  const sourceRef =
-    issue?.source === "github"
-      ? [issue.repo, issue.number]
-      : issue?.source === "linear"
-        ? [issue.connectionId, issue.workspaceId, issue.teamId, issue.issueId]
-        : [];
   const preview = useQuery({
-    queryKey: [
-      "source-image",
-      issue?.source,
-      ...sourceRef,
-      image?.commentId,
+    ...sourceImageQueryOptions(
+      image?.host,
+      image?.issue,
       url,
-    ],
-    queryFn: ({ signal }) =>
-      image!.host.readImage(image!.issue, url, image!.commentId, {
-        signal,
-        priority: "background",
-      }),
+      image?.commentId,
+    ),
     enabled: Boolean(image) && near,
-    retry: false,
-    staleTime: 10 * 60_000,
-    gcTime: 10 * 60_000,
   });
   return (
     <span className="source-image" ref={ref}>
@@ -91,15 +79,6 @@ function property(node: Record<string, unknown>, key: string): string {
   )?.[1];
   return typeof value === "string" ? value : "";
 }
-function safeUrl(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    return ["https:", "http:"].includes(url.protocol) ? url.href : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function normalizeMarkdownProperties() {
   return (tree: Parameters<ReturnType<typeof rehypeSanitize>>[0]) => {
     function visit(node: typeof tree | (typeof tree.children)[number]) {
@@ -113,7 +92,7 @@ function normalizeMarkdownProperties() {
           const key = node.tagName === "a" ? "href" : "src";
           const value = node.properties[key];
           if (typeof value === "string") {
-            const url = safeUrl(value);
+            const url = safeMarkdownUrl(value);
             if (url) node.properties[key] = url;
           }
         }
@@ -152,7 +131,7 @@ const markdownComponents: NonNullable<
 > = {
   a: function MarkdownLink({ node, children }) {
     const { onOpen } = useContext(MarkdownContext)!;
-    const url = safeUrl(property(node, "href"));
+    const url = safeMarkdownUrl(property(node, "href"));
     return url ? (
       <button
         type="button"
@@ -167,7 +146,7 @@ const markdownComponents: NonNullable<
   },
   img: function MarkdownImage({ node }) {
     const { image, onOpen } = useContext(MarkdownContext)!;
-    const url = safeUrl(property(node, "src"));
+    const url = safeMarkdownUrl(property(node, "src"));
     const alt = property(node, "alt") || "Attached image";
     return url ? (
       <SourceImage url={url} alt={alt} image={image} onOpen={onOpen} />

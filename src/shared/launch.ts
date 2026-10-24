@@ -14,6 +14,7 @@ export const nativeIssueTargetSchema = z.discriminatedUnion("source", [
 ]);
 
 export type NativeIssueTarget = z.infer<typeof nativeIssueTargetSchema>;
+export const MAX_PRESENTED_ISSUES = 4;
 
 const presentationFields = {
   title: z.string().min(1).max(1024),
@@ -61,7 +62,11 @@ export const launchContextSchema = z
       "no-github-repository",
     ]),
     target: nativeIssueTargetSchema.optional(),
-    issues: z.array(issuePresentationSummarySchema).min(2).max(10).optional(),
+    issues: z
+      .array(issuePresentationSummarySchema)
+      .min(2)
+      .max(MAX_PRESENTED_ISSUES)
+      .optional(),
     source: z.enum(["github", "linear"]).optional(),
   })
   .strict()

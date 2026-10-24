@@ -14,6 +14,7 @@ import {
 } from "./session-state";
 import { useSettings } from "./useSettings";
 import { InlineIssueTabs, presentationTarget } from "./InlineIssueTabs";
+import { seedPresentationCache } from "./presentation-cache";
 function Workspace({
   host,
   launch,
@@ -131,21 +132,20 @@ function LaunchWorkspace({ host }: { host: ArcoHost }) {
   );
 }
 export function App({ host }: { host: ArcoHost }) {
-  const client = sessionValue(
-    host,
-    "query-client",
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            retry: false,
-            staleTime: 15_000,
-            refetchOnWindowFocus: true,
-          },
-          mutations: { retry: false },
+  const client = sessionValue(host, "query-client", () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          staleTime: 15_000,
+          refetchOnWindowFocus: true,
         },
-      }),
-  );
+        mutations: { retry: false },
+      },
+    });
+    seedPresentationCache(client, host);
+    return client;
+  });
   return (
     <QueryClientProvider client={client}>
       <HostProvider host={host}>

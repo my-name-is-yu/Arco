@@ -1379,9 +1379,10 @@ for (const source of ["github", "linear"] as const) {
       .toBeGreaterThan(0);
     await expect(content).toHaveCSS("animation-name", "none");
     await expect(content).toHaveCSS("opacity", "1");
+    expect(await inlineMotionSamples(card)).toEqual([]);
+    // Restoring motion can restart the card fade independently of scrolling.
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect(content).toHaveCSS("animation-name", "none");
-    expect(await inlineMotionSamples(card)).toEqual([]);
     expect(await events(page, "message")).toEqual([]);
     await expect(page.locator("#harness-error")).toBeEmpty();
   });

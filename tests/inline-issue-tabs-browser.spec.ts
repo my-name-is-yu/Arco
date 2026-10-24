@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { NativeIssueTarget } from "../src/shared/launch";
+import {
+  MAX_PRESENTED_ISSUES,
+  type NativeIssueTarget,
+} from "../src/shared/launch";
+import type { ConversationIssue } from "../src/shared/contracts";
 import { choose, selectControl } from "./select-helpers";
 import { expectDraftWrite, observeDraftWrites } from "./draft-helpers";
 import { latestSharedSelection } from "./shared-context-helpers";
@@ -22,6 +26,7 @@ const titles = {
   github42: "Preserve issue selection and scroll position",
   github43: "Separate shared context from sending a request",
   linear42: "Keep Linear workflow states intact",
+  linear43: "Share a Linear issue with the Codex chat",
 };
 type ToolCall = { name: string; arguments: Record<string, unknown> };
 async function events<T>(page: Page, type: string): Promise<T[]> {
@@ -85,7 +90,7 @@ async function addSelection(page: Page) {
   return latestSharedSelection((await events(page, "context"))[0]);
 }
 
-test("grouped issues show one native card and defer inactive detail-tool and image reads", async ({
+test("grouped issues reuse every loaded detail and prefetch leading images without duplicate reads", async ({
   page,
 }) => {
   const requests: ToolCall[] = [];
@@ -93,8 +98,8 @@ test("grouped issues show one native card and defer inactive detail-tool and ima
     if (new URL(request.url()).pathname === "/tool")
       requests.push(request.postDataJSON() as ToolCall);
   });
-  await open(page, [github(42), github(43), linear(42)]);
-  await expect(tabs(page).getByRole("tab")).toHaveCount(3);
+  await open(page, [github(42), github(43), linear(42), linear(43)]);
+  await expect(tabs(page).getByRole("tab")).toHaveCount(MAX_PRESENTED_ISSUES);
   await expect(issueTab(page, "yu/Arco #42")).toHaveAttribute(
     "aria-selected",
     "true",
@@ -110,23 +115,45 @@ test("grouped issues show one native card and defer inactive detail-tool and ima
   ).toHaveCount(0);
   expect(await events(page, "display")).toEqual(["inline"]);
   expect(await events(page, "display-request")).toEqual([]);
-  expect(requests.some((request) => request.name === "arco_show_issues")).toBe(
-    true,
+  expect(
+    requests.filter((request) => request.name === "arco_show_issues"),
+  ).toHaveLength(1);
+  await expect
+    .poll(() =>
+      requests.filter(
+        (request) =>
+          request.name === "linear_read_image" &&
+          request.arguments.issueId === "fixture-linear-42",
+      ),
+    )
+    .toHaveLength(1);
+  await selectIssue(page, "yu/Arco #43", titles.github43);
+  await expect(panel(page)).toContainText(
+    "Selecting an issue never sends a message.",
   );
+  await selectIssue(page, "YU-42", titles.linear42);
+  await expect(
+    selectControl(panel(page), "Linear Workflow state"),
+  ).toHaveAttribute("data-value", "linear-state-progress");
+  await expect(
+    panel(page).getByRole("img", { name: "Fixture illustration", exact: true }),
+  ).toBeVisible();
+  await selectIssue(page, "YU-43", titles.linear43);
+  await expect(
+    selectControl(panel(page), "Linear Workflow state"),
+  ).toHaveAttribute("data-value", "linear-state-todo");
+  await selectIssue(page, "yu/Arco #42", titles.github42);
   expect(
-    requests.some(
-      (request) =>
-        request.name === "arco_get_issue" && request.arguments.number === 42,
-    ),
-  ).toBe(true);
+    requests.filter((request) => request.name === "arco_show_issues"),
+  ).toHaveLength(1);
   expect(
-    requests.filter(
-      (request) =>
-        request.name === "linear_get_issue" ||
-        (["arco_get_issue", "arco_read_image", "arco_comments"].includes(
-          request.name,
-        ) &&
-          request.arguments.number === 43),
+    requests.filter((request) =>
+      [
+        "linear_get_issue",
+        "arco_get_issue",
+        "arco_comments",
+        "linear_comments",
+      ].includes(request.name),
     ),
   ).toEqual([]);
   expect(
@@ -134,6 +161,62 @@ test("grouped issues show one native card and defer inactive detail-tool and ima
       /(?:update|create|delete|comment$)/.test(request.name),
     ),
   ).toEqual([]);
+  expect(
+    requests.filter(
+      (request) =>
+        request.name === "linear_read_image" &&
+        request.arguments.issueId === "fixture-linear-42",
+    ),
+  ).toHaveLength(1);
+  await expectNoSharing(page);
+});
+
+test("failed image prefetch leaves issue bodies, states, and other tabs usable", async ({
+  page,
+}) => {
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as ToolCall;
+    if (["arco_read_image", "linear_read_image"].includes(input.name))
+      return route.fulfill({
+        status: 200,
+        json: toolFailure("Fixture image preview could not be loaded"),
+      });
+    return route.fallback();
+  });
+  await open(page, [github(42), github(43), linear(42)]);
+  await expect(panel(page)).toContainText(
+    "Return to the same position when switching between issues.",
+  );
+  await expect(
+    selectControl(panel(page), "Change issue state"),
+  ).toHaveAttribute("data-value", "open");
+  await expect(
+    panel(page).getByText("Image preview unavailable."),
+  ).toBeVisible();
+  await expect(panel(page).getByRole("alert")).toHaveCount(0);
+  await selectIssue(page, "YU-42", titles.linear42);
+  await expect(panel(page)).toContainText("Use native Linear states");
+  await expect(
+    selectControl(panel(page), "Linear Workflow state"),
+  ).toHaveAttribute("data-value", "linear-state-progress");
+  await expect(
+    panel(page).getByText("Image preview unavailable."),
+  ).toBeVisible();
+  await expect(panel(page).getByRole("alert")).toHaveCount(0);
+  await selectIssue(page, "yu/Arco #43", titles.github43);
+  await expect(panel(page)).toContainText(
+    "Selecting an issue never sends a message.",
+  );
+  await expect(
+    selectControl(panel(page), "Change issue state"),
+  ).toHaveAttribute("data-value", "open");
+  await expect(panel(page).getByText("Image preview unavailable.")).toHaveCount(
+    0,
+  );
+  await selectIssue(page, "yu/Arco #42", titles.github42);
+  await expect(
+    panel(page).getByText("Image preview unavailable."),
+  ).toBeVisible();
   await expectNoSharing(page);
 });
 
@@ -159,20 +242,20 @@ test("mixed-provider tabs keep selection inline and open exact native details", 
   await openDetails(page, titles.github43);
   const calls = await events<ToolCall>(page, "tool");
   expect(
-    calls.some(
+    calls.filter(
       (call) =>
         call.name === "linear_get_issue" &&
         call.arguments.issueId === "fixture-linear-42",
     ),
-  ).toBe(true);
+  ).toEqual([]);
   expect(
-    calls.some(
+    calls.filter(
       (call) =>
         call.name === "arco_get_issue" &&
         call.arguments.repo === "yu/Arco" &&
         call.arguments.number === 43,
     ),
-  ).toBe(true);
+  ).toEqual([]);
   expect(
     calls.filter((call) => /(?:update|create|delete|comment$)/.test(call.name)),
   ).toEqual([]);
@@ -203,8 +286,7 @@ test("same-provider tabs open the selected issue after returning from another de
   const reads = (await events<ToolCall>(page, "tool")).filter(
     (call) => call.name === "arco_get_issue",
   );
-  expect(reads.map((call) => call.arguments.number)).toContain(43);
-  expect(reads.map((call) => call.arguments.number)).toContain(42);
+  expect(reads).toEqual([]);
   await expectNoSharing(page);
 });
 
@@ -505,27 +587,34 @@ test("description reading positions stay separate across same and mixed provider
 }) => {
   await page.route("**/tool", async (route) => {
     const input = route.request().postDataJSON() as ToolCall;
-    if (!["arco_get_issue", "linear_get_issue"].includes(input.name))
+    if (
+      !["arco_show_issues", "arco_get_issue", "linear_get_issue"].includes(
+        input.name,
+      )
+    )
       return route.fallback();
     const response = await route.fetch();
     const result = (await response.json()) as {
-      structuredContent: { body: string };
+      structuredContent: ConversationIssue;
+      _meta?: { issueDetails?: ConversationIssue[] };
     };
-    const paragraphs =
-      input.name === "linear_get_issue"
-        ? 50
-        : input.arguments.number === 43
-          ? 40
-          : 30;
-    result.structuredContent.body = [
-      "## Reading position fixture",
-      ...Array.from(
-        { length: paragraphs },
-        (_, index) =>
-          `Paragraph ${index + 1}. Keep this issue's reading position when switching tabs.`,
-      ),
-      "End of the complete description.",
-    ].join("\n\n");
+    const details =
+      input.name === "arco_show_issues"
+        ? (result._meta?.issueDetails ?? [])
+        : [result.structuredContent];
+    for (const issue of details) {
+      const paragraphs =
+        issue.source === "linear" ? 50 : issue.number === 43 ? 40 : 30;
+      issue.body = [
+        "## Reading position fixture",
+        ...Array.from(
+          { length: paragraphs },
+          (_, index) =>
+            `Paragraph ${index + 1}. Keep this issue's reading position when switching tabs.`,
+        ),
+        "End of the complete description.",
+      ].join("\n\n");
+    }
     return route.fulfill({ response, json: result });
   });
   await open(page, [github(42), github(43), linear(42)]);

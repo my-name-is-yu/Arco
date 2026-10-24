@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SelectionAnnotationContext } from "../src/shared/contracts";
 import {
+  issuePresentationSummarySchema,
   personalLaunchContext,
   type LaunchContext,
 } from "../src/shared/launch";
 import { connectHost } from "../src/ui/host";
 import { ToolCallError } from "../src/shared/errors";
 import { toolFailure } from "./tool-failure";
+import { createFixtureService } from "../src/server/fixture";
+import type { LinearIssue } from "../src/shared/linear";
+import {
+  createLinearFixtureService,
+  LINEAR_FIXTURE_SCOPE,
+} from "../src/server/linear/fixture";
 
 const fixture = vi.hoisted(() => ({
   context: {} as Record<string, unknown>,
@@ -15,6 +22,7 @@ const fixture = vi.hoisted(() => ({
   toolResult: undefined as
     | ((result: {
         structuredContent?: Record<string, unknown>;
+        _meta?: Record<string, unknown>;
         isError?: boolean;
       }) => void)
     | undefined,
@@ -111,6 +119,49 @@ function deferred() {
   return { promise, resolve };
 }
 
+async function issuePresentation() {
+  const github = await createFixtureService().get({
+    repo: "yu/Arco",
+    number: 42,
+  });
+  const linear = (await createLinearFixtureService().call("linear_get_issue", {
+    ...LINEAR_FIXTURE_SCOPE,
+    issueId: "fixture-linear-42",
+  })) as LinearIssue;
+  const issueDetails = [github, linear];
+  return {
+    structuredContent: {
+      launch: {
+        ...personalLaunchContext,
+        issues: issueDetails.map((issue) =>
+          issuePresentationSummarySchema.options[
+            issue.source === "github" ? 0 : 1
+          ]
+            .strip()
+            .parse(issue),
+        ),
+      },
+    },
+    _meta: { issueDetails },
+  };
+}
+
+function presentationTargets(
+  response: Awaited<ReturnType<typeof issuePresentation>>,
+) {
+  return response._meta.issueDetails.map((issue) =>
+    issue.source === "github"
+      ? { source: issue.source, repo: issue.repo, number: issue.number }
+      : {
+          source: issue.source,
+          connectionId: issue.connectionId,
+          workspaceId: issue.workspaceId,
+          teamId: issue.teamId,
+          issueId: issue.issueId,
+        },
+  );
+}
+
 beforeEach(() => {
   fixture.modelContextSupported = true;
   fixture.context = { "openai/modelContext": null };
@@ -132,6 +183,85 @@ describe("host launch context", () => {
     candidates: ["yu/Arco"],
     reason: "detected",
   };
+
+  it("retains all app-only issue details before publishing the grouped launch", async () => {
+    const response = await issuePresentation();
+    const host = await connectHost();
+    const events: string[] = [];
+    host.subscribe((event) => {
+      events.push(event);
+      if (event === "launch")
+        expect(host.presentationIssues?.()?.issues).toEqual(
+          response._meta.issueDetails,
+        );
+    });
+    expect(host.presentationIssues?.()).toBeNull();
+    fixture.toolResult!(response);
+    expect(host.launch()).toEqual(response.structuredContent.launch);
+    expect(host.presentationIssues?.()).toEqual({
+      issues: response._meta.issueDetails,
+      receivedAt: expect.any(Number),
+    });
+    expect(events).toEqual(["launch"]);
+    expect(response.structuredContent.launch.issues[0]).not.toHaveProperty(
+      "body",
+    );
+    fixture.toolResult!({ structuredContent: { launch: projectLaunch } });
+    expect(host.presentationIssues?.()?.issues).toEqual(
+      response._meta.issueDetails,
+    );
+  });
+
+  it("updates app-only details during a group refresh without replacing the original launch", async () => {
+    const response = await issuePresentation();
+    fixture.connecting = () => fixture.toolResult!(response);
+    const host = await connectHost();
+    const refreshed = await issuePresentation();
+    refreshed._meta.issueDetails[0].body = "An externally updated description";
+    fixture.call.mockResolvedValue(refreshed);
+    const data = await host.call("arco_show_issues", {
+      targets: presentationTargets(response),
+    });
+    expect(data).toEqual(refreshed.structuredContent);
+    expect(host.presentationIssues?.()?.issues[0].body).toBe(
+      "An externally updated description",
+    );
+    expect(host.launch()).toEqual(response.structuredContent.launch);
+  });
+
+  it("preserves the original snapshot when a refresh returns a different self-consistent group", async () => {
+    const response = await issuePresentation();
+    fixture.connecting = () => fixture.toolResult!(response);
+    const host = await connectHost();
+    const original = host.presentationIssues?.();
+    const different = await issuePresentation();
+    different._meta.issueDetails.reverse();
+    different.structuredContent.launch.issues.reverse();
+    fixture.call.mockResolvedValue(different);
+    await expect(
+      host.call("arco_show_issues", {
+        targets: presentationTargets(response),
+      }),
+    ).rejects.toMatchObject({ kind: "invalid-response" });
+    expect(host.presentationIssues?.()).toBe(original);
+    expect(host.launch()).toEqual(response.structuredContent.launch);
+  });
+
+  it.each(["identity", "body", "count"])(
+    "rejects invalid app-only %s data before exposing the launch",
+    async (invalid) => {
+      const response = await issuePresentation();
+      if (invalid === "identity") response._meta.issueDetails.reverse();
+      else if (invalid === "body")
+        Object.assign(response._meta.issueDetails[0], { body: undefined });
+      else response._meta.issueDetails.pop();
+      const host = await connectHost();
+      fixture.toolResult!(response);
+      expect(host.launch()).toBeNull();
+      expect(host.presentationIssues?.()).toBeNull();
+      expect(host.launchError()).toContain("invalid issue details");
+    },
+  );
 
   it.each(["inline", "fullscreen", "pip"])(
     "waits for the global result and opens personal regardless of %s display mode",

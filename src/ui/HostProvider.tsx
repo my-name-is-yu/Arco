@@ -9,6 +9,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
 import { sessionValue } from "./session-state";
+import { seedPresentationCache } from "./presentation-cache";
 function hostView(host: ArcoHost) {
   const read = () => ({
     launch: host.launch(),
@@ -47,8 +48,10 @@ export function HostProvider({
   const view = useSyncExternalStore(store.subscribe, store.get);
   useEffect(() => {
     const unsubscribe = host.subscribe((event) => {
-      if (event !== "data") store.update();
-      else
+      if (event !== "data") {
+        seedPresentationCache(client, host);
+        store.update();
+      } else
         void client.invalidateQueries(
           {
             predicate: (entry) => {
@@ -71,6 +74,7 @@ export function HostProvider({
           { cancelRefetch: false },
         );
     });
+    seedPresentationCache(client, host);
     store.update();
     return unsubscribe;
   }, [host, client, store]);

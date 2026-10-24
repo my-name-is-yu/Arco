@@ -4,14 +4,14 @@ Arco uses an inline card for a particular issue, compact inline tabs for several
 
 ## Entrances and display intent
 
-| Intent                                               | Entry and behavior                                                  |
-| ---------------------------------------------------- | ------------------------------------------------------------------- |
-| Show an issue or report its current state            | `arco_show_issue` with an explicit native reference; inline card    |
-| Show several explicit issues together                | `arco_show_issues` with 2–10 native references; compact inline tabs |
-| Explain, summarize, or update an issue through Codex | Data tools; no panel solely for the AI task                         |
-| Open an issue's details, or use **Open details**     | `arco_open_issue`; same issue in the expanded panel                 |
-| Open the personal list                               | `arco_open`, optionally with an explicit provider                   |
-| Open a GitHub repository list                        | `arco_open_project`                                                 |
+| Intent                                               | Entry and behavior                                                 |
+| ---------------------------------------------------- | ------------------------------------------------------------------ |
+| Show an issue or report its current state            | `arco_show_issue` with an explicit native reference; inline card   |
+| Show several explicit issues together                | `arco_show_issues` with 2–4 native references; compact inline tabs |
+| Explain, summarize, or update an issue through Codex | Data tools; no panel solely for the AI task                        |
+| Open an issue's details, or use **Open details**     | `arco_open_issue`; same issue in the expanded panel                |
+| Open the personal list                               | `arco_open`, optionally with an explicit provider                  |
+| Open a GitHub repository list                        | `arco_open_project`                                                |
 
 The initial card and subsequent issue cards use the same policy. Long descriptions scroll inside the card's compact body area without an expand/collapse step or automatically opening a panel. A request for a more detailed explanation does not itself request a new screen.
 
@@ -51,7 +51,7 @@ Use text, shape, and color together. Preserve source status/label colors where a
 
 ### Several issues in one conversation result
 
-`arco_show_issues` presents only the explicitly requested issues, in their supplied order, removing duplicate native references. Small rounded tabs show the native identifier and a shortened visual preview of the source title, without a status icon. The full title remains available through the accessible name and tooltip; the native state remains in the tooltip and accessible description. Tabs wrap on narrow cards and support arrow keys, Home, and End. Selecting a tab stays inline and displays that issue's existing card, including its description, native properties, quick operations, and **Open details**. The UI requests and renders the active issue's details separately from the presentation summaries. The server may read complete provider issues when preparing those summaries; this is not a guarantee of deferred provider body downloads. The compact body scrolls immediately and restores each issue's own reading position when returning to its tab.
+`arco_show_issues` presents 2–4 explicitly requested issues, in their supplied order, removing duplicate native references. Small rounded tabs show the native identifier and a shortened visual preview of the source title, without a status icon. The full title remains available through the accessible name and tooltip; the native state remains in the tooltip and accessible description. Tabs wrap on narrow cards and support arrow keys, Home, and End. Selecting a tab stays inline and displays that issue's existing card, including its description, native properties, quick operations, and **Open details**. The server passes its already-fetched full issue records to the app in result metadata while keeping model-facing presentation summaries free of bodies and comments. The app caches all issue details for tab switching, without rendering inactive issue workspaces or replacing newer cached revisions. The leading body image of each issue is prefetched in the background; remaining images load when needed. The compact body scrolls immediately and restores each issue's own reading position when returning to its tab.
 
 GitHub and Linear can appear together without sharing a workflow or synthesizing status values. The group stays attached to its original set when the active issue is opened in details; returning inline restores its selected tab. Tab selection does not attach context or rewrite saved provider preferences or the existing workspace layout. A selection within one tab retains that issue's native reference; a selection across tabs must not attach an arbitrary issue. A failed source read returns an error rather than a partial or broader set.
 
