@@ -20,7 +20,7 @@ export const linearReadOnly = new Set<LinearToolName>([
   "linear_templates",
 ]);
 export function registerLinearTools(server: McpServer, service: LinearService) {
-  for (const name of Object.keys(linearSchemas) as LinearToolName[]) {
+  (Object.keys(linearSchemas) as LinearToolName[]).forEach((name) => {
     server.registerTool(
       name,
       {
@@ -54,5 +54,5 @@ export function registerLinearTools(server: McpServer, service: LinearService) {
         }
       },
     );
-  }
+  });
 }

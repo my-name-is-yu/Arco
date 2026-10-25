@@ -7,17 +7,16 @@ import {
   type LinearOperation,
 } from "./operation";
 export function createAttachmentsHandlers(operation: LinearOperation) {
-  const { request, context, checkedIssue, refreshAfterWrite } = operation;
-
-  const handlers = {
+  return {
     linear_upload: async (input) => {
-      const { client } = await context(input);
-      const issue = await checkedIssue(client, input);
+      const { client } = await operation.context(input);
+      const issue = await operation.checkedIssue(client, input);
       const bytes = decodeLinearUpload(input.base64);
-      const prepared = await linearMutation(() =>
-        client.fileUpload(input.contentType, input.filename, bytes.length),
-      );
-      const file = prepared.uploadFile;
+      const file = (
+        await linearMutation(() =>
+          client.fileUpload(input.contentType, input.filename, bytes.length),
+        )
+      ).uploadFile;
       if (
         !file ||
         new URL(file.uploadUrl).protocol !== "https:" ||
@@ -31,8 +30,8 @@ export function createAttachmentsHandlers(operation: LinearOperation) {
         "Content-Type": input.contentType,
         "Cache-Control": "public, max-age=31536000",
       });
-      for (const header of file.headers) headers.set(header.key, header.value);
-      const uploaded = await request(file.uploadUrl, {
+      file.headers.forEach((header) => headers.set(header.key, header.value));
+      const uploaded = await operation.request(file.uploadUrl, {
         method: "PUT",
         headers,
         body: bytes,
@@ -51,7 +50,7 @@ export function createAttachmentsHandlers(operation: LinearOperation) {
                 : "unavailable",
         );
       // Refetch before appending so a concurrently edited description is not replaced by our earlier snapshot.
-      const latest = await checkedIssue(client, {
+      const latest = await operation.checkedIssue(client, {
         ...input,
         issueId: issue.id,
       });
@@ -61,8 +60,9 @@ export function createAttachmentsHandlers(operation: LinearOperation) {
           description: `${latest.description ?? ""}\n\n[${title}](${file.assetUrl})`,
         }),
       );
-      return refreshAfterWrite(input, undefined, { operation: "upload" });
+      return operation.refreshAfterWrite(input, undefined, {
+        operation: "upload",
+      });
     },
   } satisfies Pick<LinearHandlers, "linear_upload">;
-  return handlers;
 }

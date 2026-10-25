@@ -5,12 +5,10 @@ import {
   type LinearOperation,
 } from "./operation";
 export function createCommentsHandlers(operation: LinearOperation) {
-  const { context, checkedIssue, refreshAfterWrite } = operation;
-
-  const handlers = {
+  return {
     linear_comment: async (input) => {
-      const { client } = await context(input);
-      const issue = await checkedIssue(client, input);
+      const { client } = await operation.context(input);
+      const issue = await operation.checkedIssue(client, input);
       if (input.action === "create") {
         if (!input.body) throw new LinearServiceError("Enter a comment body.");
         if (
@@ -28,7 +26,7 @@ export function createCommentsHandlers(operation: LinearOperation) {
             parentId: input.parentId,
           }),
         );
-        return refreshAfterWrite(
+        return operation.refreshAfterWrite(
           input,
           "The comment was posted to Linear.",
           {
@@ -37,31 +35,30 @@ export function createCommentsHandlers(operation: LinearOperation) {
           },
           created.commentId ? { commentId: created.commentId } : undefined,
         );
-      } else {
-        if (!input.commentId)
-          throw new LinearServiceError("Choose a target comment.");
-        const comment = await client.comment({ id: input.commentId });
-        if ((await comment.issue)?.id !== issue.id)
-          throw new LinearServiceError(
-            "The comment does not belong to the selected issue.",
-          );
-        if (
-          input.expectedUpdatedAt &&
-          comment.updatedAt.toISOString() !== input.expectedUpdatedAt
-        )
-          throw new LinearServiceError(
-            "This Linear comment changed elsewhere. Keep your draft and refresh.",
-            "conflict",
-          );
-        if (input.action === "update" && !input.body)
-          throw new LinearServiceError("Enter a comment body.");
-        await linearMutation<{ success: boolean }>(() =>
-          input.action === "delete"
-            ? client.deleteComment(comment.id)
-            : client.updateComment(comment.id, { body: input.body }),
-        );
       }
-      return refreshAfterWrite(
+      if (!input.commentId)
+        throw new LinearServiceError("Choose a target comment.");
+      const comment = await client.comment({ id: input.commentId });
+      if ((await comment.issue)?.id !== issue.id)
+        throw new LinearServiceError(
+          "The comment does not belong to the selected issue.",
+        );
+      if (
+        input.expectedUpdatedAt &&
+        comment.updatedAt.toISOString() !== input.expectedUpdatedAt
+      )
+        throw new LinearServiceError(
+          "This Linear comment changed elsewhere. Keep your draft and refresh.",
+          "conflict",
+        );
+      if (input.action === "update" && !input.body)
+        throw new LinearServiceError("Enter a comment body.");
+      await linearMutation<{ success: boolean }>(() =>
+        input.action === "delete"
+          ? client.deleteComment(comment.id)
+          : client.updateComment(comment.id, { body: input.body }),
+      );
+      return operation.refreshAfterWrite(
         input,
         undefined,
         {
@@ -74,8 +71,8 @@ export function createCommentsHandlers(operation: LinearOperation) {
       );
     },
     linear_reaction: async (input) => {
-      const { client } = await context(input);
-      const issue = await checkedIssue(client, input);
+      const { client } = await operation.context(input);
+      const issue = await operation.checkedIssue(client, input);
       const comment = input.commentId
         ? await client.comment({ id: input.commentId })
         : null;
@@ -83,14 +80,15 @@ export function createCommentsHandlers(operation: LinearOperation) {
         throw new LinearServiceError(
           "The comment does not belong to this issue.",
         );
-      if (input.action === "add")
+      if (input.action === "add") {
         await linearMutation(() =>
           client.createReaction({
             emoji: input.emoji,
             ...(comment ? { commentId: comment.id } : { issueId: issue.id }),
           }),
         );
-      else {
+      }
+      if (input.action === "remove") {
         const existing = (comment?.reactions ?? issue.reactions).find(
           (value) =>
             value.id === input.reactionId && value.emoji === input.emoji,
@@ -103,7 +101,7 @@ export function createCommentsHandlers(operation: LinearOperation) {
           );
         await linearMutation(() => client.deleteReaction(existing.id));
       }
-      return refreshAfterWrite(
+      return operation.refreshAfterWrite(
         input,
         undefined,
         { operation: "reaction" },
@@ -111,5 +109,4 @@ export function createCommentsHandlers(operation: LinearOperation) {
       );
     },
   } satisfies Pick<LinearHandlers, "linear_comment" | "linear_reaction">;
-  return handlers;
 }

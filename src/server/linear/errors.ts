@@ -1,8 +1,4 @@
-import {
-  LinearError as SdkLinearError,
-  LinearErrorType,
-  parseLinearError,
-} from "@linear/sdk";
+import { LinearError, LinearErrorType, parseLinearError } from "@linear/sdk";
 import { OperationError } from "../../shared/errors";
 
 export class LinearServiceError extends OperationError {
@@ -37,7 +33,7 @@ export function linearFailure(
   // Direct projected queries use the SDK's GraphQLClientError; normal SDK
   // methods already wrap that same response in LinearError.
   const source =
-    error instanceof SdkLinearError
+    error instanceof LinearError
       ? error
       : error instanceof Error
         ? parseLinearError(error)

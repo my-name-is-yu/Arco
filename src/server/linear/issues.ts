@@ -10,23 +10,19 @@ import {
   type LinearOperation,
 } from "./operation";
 export function createIssuesHandlers(operation: LinearOperation) {
-  const { context, checkedIssue, metadata, refreshAfterWrite, templates } =
-    operation;
-
   async function validatePatch(
     scope: LinearRef,
     current: Issue,
     patch: Args<"linear_update_issue">["patch"],
   ): Promise<IssueUpdateInput> {
-    const fields: Parameters<typeof metadata>[1] = [
+    const meta = await operation.metadata(scope, [
       ...(patch.stateId != null ? ["states" as const] : []),
       ...(patch.assigneeId != null ? ["members" as const] : []),
       ...(patch.projectId != null ? ["projects" as const] : []),
       ...(patch.cycleId != null ? ["cycles" as const] : []),
       ...(patch.estimate != null ? ["estimateValues" as const] : []),
       ...(patch.projectMilestoneId != null ? ["milestones" as const] : []),
-    ];
-    const meta = await metadata(scope, fields);
+    ]);
     const includes = (
       values: { id: string }[],
       id: string | null | undefined,
@@ -69,7 +65,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
         "The project milestone does not match the target project.",
       );
     if (patch.parentId) {
-      const { client } = await context(scope);
+      const { client } = await operation.context(scope);
       const parent = await client.issue(patch.parentId);
       if (
         parent.id === current.id ||
@@ -86,9 +82,9 @@ export function createIssuesHandlers(operation: LinearOperation) {
     };
   }
   async function applyLabels(input: Args<"linear_change_labels">) {
-    const { client } = await context(input);
-    const current = await checkedIssue(client, input);
-    const meta = await metadata(input, ["labels"]);
+    const { client } = await operation.context(input);
+    const current = await operation.checkedIssue(client, input);
+    const meta = await operation.metadata(input, ["labels"]);
     const additions = input.add.map((id) =>
       meta.labels.find((value) => value.id === id),
     );
@@ -130,18 +126,12 @@ export function createIssuesHandlers(operation: LinearOperation) {
     );
     return current.id;
   }
-  async function changeLabels(input: Args<"linear_change_labels">) {
-    const issueId = await applyLabels(input);
-    return refreshAfterWrite({ ...input, issueId }, undefined, {
-      operation: "change_labels",
-    });
-  }
   const handlers = {
     linear_create_issue: async (input) => {
-      const { client } = await context(input);
+      const { client } = await operation.context(input);
       if (
         input.templateId &&
-        !(await templates(input)).templates.some(
+        !(await operation.templates(input)).templates.some(
           (value) => value.id === input.templateId && value.supported,
         )
       )
@@ -174,15 +164,15 @@ export function createIssuesHandlers(operation: LinearOperation) {
           "The issue was created in Linear, but its details could not be loaded. Check Linear before creating another issue.",
           "uncertain",
         );
-      return refreshAfterWrite(
+      return operation.refreshAfterWrite(
         { ...input, issueId: created.issueId },
         "The issue was created in Linear.",
         { operation: "create_issue" },
       );
     },
     linear_update_issue: async (input) => {
-      const { client } = await context(input);
-      const current = await checkedIssue(client, input);
+      const { client } = await operation.context(input);
+      const current = await operation.checkedIssue(client, input);
       if (current.updatedAt.toISOString() !== input.expectedUpdatedAt)
         throw new LinearServiceError(
           "This Linear issue changed elsewhere. Keep your draft and refresh.",
@@ -190,15 +180,22 @@ export function createIssuesHandlers(operation: LinearOperation) {
         );
       const patch = await validatePatch(input, current, input.patch);
       await linearMutation(() => client.updateIssue(current.id, patch));
-      return refreshAfterWrite({ ...input, issueId: current.id }, undefined, {
-        operation: "update_issue",
-      });
+      return operation.refreshAfterWrite(
+        { ...input, issueId: current.id },
+        undefined,
+        {
+          operation: "update_issue",
+        },
+      );
     },
     linear_change_labels: async (input) => {
-      return changeLabels(input);
+      const issueId = await applyLabels(input);
+      return operation.refreshAfterWrite({ ...input, issueId }, undefined, {
+        operation: "change_labels",
+      });
     },
     linear_label_definition: async (input) => {
-      const { client } = await context(input);
+      const { client } = await operation.context(input);
       if (input.action === "create") {
         if (!input.name) throw new LinearServiceError("Enter a label name.");
         const name = input.name;
@@ -237,7 +234,7 @@ export function createIssuesHandlers(operation: LinearOperation) {
         );
       }
       try {
-        return await metadata(input);
+        return await operation.metadata(input);
       } catch {
         throw new LinearServiceError(
           "The Linear label change was saved, but its choices could not be refreshed. Check Linear and refresh before another change.",

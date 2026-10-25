@@ -6,13 +6,11 @@ import {
   type LinearOperation,
 } from "./operation";
 export function createConnectionsHandlers(operation: LinearOperation) {
-  const { auth, makeClient } = operation;
-
   async function connection(
     name: "linear_connection" | "linear_scopes",
     input: Args<"linear_connection">,
   ) {
-    if (!(await auth.hasConnection(input.connectionId)))
+    if (!(await operation.auth.hasConnection(input.connectionId)))
       return {
         connectionId: input.connectionId,
         connected: false,
@@ -22,7 +20,9 @@ export function createConnectionsHandlers(operation: LinearOperation) {
         workspace: null,
         message: "Authorize Arco with Linear to connect.",
       };
-    const client = makeClient(await auth.accessToken(input.connectionId));
+    const client = operation.makeClient(
+      await operation.auth.accessToken(input.connectionId),
+    );
     const [viewer, organization] = await Promise.all([
       client.viewer,
       client.organization,
@@ -47,18 +47,22 @@ export function createConnectionsHandlers(operation: LinearOperation) {
     };
   }
 
-  const handlers = {
+  return {
     linear_auth_status: async (input) => {
       return {
-        ...auth.status(input.connectionId),
-        connected: await auth.hasConnection(input.connectionId),
+        ...operation.auth.status(input.connectionId),
+        connected: await operation.auth.hasConnection(input.connectionId),
       };
     },
     linear_auth_begin: async (input) => {
-      return auth.begin(input.connectionId, input.clientId, input.redirectUri);
+      return operation.auth.begin(
+        input.connectionId,
+        input.clientId,
+        input.redirectUri,
+      );
     },
     linear_auth_disconnect: async (input) => {
-      return auth.disconnect(input.connectionId, input.revoke);
+      return operation.auth.disconnect(input.connectionId, input.revoke);
     },
     linear_connection: (input) => connection("linear_connection", input),
     linear_scopes: (input) => connection("linear_scopes", input),
@@ -70,5 +74,4 @@ export function createConnectionsHandlers(operation: LinearOperation) {
     | "linear_connection"
     | "linear_scopes"
   >;
-  return handlers;
 }

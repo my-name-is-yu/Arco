@@ -197,6 +197,20 @@ export function createLinearOperation(options: {
   const metadataValues = new Map<string, Promise<LinearMetadata>>();
   const scopeKey = (scope: LinearScope) =>
     JSON.stringify([scope.connectionId, scope.workspaceId, scope.teamId]);
+  return {
+    auth,
+    makeClient,
+    request,
+    context,
+    checkedIssue,
+    metadata,
+    summary,
+    commentData,
+    commentsPage,
+    detail,
+    refreshAfterWrite,
+    templates,
+  };
   function context(scope: LinearScope) {
     const key = scopeKey(scope);
     let pending = contexts.get(key);
@@ -575,20 +589,6 @@ export function createLinearOperation(options: {
       ],
     };
   }
-  return {
-    auth,
-    makeClient,
-    request,
-    context,
-    checkedIssue,
-    metadata,
-    summary,
-    commentData,
-    commentsPage,
-    detail,
-    refreshAfterWrite,
-    templates,
-  };
 }
 export type LinearOperation = ReturnType<typeof createLinearOperation>;
 export type LinearHandlers = {
