@@ -3,7 +3,6 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { AsyncEntry } from "@napi-rs/keyring";
 import lockfile from "proper-lockfile";
 import { z } from "zod";
 import { stateDirectory } from "../state";
@@ -26,14 +25,16 @@ export interface CredentialStore {
   remove(connectionId: string): Promise<void>;
 }
 export function createCredentialStore(): CredentialStore {
-  const entry = (id: string) =>
-    new AsyncEntry("Arco Linear OAuth", id, {
+  const entry = async (id: string) => {
+    const { AsyncEntry } = await import("@napi-rs/keyring");
+    return new AsyncEntry("Arco Linear OAuth", id, {
       linux: { store: "secret-service" },
     });
+  };
   return {
     async read(id) {
       try {
-        const value = await entry(id).getPassword();
+        const value = await (await entry(id)).getPassword();
         return value === null
           ? null
           : credentialSchema.parse(JSON.parse(value));
@@ -46,9 +47,9 @@ export function createCredentialStore(): CredentialStore {
     },
     async write(id, value) {
       try {
-        await entry(id).setPassword(
-          JSON.stringify(credentialSchema.parse(value)),
-        );
+        await (
+          await entry(id)
+        ).setPassword(JSON.stringify(credentialSchema.parse(value)));
       } catch {
         throw new LinearServiceError(
           "Your Linear sign-in could not be saved. Unlock your device's credential store and authorize again.",
@@ -58,7 +59,7 @@ export function createCredentialStore(): CredentialStore {
     },
     async remove(id) {
       try {
-        await entry(id).deleteCredential();
+        await (await entry(id)).deleteCredential();
       } catch {
         throw new LinearServiceError(
           "Your saved Linear sign-in could not be removed. Unlock your device's credential store and try again.",
@@ -132,12 +133,14 @@ export function createLinearAuth(
   >();
   async function locked<T>(id: string, action: () => Promise<T>): Promise<T> {
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    const file = join(directory, createHash("sha256").update(id).digest("hex"));
-    const release = await lockfile.lock(file, {
-      realpath: false,
-      stale: 30_000,
-      retries: { retries: 30, minTimeout: 25, maxTimeout: 100 },
-    });
+    const release = await lockfile.lock(
+      join(directory, createHash("sha256").update(id).digest("hex")),
+      {
+        realpath: false,
+        stale: 30_000,
+        retries: { retries: 30, minTimeout: 25, maxTimeout: 100 },
+      },
+    );
     try {
       return await action();
     } finally {
@@ -411,7 +414,7 @@ export function createLinearAuth(
       });
     },
     close() {
-      for (const transaction of pending.values()) transaction.close();
+      pending.forEach((transaction) => transaction.close());
     },
   };
 }
