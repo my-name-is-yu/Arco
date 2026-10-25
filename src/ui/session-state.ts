@@ -17,11 +17,9 @@ export function sessionValue<T>(
   key: string,
   create: () => T,
 ): T {
-  let session = sessions.get(host);
-  if (!session) {
-    session = new Map();
-    sessions.set(host, session);
-  }
+  const existing = sessions.get(host);
+  const session = existing ?? new Map<string, unknown>();
+  if (!existing) sessions.set(host, session);
   if (!session.has(key)) session.set(key, create());
   return session.get(key) as T;
 }

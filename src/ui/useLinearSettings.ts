@@ -16,7 +16,8 @@ export const defaultLinearFilter: LinearFilter = {
   order: "updatedAt",
 };
 export function useLinearSettings(host: ArcoHost) {
-  const { query, error, pending, update, schedule, retry } = useSettings(host);
+  const settings = useSettings(host);
+  const { update, schedule } = settings;
   const selectTeam = useCallback(
     (scope: LinearScope, name: string) =>
       update("linear:team", (latest) => ({
@@ -41,5 +42,12 @@ export function useLinearSettings(host: ArcoHost) {
     },
     [schedule],
   );
-  return { query, error, pending, retry, selectTeam, saveFilter };
+  return {
+    query: settings.query,
+    error: settings.error,
+    pending: settings.pending,
+    retry: settings.retry,
+    selectTeam,
+    saveFilter,
+  };
 }

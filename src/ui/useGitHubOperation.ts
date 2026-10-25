@@ -9,7 +9,7 @@ export function useGitHubOperation(
   issue?: IssueRef,
 ) {
   const client = useQueryClient();
-  const { busy, setBusy, lock, requests } = useCommandSession(host, "github");
+  const commands = useCommandSession(host, "github");
   const [error, setError] = useSessionState<string | null>(
     host,
     `github:operation:${JSON.stringify(scope)}`,
@@ -20,13 +20,13 @@ export function useGitHubOperation(
     args: Record<string, unknown>,
     after?: (result: T) => void,
   ): Promise<boolean> => {
-    if (lock.current) return false;
-    lock.current = true;
-    setBusy(true);
+    if (commands.lock.current) return false;
+    commands.lock.current = true;
+    commands.setBusy(true);
     setError(null);
     const key = JSON.stringify([name, args]);
-    const requestId = requests.get(key) ?? crypto.randomUUID();
-    requests.set(key, requestId);
+    const requestId = commands.requests.get(key) ?? crypto.randomUUID();
+    commands.requests.set(key, requestId);
     const reaction =
       name === "arco_add_reaction" || name === "arco_remove_reaction";
     const reactionKey = [
@@ -57,7 +57,7 @@ export function useGitHubOperation(
     };
     try {
       const result = await host.call<T>(name, { ...args, requestId });
-      requests.delete(key);
+      commands.requests.delete(key);
       if (
         issue &&
         (name === "arco_edit_comment" || name === "arco_delete_comment")
@@ -83,20 +83,20 @@ export function useGitHubOperation(
       return true;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
-      if (reaction)
+      if (reaction) {
         await client.invalidateQueries({ queryKey: reactionKey, exact: true });
-      else {
-        await client.invalidateQueries({ queryKey: ["github"] });
-        if (issue)
-          await client.invalidateQueries({
-            queryKey: ["issue", issue.repo, issue.number],
-          });
+        return false;
       }
+      await client.invalidateQueries({ queryKey: ["github"] });
+      if (issue)
+        await client.invalidateQueries({
+          queryKey: ["issue", issue.repo, issue.number],
+        });
       return false;
     } finally {
-      lock.current = false;
-      setBusy(false);
+      commands.lock.current = false;
+      commands.setBusy(false);
     }
   };
-  return { busy, error, run };
+  return { busy: commands.busy, error, run };
 }

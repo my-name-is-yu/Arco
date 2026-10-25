@@ -86,7 +86,7 @@ export interface SharedContextSnapshot {
 // Parse the whole attachment once so navigation, annotations, and positions agree.
 // A selection-only attachment is not a current Arco attachment format.
 export function readSharedContext(value: unknown): SharedContextSnapshot {
-  const empty: SharedContextSnapshot = {
+  const empty = {
     issue: null,
     annotations: null,
     snapshotId: null,

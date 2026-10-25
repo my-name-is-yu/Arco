@@ -264,11 +264,10 @@ export async function connectHost(): Promise<ArcoHost> {
     try {
       return await app.callServerTool(params);
     } catch {
+      const uncertain = typeof params.arguments?.requestId === "string";
       throw new ToolCallError(
-        typeof params.arguments?.requestId === "string"
-          ? "uncertain"
-          : "unavailable",
-        typeof params.arguments?.requestId === "string"
+        uncertain ? "uncertain" : "unavailable",
+        uncertain
           ? "Codex did not return the result of this change. Check the result in the source and refresh before submitting this change again."
           : "Could not load data from Codex. Refresh and try again.",
       );
@@ -337,13 +336,15 @@ export async function connectHost(): Promise<ArcoHost> {
       if (result.isError) {
         throw readToolFailure(result.structuredContent);
       }
-      if (result.structuredContent == null)
+      if (result.structuredContent == null) {
+        const uncertain = typeof args.requestId === "string";
         throw new ToolCallError(
-          typeof args.requestId === "string" ? "uncertain" : "invalid-response",
-          typeof args.requestId === "string"
+          uncertain ? "uncertain" : "invalid-response",
+          uncertain
             ? "Could not read the result of this change. Check the result in the source and refresh before submitting this change again."
             : "Could not load the requested information. Refresh and try again.",
         );
+      }
       if (name === "arco_show_issues") {
         const parsed = launchContextSchema.safeParse(
           result.structuredContent.launch,

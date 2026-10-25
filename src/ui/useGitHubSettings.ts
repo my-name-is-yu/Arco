@@ -10,7 +10,8 @@ export function useGitHubSettings(
 ) {
   const projectView = project !== undefined;
   const projectKey = project?.key;
-  const { query, error, pending, update, schedule, retry } = useSettings(host);
+  const settings = useSettings(host);
+  const { update, schedule } = settings;
   const register = useCallback(
     (repo: string, additional: string[] = []) =>
       update("github:scope", (latest) => ({
@@ -36,11 +37,6 @@ export function useGitHubSettings(
       })),
     [update, projectView, projectKey],
   );
-  const setSource = useCallback(
-    (source: "github" | "linear") =>
-      update("source", () => ({ activeSource: source })),
-    [update],
-  );
   const setAccountScope = useCallback(
     (filter?: AccountIssuesInput["filter"]) => {
       update("github:scope", () => ({ activeGithubRepo: null }));
@@ -53,7 +49,9 @@ export function useGitHubSettings(
   );
   const saveAccountFilter = useCallback(
     (filter: Settings["githubAccountFilter"]) =>
-      update("github:account-filter", () => ({ githubAccountFilter: filter })),
+      update("github:account-filter", () => ({
+        githubAccountFilter: filter,
+      })),
     [update],
   );
   const saveFilter = useCallback(
@@ -64,12 +62,11 @@ export function useGitHubSettings(
     [schedule],
   );
   return {
-    query,
-    error,
-    pending,
-    retry,
+    query: settings.query,
+    error: settings.error,
+    pending: settings.pending,
+    retry: settings.retry,
     register,
-    setSource,
     setAccountScope,
     saveAccountFilter,
     saveFilter,

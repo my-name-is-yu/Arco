@@ -42,12 +42,11 @@ export function useSharedAnnotations(host: ArcoHost, onSync: () => void) {
   const commit = useCallback((next: Annotation[]) => {
     current.current = next;
     setAnnotations(next);
+    const retained = new Set(next.map((item) => item.context.number));
     for (const number of anchors.current.keys())
-      if (!next.some((item) => item.context.number === number))
-        anchors.current.delete(number);
+      if (!retained.has(number)) anchors.current.delete(number);
     for (const number of persisted.current.keys())
-      if (!next.some((item) => item.context.number === number))
-        persisted.current.delete(number);
+      if (!retained.has(number)) persisted.current.delete(number);
   }, []);
   const sync = useCallback(() => {
     const shared = host.sharedAnnotations() ?? [];

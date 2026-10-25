@@ -51,28 +51,29 @@ export function HostProvider({
       if (event !== "data") {
         seedPresentationCache(client, host);
         store.update();
-      } else
-        void client.invalidateQueries(
-          {
-            predicate: (entry) => {
-              const key = String(entry.queryKey[0]);
-              return (
-                ["issue", "issues", "issue-set", "metadata", "github"].includes(
-                  key,
-                ) ||
-                [
-                  "linear-scopes",
-                  "linear-templates",
-                  "linear-issue",
-                  "linear-issues",
-                  "linear-metadata",
-                  "linear-comments",
-                ].includes(key)
-              );
-            },
+        return;
+      }
+      void client.invalidateQueries(
+        {
+          predicate: (entry) => {
+            const key = String(entry.queryKey[0]);
+            return (
+              ["issue", "issues", "issue-set", "metadata", "github"].includes(
+                key,
+              ) ||
+              [
+                "linear-scopes",
+                "linear-templates",
+                "linear-issue",
+                "linear-issues",
+                "linear-metadata",
+                "linear-comments",
+              ].includes(key)
+            );
           },
-          { cancelRefetch: false },
-        );
+        },
+        { cancelRefetch: false },
+      );
     });
     seedPresentationCache(client, host);
     store.update();

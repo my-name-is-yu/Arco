@@ -37,15 +37,13 @@ export function settingsController(host: ArcoHost, client: QueryClient) {
       string,
       { timer: ReturnType<typeof setTimeout>; build: Patch; version: number }
     >();
-    const publish = (patch: Partial<typeof state>) => {
-      state = { ...state, ...patch };
+    const publishStatus = () => {
+      state = {
+        error: [...failed.values()].at(-1)?.error ?? null,
+        pending: writes > 0 || timers.size > 0,
+      };
       listeners.forEach((listener) => listener());
     };
-    const publishStatus = () =>
-      publish({
-        pending: writes > 0 || timers.size > 0,
-        error: [...failed.values()].at(-1)?.error ?? null,
-      });
     const advance = (key: string) => {
       const scheduled = timers.get(key);
       if (scheduled) clearTimeout(scheduled.timer);
