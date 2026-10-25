@@ -956,14 +956,18 @@ test(
       const selection = window.getSelection()!;
       selection.removeAllRanges();
       selection.addRange(range);
+      const text = selection.toString();
       comment
         .closest(".linear-comment")!
         .dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-      return selection.toString();
+      // Force layout before the next tick, when the SDK used to capture it.
+      range.getClientRects();
+      return text;
     });
     // Geometry reads may make Chromium include closed-details text in later
     // Selection.toString() calls. The attachment must keep the visible selection.
-    expect(mixedText).not.toContain("Files are stored in Linear.");
+    expect(mixedText).not.toContain("Upload files up to 10 MiB to Linear.");
+    expect(mixedText).not.toContain("Open Linear for larger files");
     await expect(ui.locator(".linear-upload")).not.toHaveAttribute("open");
     await expect(toolbar).toBeVisible();
     await addSelection.click();

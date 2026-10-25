@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
-import { useTextSelection } from "@openai/apps-sdk-ui/hooks/useTextSelection";
 import type { ArcoHost, SelectionAnnotationContext } from "../shared/contracts";
 import { captureSelectionAnchor } from "./selection-anchor";
 import { SelectionAnnotation } from "./SelectionAnnotation";
@@ -36,10 +35,10 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
   const addButton = useRef<HTMLButtonElement>(null);
   const capture = useCallback(() => {
     if (lock.current) return;
-    setSelected((previous) => readSelection(previous ?? undefined));
+    // Save visible text before later layout reads can change Selection.toString().
+    setSelected(readSelection(selected ?? undefined));
     setError("");
-  }, [lock, setError]);
-  useTextSelection(true, capture);
+  }, [lock, selected, setError]);
   useEffect(() => {
     const selectionchange = () => {
       if (!lock.current)
@@ -82,6 +81,7 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     const reposition = () =>
       setSelected((previous) => (previous ? readSelection(previous) : null));
     document.addEventListener("selectionchange", selectionchange);
+    document.addEventListener("mouseup", capture);
     document.addEventListener("select", capture);
     document.addEventListener("keyup", keyup);
     document.addEventListener("keydown", keydown);
@@ -90,6 +90,7 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     window.addEventListener("resize", reposition);
     return () => {
       document.removeEventListener("selectionchange", selectionchange);
+      document.removeEventListener("mouseup", capture);
       document.removeEventListener("select", capture);
       document.removeEventListener("keyup", keyup);
       document.removeEventListener("keydown", keydown);
