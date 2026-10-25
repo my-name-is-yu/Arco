@@ -11,7 +11,10 @@ export type ToolRequestOptions = {
 };
 
 export function createToolQueue() {
-  const waiting: WaitingRequest[] = [];
+  const waiting: Record<WaitingRequest["priority"], WaitingRequest[]> = {
+    interactive: [],
+    background: [],
+  };
   let active = 0;
   let backgroundActive = 0;
   let closed = false;
@@ -19,14 +22,13 @@ export function createToolQueue() {
     new Error("Arco is closed. This request was not started.");
 
   const drain = () => {
-    while (!closed && active < 2 && waiting.length) {
+    while (!closed && active < 2) {
       // Reserve one RPC slot for explicit actions even while previews are slow.
-      const index = waiting.findIndex(
-        (request) => request.priority === "interactive" || backgroundActive < 1,
-      );
-      if (index < 0) break;
+      const request =
+        waiting.interactive.shift() ??
+        (backgroundActive < 1 ? waiting.background.shift() : undefined);
+      if (!request) break;
       active += 1;
-      const [request] = waiting.splice(index, 1);
       if (request.priority === "background") backgroundActive += 1;
       request.cleanup();
       request.start();
@@ -52,10 +54,11 @@ export function createToolQueue() {
         );
       if (signal?.aborted) return Promise.reject(abortedError());
       return new Promise<T>((resolve, reject) => {
+        const queue = waiting[priority];
         const cancel = () => {
-          const index = waiting.indexOf(pending);
+          const index = queue.indexOf(pending);
           if (index < 0) return;
-          waiting.splice(index, 1);
+          queue.splice(index, 1);
           pending.cleanup();
           reject(abortedError());
         };
@@ -82,20 +85,17 @@ export function createToolQueue() {
             );
           },
         };
-        // Explicit actions keep arrival order, ahead of deferred previews.
-        const background = waiting.findIndex(
-          (item) => item.priority === "background",
-        );
-        if (priority === "interactive" && background >= 0)
-          waiting.splice(background, 0, pending);
-        else waiting.push(pending);
+        queue.push(pending);
         signal?.addEventListener("abort", cancel, { once: true });
         drain();
       });
     },
     close() {
       closed = true;
-      for (const request of waiting.splice(0)) {
+      for (const request of [
+        ...waiting.interactive.splice(0),
+        ...waiting.background.splice(0),
+      ]) {
         request.cleanup();
         request.reject(closedError());
       }
