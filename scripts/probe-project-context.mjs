@@ -10,9 +10,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { clearTimeout, setTimeout } from "node:timers";
 import { fileURLToPath } from "node:url";
+import { createAppServerClient } from "./app-server-client.mjs";
 
 // Direct MCP configuration only: this does not exercise the installed plugin loader.
 // No model turns, plugin install, or saved threads.
@@ -86,44 +86,8 @@ const child = spawn(executable, args, {
   stdio: ["pipe", "pipe", "pipe"],
 });
 child.stderr.on("data", () => {});
-let sequence = 0;
-const pending = new Map();
-const rejectPending = () => {
-  for (const complete of pending.values()) complete({ error: true });
-  pending.clear();
-};
-child.on("error", rejectPending);
-child.on("exit", rejectPending);
-child.stdin.on("error", rejectPending);
-const lines = createInterface({ input: child.stdout });
-lines.on("line", (line) => {
-  let message;
-  try {
-    message = JSON.parse(line);
-  } catch {
-    return;
-  }
-  const complete = pending.get(message.id);
-  if (complete) {
-    pending.delete(message.id);
-    complete(message);
-  }
-});
-function call(method, params) {
-  return new Promise((resolve, reject) => {
-    const id = ++sequence;
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error(`${method} timed out`));
-    }, 25_000);
-    pending.set(id, (message) => {
-      clearTimeout(timer);
-      if (message.error) reject(new Error(`${method} failed`));
-      else resolve(message.result);
-    });
-    child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
-  });
-}
+const protocol = createAppServerClient(child);
+const { call } = protocol;
 function readTool(threadId, server, tool) {
   return call("mcpServer/tool/call", {
     threadId,
@@ -147,9 +111,7 @@ try {
     clientInfo: { name: "arco-context-probe", version: "0.0.1" },
     capabilities: { experimentalApi: true },
   });
-  child.stdin.write(
-    JSON.stringify({ method: "initialized", params: {} }) + "\n",
-  );
+  protocol.notify("initialized", {});
   const scenarios = [];
   const projectKeys = [];
   for (const [name, cwd] of [
@@ -239,7 +201,7 @@ try {
     ),
   );
 } finally {
-  lines.close();
+  protocol.close();
   const stop = (signal) => {
     try {
       if (process.platform === "win32") child.kill(signal);
