@@ -12,6 +12,122 @@ function deferred<T>() {
 }
 
 describe("UI tool request queue", () => {
+  it("keeps both priorities FIFO and permits interactive work while one background request is active", async () => {
+    const queue = createToolQueue();
+    const gates = {
+      first: deferred<void>(),
+      second: deferred<void>(),
+      preview1: deferred<void>(),
+      preview2: deferred<void>(),
+      save1: deferred<void>(),
+      save2: deferred<void>(),
+      urgent: deferred<void>(),
+    };
+    const started: string[] = [];
+    let active = 0;
+    let backgrounds = 0;
+    let maximum = 0;
+    let maximumBackgrounds = 0;
+    const run = (
+      name: keyof typeof gates,
+      priority: "interactive" | "background" = "interactive",
+    ) =>
+      queue.run(
+        () => {
+          started.push(name);
+          active += 1;
+          if (priority === "background") backgrounds += 1;
+          maximum = Math.max(maximum, active);
+          maximumBackgrounds = Math.max(maximumBackgrounds, backgrounds);
+          return gates[name].promise.finally(() => {
+            active -= 1;
+            if (priority === "background") backgrounds -= 1;
+          });
+        },
+        { priority },
+      );
+    const calls = {
+      first: run("first"),
+      second: run("second"),
+      preview1: run("preview1", "background"),
+      preview2: run("preview2", "background"),
+      save1: run("save1"),
+      save2: run("save2"),
+    };
+    expect(started).toEqual(["first", "second"]);
+    gates.first.resolve();
+    await calls.first;
+    expect(started).toEqual(["first", "second", "save1"]);
+    gates.save1.resolve();
+    await calls.save1;
+    expect(started).toEqual(["first", "second", "save1", "save2"]);
+    gates.second.resolve();
+    await calls.second;
+    expect(started.at(-1)).toBe("preview1");
+    gates.save2.resolve();
+    await calls.save2;
+    expect(active).toBe(1);
+    expect(backgrounds).toBe(1);
+    const urgent = run("urgent");
+    expect(started.at(-1)).toBe("urgent");
+    gates.urgent.resolve();
+    await urgent;
+    gates.preview1.resolve();
+    await calls.preview1;
+    expect(started.at(-1)).toBe("preview2");
+    gates.preview2.resolve();
+    await Promise.all(Object.values(calls));
+    expect(started).toEqual([
+      "first",
+      "second",
+      "save1",
+      "save2",
+      "preview1",
+      "urgent",
+      "preview2",
+    ]);
+    expect(maximum).toBe(2);
+    expect(maximumBackgrounds).toBe(1);
+    expect(active).toBe(0);
+  });
+
+  it.each(["interactive", "background"] as const)(
+    "discards an aborted queued %s request without disturbing the next request",
+    async (priority) => {
+      const queue = createToolQueue();
+      const first = deferred<void>();
+      const second = deferred<void>();
+      const occupied = [
+        queue.run(() => first.promise),
+        queue.run(() => second.promise),
+      ];
+      const controller = new AbortController();
+      const started: string[] = [];
+      const obsolete = queue.run(
+        async () => {
+          started.push("obsolete");
+        },
+        { priority, signal: controller.signal },
+      );
+      const cancelled = expect(obsolete).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      const retained = queue.run(
+        async () => {
+          started.push("retained");
+        },
+        { priority },
+      );
+      controller.abort();
+      await cancelled;
+      first.resolve();
+      await retained;
+      second.resolve();
+      await Promise.all(occupied);
+      expect(started).toEqual(["retained"]);
+    },
+  );
+
   it("reserves a slot for an explicit action while a background read is stalled", async () => {
     const queue = createToolQueue();
     const image = deferred<void>();
@@ -209,11 +325,19 @@ describe("UI tool request queue", () => {
       started.push("active read");
       return failed.promise;
     });
-    const waiting = ["waiting write", "waiting read"].map((name) =>
-      queue.run(async () => {
-        started.push(name);
-        return name;
-      }),
+    const waiting = (
+      [
+        { name: "waiting write", priority: "interactive" },
+        { name: "waiting read", priority: "background" },
+      ] as const
+    ).map(({ name, priority }) =>
+      queue.run(
+        async () => {
+          started.push(name);
+          return name;
+        },
+        { priority },
+      ),
     );
     const notStarted = waiting.map((request) =>
       expect(request).rejects.toThrow("This request was not started"),
