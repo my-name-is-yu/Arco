@@ -11,6 +11,7 @@ import type {
   LinearCommentPage,
   LinearIssue,
   LinearPage,
+  LinearSavedReceipt,
 } from "../src/shared/linear";
 
 const scope = {
@@ -871,20 +872,27 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
   });
   it("returns a saved receipt for an update whose readback fails", async () => {
     const { service, controls, issue, calls } = await source();
+    const issueId = randomUUID();
+    issue.id = issueId;
     controls.failAfterUpdate = true;
     const input = {
       ...ref,
+      issueId,
       requestId: randomUUID(),
       expectedUpdatedAt: issue.updatedAt,
       patch: { title: "Acknowledged update" },
     };
-    await expect(
-      service.call("linear_update_issue", input),
-    ).resolves.toMatchObject({
+    const receipt = (await service.call(
+      "linear_update_issue",
+      input,
+    )) as LinearSavedReceipt;
+    expect(receipt).toMatchObject({
       kind: "linear_saved_receipt",
       operation: "update_issue",
       saved: true,
+      issueId,
     });
+    expect(receipt.message).not.toContain(issueId);
     await expect(
       service.call("linear_update_issue", input),
     ).resolves.toMatchObject({ kind: "linear_saved_receipt", saved: true });
@@ -1003,44 +1011,56 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
   });
   it("keeps acknowledged creation IDs when readback fails and never repeats the same write", async () => {
     const issueSource = await source();
+    const issueId = randomUUID();
+    issueSource.issue.id = issueId;
     issueSource.controls.failAfterCreate = "issue";
     const create = {
       ...scope,
       requestId: randomUUID(),
       title: "Acknowledged issue",
     };
-    for (let attempt = 0; attempt < 2; attempt++)
-      expect(
-        await issueSource.service.call("linear_create_issue", create),
-      ).toMatchObject({
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const receipt = (await issueSource.service.call(
+        "linear_create_issue",
+        create,
+      )) as LinearSavedReceipt;
+      expect(receipt).toMatchObject({
         kind: "linear_saved_receipt",
         saved: true,
         operation: "create_issue",
-        issueId: "issue",
-        message: expect.stringContaining("Do not create it again."),
+        issueId,
       });
+      expect(receipt.message).not.toContain(issueId);
+    }
     expect(
       issueSource.calls.filter((call) => call.operation === "createIssue"),
     ).toHaveLength(1);
     const commentSource = await source();
+    commentSource.issue.id = issueId;
+    commentSource.controls.commentIssueId = issueId;
     commentSource.controls.failAfterCreate = "comment";
     const comment = {
       ...ref,
+      issueId,
       requestId: randomUUID(),
       action: "create",
       body: "Acknowledged comment",
     };
-    for (let attempt = 0; attempt < 2; attempt++)
-      expect(
-        await commentSource.service.call("linear_comment", comment),
-      ).toMatchObject({
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const receipt = (await commentSource.service.call(
+        "linear_comment",
+        comment,
+      )) as LinearSavedReceipt;
+      expect(receipt).toMatchObject({
         kind: "linear_saved_receipt",
         saved: true,
         operation: "create_comment",
-        issueId: "issue",
+        issueId,
         commentId: "created-comment",
-        message: expect.stringContaining("Do not post it again."),
       });
+      expect(receipt.message).not.toContain(issueId);
+      expect(receipt.message).not.toContain(receipt.commentId);
+    }
     expect(
       commentSource.calls.filter((call) => call.operation === "createComment"),
     ).toHaveLength(1);

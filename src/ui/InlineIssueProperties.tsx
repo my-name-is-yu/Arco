@@ -75,7 +75,6 @@ export function GitHubInlineProperties({
   return (
     <>
       <div className="inline-property">
-        <span className="inline-property-label">State</span>
         <SingleSelect
           label="Change issue state"
           value={state}
@@ -124,7 +123,6 @@ export function GitHubInlineProperties({
         />
       </div>
       <div className="inline-property">
-        <span className="inline-property-label">Assignees</span>
         <MultiSelect
           label="Assignees"
           compact
@@ -151,7 +149,6 @@ export function GitHubInlineProperties({
         />
       </div>
       <div className="inline-property">
-        <span className="inline-property-label">Labels</span>
         <MultiSelect
           label="Labels"
           compact
@@ -164,7 +161,7 @@ export function GitHubInlineProperties({
           }))}
           disabled={busy || !metadata}
           loading={!metadata && !metadataError}
-          placeholder="None"
+          placeholder="No labels"
           placeholderLeading={<IssueLabelVisual />}
           onChange={(values) =>
             onSave("arco_change_labels", {
@@ -229,7 +226,6 @@ export function LinearInlineProperties({
   return (
     <>
       <div className="inline-property">
-        <span className="inline-property-label">State</span>
         <SingleSelect
           label="Linear Workflow state"
           value={issue.state.id}
@@ -281,7 +277,6 @@ export function LinearInlineProperties({
         </p>
       )}
       <div className="inline-property">
-        <span className="inline-property-label">Assignee</span>
         <SingleSelect
           label="Linear assignee"
           value={issue.assignee?.id ?? ""}
@@ -309,7 +304,6 @@ export function LinearInlineProperties({
         />
       </div>
       <div className="inline-property">
-        <span className="inline-property-label">Labels</span>
         <MultiSelect
           label="Labels"
           compact
@@ -341,7 +335,6 @@ export function LinearInlineProperties({
         />
       </div>
       <div className="inline-property">
-        <span className="inline-property-label">Priority</span>
         <SingleSelect
           label="Linear Priority"
           value={String(issue.priority)}
@@ -349,6 +342,7 @@ export function LinearInlineProperties({
             (label, value) => ({
               value: String(value),
               label,
+              empty: value === 0,
               leading: <IssuePriorityVisual priority={value} />,
             }),
           )}

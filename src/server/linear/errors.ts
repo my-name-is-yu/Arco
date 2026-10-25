@@ -30,7 +30,10 @@ export function linearFailure(
   )
     return options.write
       ? uncertain()
-      : new LinearServiceError("The Linear request timed out.", "timeout");
+      : new LinearServiceError(
+          "Linear took too long to respond. Check your connection and refresh.",
+          "timeout",
+        );
   // Direct projected queries use the SDK's GraphQLClientError; normal SDK
   // methods already wrap that same response in LinearError.
   const source =
@@ -60,20 +63,23 @@ export function linearFailure(
   )
     return write
       ? uncertain()
-      : new LinearServiceError("The Linear request timed out.", "timeout");
+      : new LinearServiceError(
+          "Linear took too long to respond. Check your connection and refresh.",
+          "timeout",
+        );
   if (status === 429 || source.type === LinearErrorType.Ratelimited)
     return new LinearServiceError(
-      "Linear's API request limit was reached.",
+      "Linear is temporarily limiting requests. Wait and refresh.",
       "rate-limited",
     );
   if (status === 404)
     return new LinearServiceError(
-      "The Linear target was not found, or you cannot view it.",
+      "The Linear target was not found, or you cannot view it. Check its link and your access.",
       "not-found",
     );
   if (status === 409)
     return new LinearServiceError(
-      "The Linear target changed while this operation was in progress.",
+      "The Linear target changed while this operation was in progress. Refresh before trying again.",
       "conflict",
     );
   if (
@@ -100,7 +106,7 @@ export function linearFailure(
     source.type === LinearErrorType.UsageLimitExceeded
   )
     return new LinearServiceError(
-      "This operation is unavailable for the selected Linear workspace.",
+      "This operation is unavailable for the selected workspace. Check the workspace in Linear.",
       "unsupported",
     );
   if (write) return uncertain();

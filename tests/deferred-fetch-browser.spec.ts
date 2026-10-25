@@ -65,7 +65,7 @@ async function fixtureTools(
 async function openFixture(page: Page) {
   await page.goto("/?entry=project&toolLimit=2");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
-  await choose(app(page), "GitHub scope", "yu/Arco");
+  await choose(app(page), "GitHub view", "yu/Arco");
   await expect(
     app(page).getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();

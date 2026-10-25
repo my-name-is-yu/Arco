@@ -383,7 +383,7 @@ for (const source of ["github", "linear"] as const) {
     await expect.poll(() => events(page, "context")).toHaveLength(1);
     await choose(
       ui,
-      source === "github" ? "GitHub scope" : "Linear Team",
+      source === "github" ? "GitHub view" : "Linear Team",
       source === "github" ? otherRepo : otherTeam,
     );
     await ui

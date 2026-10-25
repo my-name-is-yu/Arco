@@ -36,6 +36,50 @@ function endpoint() {
   };
 }
 describe("UI draft revisions across independent views", () => {
+  it("rejects malformed draft reads without exposing schema details or writing", async () => {
+    const calls: string[] = [];
+    const host: Pick<ArcoHost, "call"> = {
+      async call<T>(name: string): Promise<T> {
+        calls.push(name);
+        return { revision: "private-schema-value", draft: {} } as T;
+      },
+    };
+    const local = createLocalDrafts(host);
+    await expect(local.save(key, draft("Unsent input"))).rejects.toMatchObject({
+      kind: "invalid-response",
+      message:
+        "Could not read the saved draft. Keep this view open and try again.",
+    });
+    expect(calls).toEqual(["arco_read_draft"]);
+  });
+
+  it("verifies a malformed save response by reading without repeating the write", async () => {
+    const server = endpoint();
+    const call = server.host.call;
+    const calls: string[] = [];
+    server.host.call = async <T>(
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push(name);
+      const result = await call<T>(name, args);
+      return name === "arco_write_draft"
+        ? ({ revision: "private-schema-value", draft: {} } as T)
+        : result;
+    };
+    const local = createLocalDrafts(server.host);
+    await expect(local.save(key, draft("Saved once"))).resolves.toMatchObject({
+      revision: 1,
+      draft: draft("Saved once"),
+    });
+    expect(calls).toEqual([
+      "arco_read_draft",
+      "arco_write_draft",
+      "arco_read_draft",
+    ]);
+    expect(server.writes()).toBe(1);
+  });
+
   it("retains a conflicting view until an explicit comparison choice", async () => {
     const server = endpoint();
     const first = createLocalDrafts(server.host);

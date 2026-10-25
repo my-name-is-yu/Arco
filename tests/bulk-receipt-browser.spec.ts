@@ -68,9 +68,7 @@ test("bulk retry waits until a saved target has finished refreshing", async ({
     const bulk = ui.getByRole("region", { name: "Bulk Linear actions" });
     await choose(bulk, "Bulk Linear action", "priority");
     await choose(bulk, "Bulk Linear priority", "4");
-    await bulk
-      .getByRole("button", { name: "Apply to 2 issues", exact: true })
-      .click();
+    await bulk.getByRole("button", { name: "Apply", exact: true }).click();
     const retry = bulk.getByRole("button", {
       name: "Retry failed issues only",
       exact: true,
@@ -149,12 +147,10 @@ test("a saved-target refresh does not clear a newly changed selection", async ({
     const bulk = ui.getByRole("region", { name: "Bulk Linear actions" });
     await choose(bulk, "Bulk Linear action", "priority");
     await choose(bulk, "Bulk Linear priority", "4");
-    await bulk
-      .getByRole("button", { name: "Apply to 2 issues", exact: true })
-      .click();
+    await bulk.getByRole("button", { name: "Apply", exact: true }).click();
     await expect(
       bulk.getByRole("list", { name: "Saved issues requiring refresh" }),
-    ).toContainText("fixture-linear-42");
+    ).toContainText("YU-42");
     holdReads = true;
     await bulk
       .getByRole("button", { name: "Refresh saved issues", exact: true })
@@ -248,7 +244,7 @@ for (const outcome of ["saved-refresh-failed", "uncertain"] as const) {
     await choose(bulk, "Bulk Linear action", "priority");
     await choose(bulk, "Bulk Linear priority", "4");
     const apply = bulk.getByRole("button", {
-      name: "Apply to 2 issues",
+      name: "Apply",
       exact: true,
     });
     await apply.click();
@@ -267,8 +263,8 @@ for (const outcome of ["saved-refresh-failed", "uncertain"] as const) {
           : "Failed issues",
       exact: true,
     });
-    await expect(retained).toContainText("fixture-linear-42");
-    await expect(retained).not.toContainText("fixture-linear-43");
+    await expect(retained).toContainText("YU-42");
+    await expect(retained).not.toContainText("YU-43");
     await expect(apply).toBeDisabled();
     expect(calls).toEqual([
       ["fixture-linear-42", "fixture-linear-43"],

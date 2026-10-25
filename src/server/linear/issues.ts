@@ -172,12 +172,12 @@ export function createIssuesHandlers(operation: LinearOperation) {
       );
       if (!created.issueId)
         throw new LinearServiceError(
-          "The created Linear issue ID could not be loaded. Check Linear before creating another issue.",
+          "The issue was created in Linear, but its details could not be loaded. Check Linear before creating another issue.",
           "uncertain",
         );
       return refreshAfterWrite(
         { ...input, issueId: created.issueId },
-        `Linear issue ${created.issueId} was created. Do not create it again.`,
+        "The issue was created in Linear.",
         { operation: "create_issue" },
       );
     },

@@ -355,7 +355,7 @@ test("animated creation dialogs close with Escape, restore focus, and can reopen
   page,
 }) => {
   await openGithub(page);
-  await choose(app(page), "GitHub scope", "yu/Arco");
+  await choose(app(page), "GitHub view", "yu/Arco");
   const trigger = app(page).getByRole("button", {
     name: "Create issue",
     exact: true,

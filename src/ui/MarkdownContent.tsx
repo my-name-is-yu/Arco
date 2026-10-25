@@ -206,7 +206,7 @@ export function IssueMarkdown({
       </Markdown>
       {image && /<(?:img|video|audio|iframe|details)\b/i.test(body) && (
         <p className="muted">
-          Embedded HTML is available in the source service.{" "}
+          Some content is only available in the original issue.{" "}
           <button
             type="button"
             className="markdown-link"

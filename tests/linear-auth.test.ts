@@ -239,20 +239,23 @@ describe("Linear PKCE and local authorization", () => {
       fetch: vi.fn<typeof fetch>(async () => new Response("", { status: 400 })),
     });
     authorizations.push(auth);
-    await expect(auth.disconnect("connection", true)).rejects.toThrow(
-      "could not be revoked",
-    );
+    await expect(auth.disconnect("connection", true)).rejects.toMatchObject({
+      code: "uncertain",
+      message: expect.stringContaining(
+        "Check your connection in Linear before trying again.",
+      ),
+    });
     expect(await store.read("connection")).toEqual(initial);
     expect(store.remove).not.toHaveBeenCalled();
   });
   it.each([
-    [401, "auth"],
-    [403, "forbidden"],
-    [429, "rate-limited"],
-    [503, "unavailable"],
+    [401, "auth", "Reconnect to Linear"],
+    [403, "forbidden", "Check your Linear permissions"],
+    [429, "rate-limited", "Wait and reconnect"],
+    [503, "unavailable", "Check your connection and try again"],
   ])(
     "classifies token refresh rejection %s and preserves credentials",
-    async (status, code) => {
+    async (status, code, action) => {
       const initial = {
         clientId: "client",
         accessToken: "private-expired-access",
@@ -270,10 +273,14 @@ describe("Linear PKCE and local authorization", () => {
         fetch: http,
       });
       authorizations.push(auth);
-      await expect(auth.accessToken("connection")).rejects.toMatchObject({
+      const failure = await auth
+        .accessToken("connection")
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({
         code,
-        message: expect.not.stringContaining("private-"),
+        message: expect.stringContaining(action),
       });
+      expect((failure as Error).message).not.toContain("private-");
       expect(store.write).not.toHaveBeenCalled();
       expect(await store.read("connection")).toEqual(initial);
       expect(http).toHaveBeenCalledTimes(1);

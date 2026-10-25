@@ -173,7 +173,12 @@ export interface IssueCatalog {
   milestoneNumber: number | null;
   issueTypeId: number | null;
   milestones: { number: number; title: string; state: "open" | "closed" }[];
-  issueTypes: { id: number; name: string; description: string }[];
+  issueTypes: {
+    id: number;
+    name: string;
+    description: string;
+    color?: string;
+  }[];
   errors: string[];
 }
 export interface IssueField {
@@ -182,7 +187,7 @@ export interface IssueField {
   type: string;
   supported: boolean;
   value: FieldValue;
-  options: { id: number; name: string }[];
+  options: { id: number; name: string; color?: string }[];
 }
 export interface IssueFieldList {
   repo: string;
@@ -223,7 +228,7 @@ export interface ProjectField {
   type: string;
   supported: boolean;
   value: FieldValue;
-  options: { id: string; name: string }[];
+  options: { id: string; name: string; color?: string }[];
   iterations: {
     id: string;
     title: string;

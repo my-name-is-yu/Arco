@@ -184,7 +184,7 @@ async function hoverFeedback(
 async function openGithub(page: Page) {
   await page.goto("/");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
-  await choose(app(page), "GitHub scope", "yu/Arco");
+  await choose(app(page), "GitHub view", "yu/Arco");
   await expect(
     app(page).getByRole("heading", { name: githubTitle, exact: true }),
   ).toBeVisible();

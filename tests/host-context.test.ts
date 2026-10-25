@@ -556,7 +556,9 @@ describe("host launch context", () => {
     };
     fixture.toolResult!({ isError: true, structuredContent: { launch } });
     expect(host.launch?.()).toBeNull();
-    expect(host.launchError?.()).toContain("invalid error response");
+    expect(host.launchError?.()).toBe(
+      "Could not read the result. Reopen Arco and try again.",
+    );
     fixture.toolResult!({
       structuredContent: {
         launch: {
@@ -581,22 +583,25 @@ describe("host launch context", () => {
 
 describe("host operation failures", () => {
   it.each([
-    ["auth", "Reconnect the source account"],
-    ["forbidden", "Check your access"],
-    ["rate-limited", "Wait for the source's API limit"],
-    ["uncertain", "Check the result in the source"],
+    ["auth", "Your authorization expired. Reconnect to Linear."],
+    ["forbidden", "Permission denied. Check your access to this issue."],
+    ["rate-limited", "Requests are temporarily limited. Wait and refresh."],
+    [
+      "uncertain",
+      "The change was not confirmed. Check the result in the source and refresh before submitting this change again.",
+    ],
   ] as const)(
     "preserves %s and its next action without retrying the operation",
-    async (kind, action) => {
-      fixture.call.mockResolvedValue(toolFailure("A safe source error.", kind));
+    async (kind, detail) => {
+      fixture.call.mockResolvedValue(toolFailure(detail, kind));
       const host = await connectHost();
       await expect(
         host.call("arco_comment", { requestId: "unchanged-id" }),
       ).rejects.toMatchObject({
         name: "ToolCallError",
         kind,
-        detail: "A safe source error.",
-        message: expect.stringContaining(action),
+        detail,
+        message: detail,
       });
       expect(fixture.call).toHaveBeenCalledExactlyOnceWith({
         name: "arco_comment",
@@ -621,7 +626,7 @@ describe("host operation failures", () => {
   });
 
   it.each([
-    ["arco_get_issue", {}, "unavailable", "Check the connection and refresh"],
+    ["arco_get_issue", {}, "unavailable", "Refresh and try again"],
     [
       "arco_comment",
       { requestId: "same-id" },
@@ -647,7 +652,10 @@ describe("host operation failures", () => {
 
   it("uses the same source failure contract for image requests", async () => {
     fixture.call.mockResolvedValue(
-      toolFailure("Image permission denied.", "forbidden"),
+      toolFailure(
+        "Image permission denied. Check your access to this image.",
+        "forbidden",
+      ),
     );
     const host = await connectHost();
     await expect(
@@ -663,6 +671,54 @@ describe("host operation failures", () => {
     });
     expect(fixture.call).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects malformed issue presentation data without schema details or a retry", async () => {
+    fixture.call.mockResolvedValue({
+      structuredContent: { launch: { view: "private-schema-value" } },
+    });
+    const host = await connectHost();
+    await expect(
+      host.call("arco_show_issues", { targets: [] }),
+    ).rejects.toMatchObject({
+      kind: "invalid-response",
+      message: "Could not load these issues. Refresh and try again.",
+    });
+    expect(fixture.call).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an empty write result uncertain and never repeats the write", async () => {
+    fixture.call.mockResolvedValue({ content: [] });
+    const host = await connectHost();
+    await expect(
+      host.call("arco_comment", { requestId: "same-comment" }),
+    ).rejects.toMatchObject({
+      kind: "uncertain",
+      message: expect.stringContaining(
+        "Check the result in the source and refresh before submitting this change again.",
+      ),
+    });
+    expect(fixture.call).toHaveBeenCalledExactlyOnceWith({
+      name: "arco_comment",
+      arguments: { requestId: "same-comment" },
+    });
+  });
+
+  it.each([
+    ["fullscreen", "inline", "Could not open issue details. Try again."],
+    ["inline", "fullscreen", "Could not show the issue in chat. Try again."],
+    ["pip", "fullscreen", "Could not open the compact view. Try again."],
+  ] as const)(
+    "explains a rejected %s display request without internal mode names",
+    async (requested, kept, message) => {
+      fixture.display.mockResolvedValue({ mode: kept });
+      const host = await connectHost();
+      await expect(host.display(requested)).rejects.toThrow(message);
+      expect(host.mode()).toBe(kept);
+      expect(fixture.display).toHaveBeenCalledExactlyOnceWith({
+        mode: requested,
+      });
+    },
+  );
 });
 
 describe("host attachment context lifecycle", () => {

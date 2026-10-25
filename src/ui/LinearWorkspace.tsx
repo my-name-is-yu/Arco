@@ -34,6 +34,7 @@ import {
 import { LinearBulkActions } from "./LinearBulkActions";
 import { LinearDetail } from "./LinearDetail";
 import { SingleSelect } from "./SingleSelect";
+import { IssueAssigneeVisual, IssueStateVisual } from "./IssuePropertyVisual";
 import {
   InlineSkeleton,
   IssueDetailSkeleton,
@@ -371,6 +372,15 @@ export function LinearWorkspace({
         ? sharedIssue.data
         : undefined
       : detail.data;
+  const sharedDisplay = shared
+    ? [sharedIssue.data, detail.data, targetIssue.data, ...rows].find(
+        (candidate) =>
+          candidate?.issueId === shared.issueId &&
+          candidate.connectionId === shared.connectionId &&
+          candidate.workspaceId === shared.workspaceId &&
+          candidate.teamId === shared.teamId,
+      )
+    : undefined;
   const toggleRetainedTask = async (line: number, checked: boolean) => {
     if (!retained) return;
     const body = toggleMarkdownTask(retained.body, line, checked);
@@ -617,7 +627,7 @@ export function LinearWorkspace({
       settings.selectTeam(
         resolved,
         scopes.data?.teams.find((team) => team.id === resolved.teamId)?.name ??
-          resolved.teamId,
+          "Selected team",
       );
       setShowDetail(true);
       setSearchEntry(null);
@@ -656,13 +666,13 @@ export function LinearWorkspace({
           <div>
             <strong>Saved in Linear</strong>
             <p>{receipt.message}</p>
-            <p>
-              Issue ID: {receipt.issueId}
-              {receipt.commentId ? ` · Comment ID: ${receipt.commentId}` : ""}
-            </p>
             <details>
               <DisclosureSummary>Request receipt</DisclosureSummary>
-              <code>{receipt.requestId}</code>
+              <p>Issue ID: {receipt.issueId}</p>
+              {receipt.commentId && <p>Comment ID: {receipt.commentId}</p>}
+              <p>
+                Request ID: <code>{receipt.requestId}</code>
+              </p>
             </details>
             <button
               className="text-button"
@@ -1005,7 +1015,7 @@ export function LinearWorkspace({
                       nextScope,
                       scopes.data?.teams.find(
                         (team) => team.id === nextScope.teamId,
-                      )?.name ?? nextScope.teamId,
+                      )?.name ?? "Selected team",
                     );
                   setBulk([]);
                   setShowDetail(false);
@@ -1089,6 +1099,13 @@ export function LinearWorkspace({
                         ...(metadata.data?.states ?? []).map((state) => ({
                           value: state.id,
                           label: state.name,
+                          leading: (
+                            <IssueStateVisual
+                              source="linear"
+                              state={state.type}
+                              color={state.color}
+                            />
+                          ),
                         })),
                       ]}
                       onChange={(value) => {
@@ -1152,6 +1169,14 @@ export function LinearWorkspace({
                             ).map((item) => ({
                               value: item.id,
                               label: item.name,
+                              leading:
+                                key === "assigneeId" ? (
+                                  <IssueAssigneeVisual name={item.name} />
+                                ) : undefined,
+                              color:
+                                key === "labelId" && "color" in item
+                                  ? String(item.color)
+                                  : undefined,
                             })),
                           ]}
                           onChange={(value) => {
@@ -1184,10 +1209,6 @@ export function LinearWorkspace({
                       }}
                     />
                   </label>
-                  <p>
-                    Search within the selected team. Workflow states and
-                    properties come from Linear.
-                  </p>
                 </details>
                 <div className="list-caption">
                   <span>
@@ -1210,6 +1231,7 @@ export function LinearWorkspace({
                         key={JSON.stringify(scope)}
                         scope={scope}
                         ids={bulk}
+                        issues={rows}
                         metadata={metadata.data}
                         hasDuplicate={bulk.some(
                           (id) =>
@@ -1325,14 +1347,7 @@ export function LinearWorkspace({
           connected && detail.data ? selectionIssueData(detail.data) : undefined
         }
       >
-        {(!connected || !detail.data) && (
-          <>
-            <header className="detail-toolbar">
-              <span className="toolbar-tab">Linear Issue</span>
-            </header>
-            {detailFeedback}
-          </>
-        )}
+        {(!connected || !detail.data) && detailFeedback}
         {connected && detail.data ? (
           <LinearDetail
             key={`${detail.data.connectionId}/${detail.data.issueId}`}
@@ -1343,7 +1358,8 @@ export function LinearWorkspace({
               shared
                 ? {
                     ...shared,
-                    identifier: sharedIssue.data?.identifier ?? shared.issueId,
+                    identifier: sharedDisplay?.identifier,
+                    title: sharedDisplay?.title,
                   }
                 : null
             }
@@ -1373,7 +1389,7 @@ export function LinearWorkspace({
         ) : (
           <div className="empty-state">
             <h1>Select a Linear Issue</h1>
-            <p>Work with native workflow states and properties inside Codex.</p>
+            <p>Select an issue from the list, or paste a Linear issue link.</p>
           </div>
         )}
       </section>
@@ -1387,7 +1403,7 @@ export function LinearWorkspace({
           workspaceName={scopes.data?.workspace.name ?? "Workspace"}
           teamName={
             scopes.data?.teams.find((team) => team.id === scope.teamId)?.name ??
-            scope.teamId
+            "Selected team"
           }
           metadata={metadata.data}
           run={run}

@@ -102,7 +102,7 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("/?entry=project");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
-  await choose(page.frameLocator("#arco"), "GitHub scope", "yu/Arco");
+  await choose(page.frameLocator("#arco"), "GitHub view", "yu/Arco");
   await expect(
     page.frameLocator("#arco").getByRole("heading", {
       name: "Preserve issue selection and scroll position",

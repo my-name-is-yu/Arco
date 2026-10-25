@@ -157,13 +157,13 @@ describe("local settings and drafts", () => {
         draft: { ...draft, promptText: "Retired request" },
       });
       await writeFile(file, stored);
-      await expect(store.readDraft(key)).rejects.toThrow("current format");
+      await expect(store.readDraft(key)).rejects.toThrow("could not be opened");
       await expect(
         store.writeDraft({ key, expectedRevision: 1, draft }),
-      ).rejects.toThrow("current format");
+      ).rejects.toThrow("could not be opened");
       await expect(
         store.deleteDraft({ key, expectedRevision: 1 }),
-      ).rejects.toThrow("current format");
+      ).rejects.toThrow("could not be opened");
       expect(await readFile(file, "utf8")).toBe(stored);
     },
   );
@@ -237,10 +237,17 @@ describe("local settings and drafts", () => {
             : store.deleteAnnotationSnapshot(
                 "00000000-0000-4000-8000-000000000001",
               );
+      const name = kind === "annotations" ? "selection highlights" : kind;
       for (const original of cases) {
         await writeFile(file, original);
-        await expect(read()).rejects.toThrow("current format");
-        await expect(write()).rejects.toThrow("current format");
+        await expect(read()).rejects.toMatchObject({
+          code: "storage",
+          message: expect.stringContaining(`Your saved ${name}`),
+        });
+        await expect(write()).rejects.toMatchObject({
+          code: "storage",
+          message: expect.stringContaining(`Your saved ${name}`),
+        });
         expect(await readFile(file)).toEqual(original);
       }
     },
@@ -253,7 +260,7 @@ describe("local settings and drafts", () => {
       const original = JSON.stringify({ revision, settings: defaultSettings });
       await writeFile(file, original);
       await expect(createStateStore(dir).readSettings()).rejects.toThrow(
-        "current format",
+        "could not be opened",
       );
       expect(await readFile(file, "utf8")).toBe(original);
     },
@@ -274,7 +281,7 @@ describe("local settings and drafts", () => {
       const original = JSON.stringify({ revision: 3, settings });
       await writeFile(file, original);
       await expect(createStateStore(dir).readSettings()).rejects.toThrow(
-        "current format",
+        "could not be opened",
       );
       expect(await readFile(file, "utf8")).toBe(original);
     },

@@ -431,7 +431,7 @@ test("a denied fullscreen request keeps the current tabs and native card availab
     "true",
   );
   await expect(
-    panel(page).getByText("The host could not switch to fullscreen mode.", {
+    panel(page).getByText("Could not open issue details. Try again.", {
       exact: false,
     }),
   ).toBeVisible();

@@ -164,7 +164,7 @@ export function createArcoServer({
         canonical.issueId !== target.issueId
       )
         throw new OperationError(
-          "Linear returned a different issue or scope. Use linear_resolve_issue with the official issue URL, then pass its native IDs.",
+          "Could not open the selected Linear issue. Open it again using its Linear link.",
           "invalid-response",
         );
     }
@@ -188,16 +188,14 @@ export function createArcoServer({
       title: "Show issue",
       uri: cardUri,
       mode: "inline",
-      description:
-        "Show one explicit GitHub or Linear issue as an inline conversation card. Use by default when the user asks to see an issue. Requires its native reference; resolve unknown or ambiguous targets first. Use data tools for analysis or updates, and arco_open_issue only for an explicitly requested detail panel. Does not change issues or chat attachments.",
+      description: "View a GitHub or Linear issue in chat.",
     },
     {
       name: "arco_open_issue",
       title: "Open issue details",
       uri,
       mode: "fullscreen",
-      description:
-        "Open one explicit GitHub or Linear issue in the detail panel only when the user requests that panel. Requires its native reference. For a normal request to see an issue, use arco_show_issue; for analysis or updates, use data tools. Does not change issues or chat attachments.",
+      description: "View a GitHub or Linear issue in detail.",
     },
   ] as const) {
     registerAppTool(
@@ -236,7 +234,7 @@ export function createArcoServer({
     "arco_show_issues",
     {
       title: "Show issues",
-      description: `Show 2–${MAX_PRESENTED_ISSUES} explicit GitHub or Linear issues together with compact inline conversation tabs. Selecting a tab shows that issue's existing card. Preserve the supplied order and native references. Resolve unknown or ambiguous targets first. Use arco_show_issue for one issue, and data tools for analysis or updates. Does not change issues, open a panel, or attach chat context.`,
+      description: `View 2–${MAX_PRESENTED_ISSUES} GitHub or Linear issues together in chat.`,
       inputSchema: issuesPresentationInput,
       annotations: {
         readOnlyHint: true,
@@ -312,8 +310,7 @@ export function createArcoServer({
     "arco_open",
     {
       title: "Arco",
-      description:
-        "Open the personal issue list and management workspace in the side panel only when explicitly requested. Set source to github or linear for an explicitly requested provider list. To show one issue, use arco_show_issue; for analysis or updates, use data tools. Browsing does not send messages or change issues.",
+      description: "Browse and manage your GitHub and Linear issues.",
       inputSchema: workspaceOpenInput,
       annotations: {
         readOnlyHint: true,
@@ -352,8 +349,7 @@ export function createArcoServer({
     "arco_open_project",
     {
       title: "Arco",
-      description:
-        "Open the GitHub repository issue list and management workspace in the side panel only when explicitly requested. Uses client workspace roots when available; otherwise choose a repository for this chat. For a Linear list, use arco_open with source linear. To show one issue, use arco_show_issue; for analysis or updates, use data tools. Browsing does not change files or issues.",
+      description: "Browse and manage GitHub issues for this project.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,

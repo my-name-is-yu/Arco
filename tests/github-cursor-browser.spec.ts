@@ -129,7 +129,7 @@ async function cursorFixture(page: Page) {
 async function open(page: Page) {
   await page.goto("/");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
-  await expect(selectControl(app(page), "GitHub scope")).toBeVisible();
+  await expect(selectControl(app(page), "GitHub view")).toBeVisible();
   await expect(page.locator("#harness-error")).toBeEmpty();
 }
 
@@ -156,7 +156,7 @@ test(
       });
     });
     await open(page);
-    await choose(app(page), "GitHub scope", "yu/Arco");
+    await choose(app(page), "GitHub view", "yu/Arco");
     await expect(
       app(page).getByRole("alert").filter({
         hasText: "GitHub returned no continuation cursor. Refresh the list.",
@@ -172,7 +172,7 @@ test("repository continuation forwards the opaque cursor and keeps numeric pages
 }) => {
   const calls = await cursorFixture(page);
   await open(page);
-  await choose(app(page), "GitHub scope", "yu/Arco");
+  await choose(app(page), "GitHub view", "yu/Arco");
   await expect(app(page).locator(".issue-row")).toHaveCount(4);
   expect(calls.filter((call) => call.name === "arco_list_issues")).toEqual([
     {
@@ -226,7 +226,7 @@ test("repository, search, state and ordering changes start with no old cursor", 
     });
     previousCalls += 2;
   }
-  await choose(ui, "GitHub scope", "yu/Arco");
+  await choose(ui, "GitHub view", "yu/Arco");
   await expectFreshScope({ repo: "yu/Arco", query: "", state: "open" });
   await ui
     .getByRole("textbox", { name: "Search issues", exact: true })
@@ -244,7 +244,7 @@ test("repository, search, state and ordering changes start with no old cursor", 
     sort: "comments",
     order: "asc",
   });
-  await choose(ui, "GitHub scope", "yu/Other");
+  await choose(ui, "GitHub view", "yu/Other");
   await expectFreshScope({
     repo: "yu/Other",
     query: "",
@@ -260,7 +260,7 @@ test("personal feeds continue with numeric pages and no repository cursor", asyn
   const calls = await cursorFixture(page);
   await open(page);
   await expect(app(page).locator(".issue-row")).toHaveCount(4);
-  await choose(app(page), "GitHub scope", "account:mentioned");
+  await choose(app(page), "GitHub view", "account:mentioned");
   await expect
     .poll(
       () => calls.filter((call) => call.name === "arco_account_issues").length,

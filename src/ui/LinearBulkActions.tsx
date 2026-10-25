@@ -1,7 +1,12 @@
 import { useEffect } from "react";
 import type { ArcoHost } from "../shared/contracts";
-import { useSessionState } from "./session-state";
+import { useSessionRef, useSessionState } from "./session-state";
 import { SingleSelect } from "./SingleSelect";
+import {
+  IssueAssigneeVisual,
+  IssuePriorityVisual,
+  IssueStateVisual,
+} from "./IssuePropertyVisual";
 import { BulkActionPanel } from "./BulkActionPanel";
 import type {
   LinearBulkMemberResult,
@@ -13,6 +18,7 @@ import type {
 import { isSavedReceipt, type LinearRun } from "./linear-run";
 import { useLinearIssueCache } from "./linear-queries";
 type Result = LinearBulkMemberResult;
+type IssueDisplay = Pick<LinearIssue, "issueId" | "identifier" | "title">;
 type Action =
   | "state"
   | "assignee"
@@ -25,6 +31,7 @@ export function LinearBulkActions({
   host,
   scope,
   ids,
+  issues,
   metadata,
   hasDuplicate,
   busy,
@@ -34,12 +41,44 @@ export function LinearBulkActions({
   host: ArcoHost;
   scope: LinearScope;
   ids: string[];
+  issues: readonly IssueDisplay[];
   metadata?: LinearMetadata;
   hasDuplicate: boolean;
   busy: boolean;
   run: LinearRun;
   onClear: () => void;
 }) {
+  const displayScope = JSON.stringify([
+    scope.connectionId,
+    scope.workspaceId,
+    scope.teamId,
+  ]);
+  const selectedIssues = useSessionRef(host, "linear:bulk:display", {
+    scope: displayScope,
+    issues: new Map<string, IssueDisplay>(),
+  });
+  useEffect(() => {
+    if (selectedIssues.current.scope !== displayScope)
+      selectedIssues.current = {
+        scope: displayScope,
+        issues: new Map(),
+      };
+    const selected = new Set(ids);
+    for (const id of selectedIssues.current.issues.keys())
+      if (!selected.has(id)) selectedIssues.current.issues.delete(id);
+    for (const issue of issues)
+      if (selected.has(issue.issueId))
+        selectedIssues.current.issues.set(issue.issueId, issue);
+  }, [displayScope, ids, issues, selectedIssues]);
+  const issueLabel = (result: Result) => {
+    const issue =
+      (result.issue?.issueId === result.issueId ? result.issue : undefined) ??
+      issues.find((issue) => issue.issueId === result.issueId) ??
+      (selectedIssues.current.scope === displayScope
+        ? selectedIssues.current.issues.get(result.issueId)
+        : undefined);
+    return issue ? `${issue.identifier} · ${issue.title}` : "Selected issue";
+  };
   const sessionKey = `linear:bulk:${JSON.stringify([scope.connectionId, scope.workspaceId, scope.teamId, [...ids].sort()])}`;
   const [action, setAction] = useSessionState<Action>(
     host,
@@ -208,7 +247,7 @@ export function LinearBulkActions({
               >
                 {refreshFailures.map((result) => (
                   <li key={result.issueId}>
-                    {result.issueId}: {result.refreshError}
+                    {issueLabel(result)}: {result.refreshError}
                   </li>
                 ))}
               </ul>
@@ -229,7 +268,7 @@ export function LinearBulkActions({
             >
               {failures.map((result) => (
                 <li key={result.issueId} className="inline-error">
-                  {result.issueId}: {result.error}
+                  {issueLabel(result)}: {result.error}
                 </li>
               ))}
             </ul>
@@ -270,8 +309,7 @@ export function LinearBulkActions({
         />
       </div>
       {action === "state" && (
-        <label>
-          Status
+        <div className="bulk-action-picker">
           <SingleSelect
             block
             label="Bulk Linear workflow state"
@@ -283,11 +321,18 @@ export function LinearBulkActions({
                 value: state.id,
                 label: `${state.name}${state.type === "duplicate" ? " · Merge in Linear" : ""}`,
                 disabled: state.type === "duplicate",
+                leading: (
+                  <IssueStateVisual
+                    source="linear"
+                    state={state.type}
+                    color={state.color}
+                  />
+                ),
               })),
             ]}
             onChange={changeValue}
           />
-        </label>
+        </div>
       )}
       {action === "state" && hasDuplicate && (
         <p className="property-note">
@@ -296,8 +341,7 @@ export function LinearBulkActions({
         </p>
       )}
       {action === "assignee" && (
-        <label>
-          Assignee
+        <div className="bulk-action-picker">
           <SingleSelect
             block
             label="Bulk Linear assignee"
@@ -305,19 +349,24 @@ export function LinearBulkActions({
             disabled={busy}
             options={[
               { value: "", label: "Choose an assignee…" },
-              { value: "none", label: "Unassigned" },
+              {
+                value: "none",
+                label: "Unassigned",
+                empty: true,
+                leading: <IssueAssigneeVisual />,
+              },
               ...(metadata?.members ?? []).map((member) => ({
                 value: member.id,
                 label: member.name,
+                leading: <IssueAssigneeVisual name={member.name} />,
               })),
             ]}
             onChange={changeValue}
           />
-        </label>
+        </div>
       )}
       {action.startsWith("label") && (
-        <label>
-          Existing label
+        <div className="bulk-action-picker">
           <SingleSelect
             block
             label="Bulk Linear label"
@@ -328,15 +377,15 @@ export function LinearBulkActions({
               ...labels.map((label) => ({
                 value: label.id,
                 label: `${label.name}${label.teamId ? " · Team" : " · Workspace"}`,
+                color: label.color,
               })),
             ]}
             onChange={changeValue}
           />
-        </label>
+        </div>
       )}
       {action === "priority" && (
-        <label>
-          Priority
+        <div className="bulk-action-picker">
           <SingleSelect
             block
             label="Bulk Linear priority"
@@ -345,16 +394,20 @@ export function LinearBulkActions({
             options={[
               { value: "", label: "Choose priority…" },
               ...["No priority", "Urgent", "High", "Normal", "Low"].map(
-                (label, priority) => ({ value: String(priority), label }),
+                (label, priority) => ({
+                  value: String(priority),
+                  label,
+                  empty: priority === 0,
+                  leading: <IssuePriorityVisual priority={priority} />,
+                }),
               ),
             ]}
             onChange={changeValue}
           />
-        </label>
+        </div>
       )}
       {action === "estimate" && (
-        <label>
-          Estimate
+        <div className="bulk-action-picker">
           <SingleSelect
             block
             label="Bulk Linear estimate"
@@ -362,7 +415,7 @@ export function LinearBulkActions({
             disabled={busy}
             options={[
               { value: "", label: "Choose estimate…" },
-              { value: "none", label: "Clear estimate" },
+              { value: "none", label: "Clear estimate", empty: true },
               ...(metadata?.estimateValues ?? []).map((estimate) => ({
                 value: String(estimate),
                 label: String(estimate),
@@ -370,11 +423,10 @@ export function LinearBulkActions({
             ]}
             onChange={changeValue}
           />
-        </label>
+        </div>
       )}
       {action === "due-date" && (
-        <label>
-          Due date
+        <div className="bulk-action-picker">
           <input
             aria-label="Bulk Linear due date"
             type="date"
@@ -382,7 +434,7 @@ export function LinearBulkActions({
             disabled={busy || clearDate}
             onChange={(event) => changeValue(event.target.value)}
           />
-          <span className="checkbox-label">
+          <label className="checkbox-label">
             <input
               type="checkbox"
               checked={clearDate}
@@ -393,8 +445,8 @@ export function LinearBulkActions({
               }}
             />
             Clear due date
-          </span>
-        </label>
+          </label>
+        </div>
       )}
       {ids.length > 50 && (
         <p className="inline-error" role="alert">

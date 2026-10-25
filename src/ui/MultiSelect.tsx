@@ -1,5 +1,13 @@
-import { createContext, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 import { Select } from "@openai/apps-sdk-ui/components/Select";
+import { SelectOptionVisual } from "./SelectOptionVisual";
 
 export interface MultiSelectOption {
   value: string;
@@ -12,9 +20,27 @@ export interface MultiSelectOption {
 const PlaceholderLeading = createContext<ReactNode>(undefined);
 
 function SelectedValues({ values }: { values: MultiSelectOption[] }) {
+  const placeholderLeading = useContext(PlaceholderLeading);
   return (
-    <span className="source-multi-values">
-      {values.map((option) => option.label).join(", ")}
+    <span
+      className="source-multi-values source-selected-values"
+      title={values.map((option) => option.label).join(", ")}
+    >
+      {values.map((option, index) => (
+        <span
+          className="source-selected-value source-select-content"
+          key={option.value}
+        >
+          <SelectOptionVisual
+            leading={option.leading ?? placeholderLeading}
+            color={option.color}
+          />
+          <span className="source-select-text">
+            {option.label}
+            {index < values.length - 1 ? ", " : ""}
+          </span>
+        </span>
+      ))}
     </span>
   );
 }
@@ -27,7 +53,7 @@ function CompactSelectedValues({ values }: { values: MultiSelectOption[] }) {
       className="source-multi-values source-select-content"
       title={values.map((value) => value.label).join(", ")}
     >
-      <OptionLeading
+      <SelectOptionVisual
         leading={first?.leading ?? placeholderLeading}
         color={first?.color}
       />
@@ -39,30 +65,10 @@ function CompactSelectedValues({ values }: { values: MultiSelectOption[] }) {
   );
 }
 
-function OptionLeading({
-  leading,
-  color,
-}: Pick<MultiSelectOption, "leading" | "color">) {
-  const hex = color?.replace(/^#/, "");
-  const decoration =
-    leading ??
-    (hex && /^[\da-f]{6}$/i.test(hex) ? (
-      <span
-        className="source-multi-dot"
-        style={{ backgroundColor: `#${hex}` }}
-      />
-    ) : null);
-  return decoration != null ? (
-    <span className="source-select-leading" aria-hidden="true">
-      {decoration}
-    </span>
-  ) : null;
-}
-
 function OptionView({ label, color, leading }: MultiSelectOption) {
   return (
     <span className="source-multi-option">
-      <OptionLeading leading={leading} color={color} />
+      <SelectOptionVisual leading={leading} color={color} />
       <span className="source-select-text">{label}</span>
     </span>
   );
@@ -90,13 +96,36 @@ export function MultiSelect({
   compact?: boolean;
 }) {
   const available = new Set(options.map((option) => option.value));
+  const retained = useRef<{
+    label: string;
+    options: Map<string, MultiSelectOption>;
+  }>({ label, options: new Map() });
+  const selected = useMemo(
+    () =>
+      new Map(
+        value.flatMap((selected) => {
+          const option =
+            options.find((option) => option.value === selected) ??
+            (retained.current.label === label
+              ? retained.current.options.get(selected)
+              : undefined);
+          return option ? [[selected, option] as const] : [];
+        }),
+      ),
+    [label, options, value],
+  );
+  useEffect(() => {
+    retained.current = { label, options: selected };
+  }, [label, selected]);
   const choices = [
     ...options,
     ...value
       .filter((selected) => !available.has(selected))
-      .map((selected) => ({
-        value: selected,
-        label: selected,
+      .map((value) => ({
+        ...(selected.get(value) ?? {
+          value,
+          label: "Unavailable selection",
+        }),
         disabled: true,
       })),
   ];
@@ -105,6 +134,7 @@ export function MultiSelect({
       className="source-multi-select"
       role="group"
       aria-label={label}
+      data-empty={value.length === 0 ? "true" : "false"}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         const group = event.currentTarget;
@@ -114,7 +144,7 @@ export function MultiSelect({
       }}
     >
       <PlaceholderLeading
-        value={compact && !value.length ? placeholderLeading : undefined}
+        value={!value.length ? placeholderLeading : undefined}
       >
         <Select
           multiple

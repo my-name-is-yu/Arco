@@ -44,6 +44,34 @@ const filter = {
 };
 
 describe("settings recovery", () => {
+  it("rejects malformed saved settings before writing and keeps the preference for explicit retry", async () => {
+    let malformed = true;
+    const record = { revision: 0, settings: structuredClone(defaultSettings) };
+    const call = vi.fn(async (name: string) =>
+      name === "arco_get_settings" && malformed
+        ? { revision: "private-schema-value", settings: {} }
+        : record,
+    );
+    const controller = settingsController(
+      { call } as unknown as ArcoHost,
+      new QueryClient(),
+    );
+    controller.update("source", () => ({ activeSource: "linear" }));
+    await vi.waitFor(() => expect(controller.get().pending).toBe(false));
+    expect(controller.get().error).toBe(
+      "Could not read the saved settings. Reopen Arco and try again.",
+    );
+    expect(call).toHaveBeenCalledExactlyOnceWith("arco_get_settings", {});
+    malformed = false;
+    controller.retry();
+    await vi.waitFor(() => expect(controller.get().pending).toBe(false));
+    expect(call).toHaveBeenLastCalledWith("arco_update_settings", {
+      expectedRevision: 0,
+      patch: { activeSource: "linear" },
+    });
+    expect(controller.get().error).toBeNull();
+  });
+
   it("retries the failed filter after an unrelated successful scope change", async () => {
     const { controller, recover, saved } = fixture();
     controller.update("github:yu/Arco", (latest) => ({

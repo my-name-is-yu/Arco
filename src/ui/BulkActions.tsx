@@ -12,6 +12,11 @@ import type {
   IssueCatalog,
 } from "../shared/github-operations";
 import { SingleSelect } from "./SingleSelect";
+import {
+  IssueAssigneeVisual,
+  IssueLabelVisual,
+  IssueStateVisual,
+} from "./IssuePropertyVisual";
 import { BulkActionPanel } from "./BulkActionPanel";
 import { useCommandSession, useSessionState } from "./session-state";
 import {
@@ -501,14 +506,38 @@ export function BulkActions({
             setValue("");
           }}
           options={[
-            { value: "label-add", label: "Add label" },
-            { value: "label-remove", label: "Remove label" },
-            { value: "assignee-add", label: "Add assignee" },
-            { value: "assignee-remove", label: "Remove assignee" },
+            {
+              value: "label-add",
+              label: "Add label",
+              leading: <IssueLabelVisual />,
+            },
+            {
+              value: "label-remove",
+              label: "Remove label",
+              leading: <IssueLabelVisual />,
+            },
+            {
+              value: "assignee-add",
+              label: "Add assignee",
+              leading: <IssueAssigneeVisual />,
+            },
+            {
+              value: "assignee-remove",
+              label: "Remove assignee",
+              leading: <IssueAssigneeVisual />,
+            },
             { value: "milestone", label: "Set milestone" },
             { value: "issue-type", label: "Set issue type" },
-            { value: "close", label: "Close as completed" },
-            { value: "reopen", label: "Reopen" },
+            {
+              value: "close",
+              label: "Close as completed",
+              leading: <IssueStateVisual source="github" state="completed" />,
+            },
+            {
+              value: "reopen",
+              label: "Reopen",
+              leading: <IssueStateVisual source="github" state="open" />,
+            },
           ]}
         />
       </div>
@@ -520,8 +549,7 @@ export function BulkActions({
         </p>
       )}
       {requiresValue && compatible && !catalogAction && (
-        <label>
-          {action.startsWith("label") ? "Labels" : "Assignees"}
+        <div className="bulk-action-picker">
           <SingleSelect
             block
             label="Bulk value"
@@ -532,15 +560,34 @@ export function BulkActions({
               setValue(value);
             }}
             options={[
-              { value: "", label: "Choose a value…" },
-              ...values.map((value) => ({ value, label: value })),
+              {
+                value: "",
+                label: action.startsWith("label")
+                  ? "Choose a label…"
+                  : "Choose an assignee…",
+              },
+              ...values.map((value) => {
+                const color = action.startsWith("label")
+                  ? metadata.data?.labels.find((label) => label.name === value)
+                      ?.color
+                  : undefined;
+                return {
+                  value,
+                  label: value,
+                  color,
+                  leading: action.startsWith("label") ? (
+                    <IssueLabelVisual color={color} />
+                  ) : (
+                    <IssueAssigneeVisual name={value} />
+                  ),
+                };
+              }),
             ]}
           />
-        </label>
+        </div>
       )}
       {compatible && (action === "milestone" || action === "issue-type") && (
-        <label>
-          {action === "milestone" ? "Milestone" : "Issue type"}
+        <div className="bulk-action-picker">
           <SingleSelect
             block
             label="Bulk attribute value"
@@ -551,8 +598,14 @@ export function BulkActions({
               setValue(value);
             }}
             options={[
-              { value: "", label: "Choose a value…" },
-              { value: "none", label: "Clear value" },
+              {
+                value: "",
+                label:
+                  action === "milestone"
+                    ? "Choose a milestone…"
+                    : "Choose an issue type…",
+              },
+              { value: "none", label: "Clear value", empty: true },
               ...(action === "milestone"
                 ? (catalog.data?.milestones.map((option) => ({
                     value: String(option.number),
@@ -561,10 +614,11 @@ export function BulkActions({
                 : (catalog.data?.issueTypes.map((option) => ({
                     value: String(option.id),
                     label: option.name,
+                    color: option.color,
                   })) ?? [])),
             ]}
           />
-        </label>
+        </div>
       )}
       {[metadata.error, catalog.error].filter(Boolean).map((failure, index) => (
         <p key={index} className="inline-error" role="alert">

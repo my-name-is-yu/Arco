@@ -227,7 +227,16 @@ export function CommentActions({
         >
           <DraftStatus
             status={status}
-            onRetry={() => persistence.retry(key, localDraft())}
+            onRetry={() => {
+              const useSaved = status?.retryChoice === "use-saved";
+              void persistence.retry(key, localDraft()).then((saved) => {
+                if (saved === undefined || (touched.current && !useSaved))
+                  return;
+                setBody(saved?.comment ?? comment.body);
+                setRevision(saved?.baseUpdatedAt ?? comment.updatedAt);
+                touched.current = Boolean(saved);
+              });
+            }}
             onResolve={(choice) => {
               void persistence
                 .resolve(key, choice, localDraft())
@@ -254,7 +263,7 @@ export function CommentActions({
           </label>
           {revision !== comment.updatedAt && (
             <p className="inline-error">
-              The source comment changed. Compare it with your preserved draft.
+              The comment on GitHub changed. Compare it with your draft.
               <button
                 type="button"
                 className="text-button"

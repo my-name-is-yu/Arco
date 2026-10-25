@@ -43,7 +43,7 @@ for (const source of ["github", "linear"] as const) {
         source === "github" ? "bug" : "4",
       );
       const apply = bulk.getByRole("button", {
-        name: "Apply to 2 issues",
+        name: "Apply",
         exact: true,
       });
       const listBox = await ui.locator(".issue-list").boundingBox();
@@ -120,9 +120,7 @@ test("GitHub bulk attribute completion closes the panel and clears every target"
   const bulk = ui.getByRole("region", { name: "Bulk issue actions" });
   await choose(bulk, "Bulk action", "milestone");
   await choose(bulk, "Bulk attribute value", "2");
-  await bulk
-    .getByRole("button", { name: "Apply to 2 issues", exact: true })
-    .click();
+  await bulk.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(bulk).toHaveCount(0);
   for (const number of [42, 43])
     await expect(

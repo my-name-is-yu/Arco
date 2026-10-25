@@ -29,7 +29,7 @@ test("a GitHub leaf failure returns to its own panel after switching sources and
     await page.goto("/?entry=project");
     await expect(page.locator("#bridge-status")).toHaveText("ready");
     const ui = page.frameLocator("#arco");
-    await choose(ui, "GitHub scope", "yu/Arco");
+    await choose(ui, "GitHub view", "yu/Arco");
     const reactions = ui.getByLabel("Issue reactions", { exact: true });
     await reactions.scrollIntoViewIfNeeded();
     await reactions

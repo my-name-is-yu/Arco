@@ -30,6 +30,7 @@ export function LinearLabelManager({
     `linear:label-definition:${issue.connectionId}:${issue.workspaceId}:${issue.teamId}:${issue.issueId}`,
     emptyLabelDraft,
   );
+  const labels = metadata?.labels.filter((label) => !label.isGroup) ?? [];
   return (
     <details className="linear-extra">
       <DisclosureSummary>Manage label definitions</DisclosureSummary>
@@ -45,12 +46,22 @@ export function LinearLabelManager({
           disabled={busy}
           options={[
             { value: "", label: "New label" },
-            ...(metadata?.labels ?? [])
-              .filter((label) => !label.isGroup)
-              .map((label) => ({
-                value: label.id,
-                label: `${label.name} · ${label.teamId ? "team" : "workspace"}`,
-              })),
+            ...labels.map((label) => ({
+              value: label.id,
+              label: `${label.name} · ${label.teamId ? "team" : "workspace"}`,
+              color: label.color,
+            })),
+            ...(labelDraft.id &&
+            !labels.some((label) => label.id === labelDraft.id)
+              ? [
+                  {
+                    value: labelDraft.id,
+                    label: labelDraft.name || "Unavailable label",
+                    color: labelDraft.color,
+                    disabled: true,
+                  },
+                ]
+              : []),
           ]}
           onChange={(value) => {
             const label = metadata?.labels.find((item) => item.id === value);

@@ -63,9 +63,7 @@ for (const source of ["github", "linear"] as const) {
       const value = source === "github" ? "bug" : "4";
       await choose(bulk, actionLabel, action);
       await choose(bulk, valueLabel, value);
-      await bulk
-        .getByRole("button", { name: "Apply to 1 issues", exact: true })
-        .click();
+      await bulk.getByRole("button", { name: "Apply", exact: true }).click();
       await expect.poll(() => calls.length).toBe(1);
       const other = source === "github" ? "linear" : "github";
       const switchBack = async () => {
@@ -95,7 +93,7 @@ for (const source of ["github", "linear"] as const) {
       expect(calls).toHaveLength(1);
       release();
       const apply = bulk.getByRole("button", {
-        name: "Apply to 1 issues",
+        name: "Apply",
         exact: true,
       });
       if (source === "github") await expect(apply).toBeDisabled();
@@ -117,9 +115,7 @@ for (const source of ["github", "linear"] as const) {
             .getByRole("alert")
             .filter({ hasText: "Unable to confirm this batch" }),
         ).toBeVisible();
-        await bulk
-          .getByRole("button", { name: "Apply to 1 issues", exact: true })
-          .click();
+        await bulk.getByRole("button", { name: "Apply", exact: true }).click();
       }
       await expect.poll(() => calls.length).toBe(2);
       expect(calls[1].requestId).toBe(calls[0].requestId);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArcoHost } from "../shared/contracts";
+import { ToolCallError } from "../shared/errors";
 import {
   annotationSnapshotSchema,
   type AnnotationSnapshot,
@@ -109,8 +110,14 @@ export function useSharedAnnotations(host: ArcoHost, onSync: () => void) {
           host.annotationSnapshotId() !== snapshotId
         )
           return;
-        if (result.snapshot === null) return;
-        const saved = annotationSnapshotSchema.parse(result.snapshot);
+        if (result?.snapshot === null) return;
+        const parsed = annotationSnapshotSchema.safeParse(result?.snapshot);
+        if (!parsed.success)
+          throw new ToolCallError(
+            "invalid-response",
+            "Could not restore your selection highlights. Reopen Arco and try again.",
+          );
+        const saved = parsed.data;
         if (saved.id !== snapshotId)
           throw new Error(
             "The saved annotation positions do not match this attachment.",

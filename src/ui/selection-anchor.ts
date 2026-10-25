@@ -246,7 +246,7 @@ function workspaceSnapshot(root: Element, target: AnnotationTarget) {
         ]),
       );
   });
-  const ignored = ".shared-target, .notice, [aria-live], [role='status']";
+  const ignored = ".notice, [aria-live], [role='status']";
   const originals = root.querySelectorAll(ignored);
   clone.querySelectorAll(ignored).forEach((element, index) => {
     const original = originals[index];

@@ -137,7 +137,7 @@ export interface ProjectStatus {
   fieldId: string;
   fieldName: string;
   optionId: string | null;
-  options: { id: string; name: string }[];
+  options: { id: string; name: string; color?: string }[];
 }
 export interface IssueSummary extends IssueRef {
   source: "github";
@@ -152,7 +152,7 @@ export interface IssueSummary extends IssueRef {
 }
 export interface IssueDetail extends IssueSummary {
   body: string;
-  issueType?: { id: number; name: string } | null;
+  issueType?: { id: number; name: string; color?: string } | null;
   stateReason: string | null;
   comments: Comment[];
   commentsHasMore: boolean;

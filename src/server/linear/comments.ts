@@ -30,7 +30,7 @@ export function createCommentsHandlers(operation: LinearOperation) {
         );
         return refreshAfterWrite(
           input,
-          `Comment ${created.commentId ?? "(source ID unavailable)"} was posted to Linear issue ${issue.id}. Do not post it again.`,
+          "The comment was posted to Linear.",
           {
             operation: "create_comment",
             ...(created.commentId ? { commentId: created.commentId } : {}),

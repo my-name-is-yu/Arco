@@ -39,7 +39,7 @@ export function createCredentialStore(): CredentialStore {
           : credentialSchema.parse(JSON.parse(value));
       } catch {
         throw new LinearServiceError(
-          "The Linear credential could not be read from the OS credential store. Check that the store is available and unlocked. Plaintext storage is not supported.",
+          "Your saved Linear sign-in could not be read. Unlock your device's credential store and try again.",
           "storage",
         );
       }
@@ -51,7 +51,7 @@ export function createCredentialStore(): CredentialStore {
         );
       } catch {
         throw new LinearServiceError(
-          "The Linear credential could not be saved to the OS credential store. The connection was not completed.",
+          "Your Linear sign-in could not be saved. Unlock your device's credential store and authorize again.",
           "storage",
         );
       }
@@ -61,7 +61,7 @@ export function createCredentialStore(): CredentialStore {
         await entry(id).deleteCredential();
       } catch {
         throw new LinearServiceError(
-          "The Linear credential could not be removed from the OS credential store.",
+          "Your saved Linear sign-in could not be removed. Unlock your device's credential store and try again.",
           "storage",
         );
       }
@@ -155,7 +155,7 @@ export function createLinearAuth(
       });
     } catch (error) {
       throw new LinearServiceError(
-        "The Linear authorization server could not be reached.",
+        "Could not connect to Linear. Check your connection and try again.",
         error instanceof Error &&
           (error.name === "TimeoutError" || error.name === "AbortError")
           ? "timeout"
@@ -165,8 +165,12 @@ export function createLinearAuth(
     if (!response.ok)
       throw new LinearServiceError(
         response.status === 400 || response.status === 401
-          ? "The Linear authorization expired, or the code or refresh token is invalid. Reconnect to Linear."
-          : `The Linear authorization server returned an error (${response.status}).`,
+          ? "Linear authorization is no longer valid. Reconnect to Linear."
+          : response.status === 429
+            ? "Linear authorization is temporarily limited. Wait and reconnect."
+            : response.status === 403
+              ? "Linear authorization was denied. Check your Linear permissions."
+              : "Could not connect to Linear. Check your connection and try again.",
         response.status === 400 || response.status === 401
           ? "auth"
           : response.status === 429
@@ -179,7 +183,7 @@ export function createLinearAuth(
       return tokenCredential(clientId, await response.json(), now());
     } catch {
       throw new LinearServiceError(
-        "The Linear token response is invalid or lacks read and write authorization. Reconnect to Linear.",
+        "Linear authorization could not be completed. Reconnect to Linear.",
         "auth",
       );
     }
@@ -395,7 +399,7 @@ export function createLinearAuth(
           );
           if (response.status !== 200)
             throw new LinearServiceError(
-              "Linear authorization could not be revoked. The local credential was kept.",
+              "Linear authorization could not be revoked. Your saved sign-in was kept. Check your connection in Linear before trying again.",
               "uncertain",
             );
         }

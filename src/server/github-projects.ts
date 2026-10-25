@@ -6,6 +6,7 @@ import type {
   IssueProjectMemberships,
   ProjectField,
 } from "../shared/github-operations";
+import { optionColorSchema } from "./github/option-color";
 
 type Graphql = (
   query: string,
@@ -22,7 +23,15 @@ const definitionSchema = z.object({
   id: z.string(),
   name: z.string(),
   dataType: z.string(),
-  options: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  options: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        color: optionColorSchema,
+      }),
+    )
+    .optional(),
   configuration: z
     .object({
       iterations: z.array(
@@ -189,7 +198,7 @@ export async function readProjectFields(
         pageInfo { hasNextPage endCursor }
         nodes {
           ... on ProjectV2FieldCommon { id name dataType }
-          ... on ProjectV2SingleSelectField { options { id name } }
+          ... on ProjectV2SingleSelectField { options { id name color } }
           ... on ProjectV2IterationField { configuration {
             iterations { id title startDate duration }
             completedIterations { id title startDate duration }
@@ -306,7 +315,10 @@ export async function readProjectFields(
         "iteration",
       ].includes(type),
       value: values.get(field.id) ?? null,
-      options: field.options ?? [],
+      options: (field.options ?? []).map(({ color, ...option }) => ({
+        ...option,
+        ...(color ? { color } : {}),
+      })),
       iterations: [
         ...(field.configuration?.iterations ?? []),
         ...(field.configuration?.completedIterations ?? []),

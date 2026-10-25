@@ -19,8 +19,7 @@ connectHost()
   .catch(() => {
     root.render(
       <main role="alert">
-        Open Arco in Codex. For browser testing, follow the local fixture
-        instructions in the README.
+        Could not connect to Codex. Reopen Arco and try again.
       </main>,
     );
   });

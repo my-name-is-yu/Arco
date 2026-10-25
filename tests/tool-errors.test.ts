@@ -9,6 +9,27 @@ import { failureResult } from "../src/server/tool-results";
 
 describe("public operation failures", () => {
   it.each([
+    ["auth", "Reconnect to Linear."],
+    ["forbidden", "Check your access to this issue."],
+    ["rate-limited", "Wait and refresh."],
+    ["unavailable", "Check your connection and refresh."],
+  ] as const)("keeps authored %s recovery concise", (kind, action) => {
+    const error = readToolFailure({ error: { kind, message: action } });
+    expect(error.message).toBe(action);
+    expect(error.kind).toBe(kind);
+  });
+
+  it("preserves source verification once for an uncertain change", () => {
+    const message =
+      "The save was not confirmed. Check the source and refresh before retrying.";
+    const error = readToolFailure({
+      error: { kind: "uncertain", message },
+    });
+    expect(error.message).toBe(message);
+    expect(error.kind).toBe("uncertain");
+  });
+
+  it.each([
     ["auth", "auth"],
     ["forbidden", "forbidden"],
     ["rate-limited", "rate-limited"],

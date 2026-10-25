@@ -37,8 +37,8 @@ const statusField = {
   name: "Status",
   dataType: "SINGLE_SELECT",
   options: [
-    { id: "todo", name: "Todo" },
-    { id: "done", name: "Done" },
+    { id: "todo", name: "Todo", color: "GRAY" },
+    { id: "done", name: "Done", color: "GREEN" },
   ],
 };
 const projectFields = {
@@ -132,7 +132,7 @@ function stubRun(
 
 describe("write safety across the service boundary", () => {
   it("creates from an existing organization type atomically and verifies the source type ID", async () => {
-    const type = { id: 73, name: "Bug" };
+    const type = { id: 73, name: "Bug", color: "red" };
     const base = stubRun({
       issue: apiIssue({ type }),
       write: async () => apiIssue({ type }),

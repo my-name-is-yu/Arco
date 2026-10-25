@@ -6,6 +6,7 @@ import {
   type Label,
 } from "../../shared/contracts.js";
 import { GitHubError } from "./transport";
+import { optionColorSchema } from "./option-color";
 export const apiLabelSchema = z.object({
   id: z.number(),
   name: z.string(),
@@ -30,7 +31,15 @@ export const apiIssueSchema = apiIssueSummarySchema.extend({
   body: z.string().nullable().optional(),
   state_reason: z.string().nullable().optional(),
   type: z
-    .object({ id: z.number().int().positive(), name: z.string() })
+    .object({
+      id: z.number().int().positive(),
+      name: z.string(),
+      color: optionColorSchema,
+    })
+    .transform(({ color, ...type }) => ({
+      ...type,
+      ...(color ? { color } : {}),
+    }))
     .nullable()
     .optional(),
 });

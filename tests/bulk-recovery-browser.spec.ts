@@ -21,9 +21,9 @@ const checkbox = (page: Page, number: number) =>
 async function select(page: Page, numbers = [42, 43]) {
   for (const number of numbers) await checkbox(page, number).check();
 }
-const apply = (page: Page, count = 2) =>
+const apply = (page: Page) =>
   panel(page).getByRole("button", {
-    name: `Apply to ${count} issues`,
+    name: "Apply",
     exact: true,
   });
 const retry = (page: Page) =>
@@ -121,13 +121,13 @@ for (const action of ["close", "assignee-add"] as const) {
       await choose(panel(page), "Bulk action", action);
       if (action === "assignee-add")
         await choose(panel(page), "Bulk value", "fixture-reviewer");
-      await apply(page, 1).click();
+      await apply(page).click();
       await expect.poll(() => applied).toBe(true);
       await choose(app(page), "Issue source", "linear");
       release();
       await choose(app(page), "Issue source", "github");
       await expect(retry(page)).toBeEnabled();
-      await expect(apply(page, 1)).toBeDisabled();
+      await expect(apply(page)).toBeDisabled();
       await retry(page).click();
       await expect(panel(page)).toHaveCount(0);
       expect(calls).toHaveLength(2);
@@ -251,7 +251,7 @@ test("bulk completion refreshes grouped issue tab state when returning inline", 
     .getByRole("button", { name: "Open details", exact: true })
     .click();
   await select(page, [42]);
-  await apply(page, 1).click();
+  await apply(page).click();
   await expect(panel(page)).toHaveCount(0);
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   await expect(tab).toHaveAccessibleDescription("Closed · Completed");
@@ -284,9 +284,9 @@ for (const appliedBeforeFailure of [true, false]) {
     await select(page, [43]);
     await choose(panel(page), "Bulk action", "label-add");
     await choose(panel(page), "Bulk value", "bug");
-    await apply(page, 1).click();
+    await apply(page).click();
     await expect(retry(page)).toBeEnabled();
-    await expect(apply(page, 1)).toBeDisabled();
+    await expect(apply(page)).toBeDisabled();
     const check = panel(page).getByRole("button", {
       name: "Check current state",
       exact: true,
@@ -298,7 +298,7 @@ for (const appliedBeforeFailure of [true, false]) {
       panel(page).getByRole("list", { name: "Unconfirmed changes" }),
     ).toContainText("Could not confirm");
     expect(writes).toHaveLength(1);
-    await expect(apply(page, 1)).toBeDisabled();
+    await expect(apply(page)).toBeDisabled();
     await check.click();
     if (appliedBeforeFailure) {
       await expect(panel(page)).toHaveCount(0);

@@ -6,7 +6,7 @@ async function openSource(page: Page, source: "github" | "linear") {
   await page.goto("/?entry=project");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
   if (source === "linear") await choose(app(page), "Issue source", "linear");
-  else await choose(app(page), "GitHub scope", "yu/Arco");
+  else await choose(app(page), "GitHub view", "yu/Arco");
   await expect(
     app(page).getByRole("heading", {
       name:

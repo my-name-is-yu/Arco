@@ -22,6 +22,11 @@ import { CommentActions, ReactionBar } from "./GitHubDiscussion";
 import { CopyValue } from "./CopyValue";
 import { MultiSelect } from "./MultiSelect";
 import { SingleSelect } from "./SingleSelect";
+import {
+  IssueAssigneeVisual,
+  IssueLabelVisual,
+  IssueStateVisual,
+} from "./IssuePropertyVisual";
 import { LabelManager } from "./LabelManager";
 import { GitHubProperties } from "./GitHubProperties";
 import { GitHubRelations } from "./GitHubRelations";
@@ -74,7 +79,11 @@ export function GitHubDetail({
   const [preview, setPreview] = useState(false);
   const assigneeOptions = [
     ...new Set([...issue.assignees, ...(metadata?.assignees ?? [])]),
-  ].map((name) => ({ value: name, label: name }));
+  ].map((name) => ({
+    value: name,
+    label: name,
+    leading: <IssueAssigneeVisual name={name} />,
+  }));
   const labelOptions = [
     ...new Map(
       [...issue.labels, ...(metadata?.labels ?? [])].map((label) => [
@@ -89,20 +98,25 @@ export function GitHubDetail({
   const dirty = draft.title !== issue.title || draft.body !== issue.body;
   const contentConflict = draftConflict(issue, draft);
   const share = () => hostAction(() => host.share(issue));
+  const differentSharedTarget = shared && refKey(shared) !== refKey(issue);
+  const sharedTarget = shared ? `${shared.repo} #${shared.number}` : "";
+  const sharedDescription = `Shared issue: ${sharedTarget}${differentSharedTarget ? " · Different from the issue you are browsing" : ""}`;
 
   return (
     <>
       <DetailToolbar
-        tab="Issue"
+        target={`${issue.repo} #${issue.number}`}
         backLabel="Back to list"
         onBack={onBack}
         shared={
           shared ? (
             <span
               className="shared-chip"
-              title={`${shared.repo} #${shared.number}`}
+              role="note"
+              title={sharedDescription}
+              aria-label={sharedDescription}
             >
-              Chat #{shared.number}
+              {differentSharedTarget ? `Chat: ${sharedTarget}` : "In chat"}
             </span>
           ) : undefined
         }
@@ -184,17 +198,6 @@ export function GitHubDetail({
             </span>
             {dirty && <span className="draft-mark">Unsaved changes</span>}
           </div>
-          {shared && (
-            <div className="shared-target">
-              Shared issue:{" "}
-              <strong>
-                {shared.repo} #{shared.number}
-              </strong>
-              {refKey(shared) !== refKey(issue) && (
-                <span> · Different from the issue you are browsing</span>
-              )}
-            </div>
-          )}
         </div>
         <div className="issue-columns">
           <article className="issue-main">
@@ -391,11 +394,9 @@ export function GitHubDetail({
                   );
                 }}
               >
-                <label htmlFor={`comment-${issue.number}`}>
-                  Comment on GitHub
-                </label>
                 <textarea
                   id={`comment-${issue.number}`}
+                  aria-label="Comment on GitHub"
                   disabled={busy}
                   value={draft.comment}
                   rows={3}
@@ -403,9 +404,6 @@ export function GitHubDetail({
                   onChange={(event) => onDraft({ comment: event.target.value })}
                 />
                 <div className="comment-form-footer">
-                  <span className="muted">
-                    Posting to issue #{issue.number}
-                  </span>
                   <Button
                     type="submit"
                     color="secondary"
@@ -444,9 +442,25 @@ export function GitHubDetail({
                   });
                 }}
                 options={[
-                  { value: "open", label: "Open" },
-                  { value: "completed", label: "Closed · Completed" },
-                  { value: "not_planned", label: "Closed · Not planned" },
+                  {
+                    value: "open",
+                    label: "Open",
+                    leading: <IssueStateVisual source="github" state="open" />,
+                  },
+                  {
+                    value: "completed",
+                    label: "Closed · Completed",
+                    leading: (
+                      <IssueStateVisual source="github" state="completed" />
+                    ),
+                  },
+                  {
+                    value: "not_planned",
+                    label: "Closed · Not planned",
+                    leading: (
+                      <IssueStateVisual source="github" state="not_planned" />
+                    ),
+                  },
                 ]}
               />
             </section>
@@ -479,6 +493,7 @@ export function GitHubDetail({
                       ...project.options.map((option) => ({
                         value: option.id,
                         label: option.name,
+                        color: option.color,
                       })),
                     ]}
                   />
@@ -504,6 +519,7 @@ export function GitHubDetail({
                 options={assigneeOptions}
                 disabled={busy || !metadata}
                 placeholder="Unassigned"
+                placeholderLeading={<IssueAssigneeVisual />}
                 onChange={(assignees) =>
                   void save("arco_update_issue", {
                     ...ref,
@@ -533,9 +549,11 @@ export function GitHubDetail({
                   value: label.id,
                   label: label.name,
                   color: label.color,
+                  leading: <IssueLabelVisual color={label.color} />,
                 }))}
                 disabled={busy || !metadata}
                 placeholder="None"
+                placeholderLeading={<IssueLabelVisual />}
                 onChange={(values) =>
                   void save("arco_change_labels", {
                     ...ref,

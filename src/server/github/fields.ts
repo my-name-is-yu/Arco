@@ -11,6 +11,7 @@ import {
   type Input,
 } from "./operations-context";
 import { GitHubError, parse } from "./transport";
+import { optionColorSchema } from "./option-color";
 export function createFieldsOperations(context: GitHubOperationContext) {
   const { once, api, pages, issueRecord, refresh, repoOwner } = context;
   async function issueCatalog(
@@ -38,6 +39,7 @@ export function createFieldsOperations(context: GitHubOperationContext) {
               id: z.number(),
               name: z.string(),
               description: z.string().nullable().optional(),
+              color: optionColorSchema,
             }),
           ),
           await api("read", `orgs/${owner.login}/issue-types`),
@@ -45,6 +47,7 @@ export function createFieldsOperations(context: GitHubOperationContext) {
           id: type.id,
           name: type.name,
           description: type.description ?? "",
+          ...(type.color ? { color: type.color } : {}),
         }));
       } catch {
         errors.push(
@@ -128,7 +131,13 @@ export function createFieldsOperations(context: GitHubOperationContext) {
           name: z.string(),
           data_type: z.string(),
           options: z
-            .array(z.object({ id: z.number(), name: z.string() }))
+            .array(
+              z.object({
+                id: z.number(),
+                name: z.string(),
+                color: optionColorSchema,
+              }),
+            )
             .optional(),
         }),
       ),
@@ -164,7 +173,10 @@ export function createFieldsOperations(context: GitHubOperationContext) {
             "single_select",
             "multi_select",
           ].includes(definition.data_type),
-          options: definition.options ?? [],
+          options: (definition.options ?? []).map(({ color, ...option }) => ({
+            ...option,
+            ...(color ? { color } : {}),
+          })),
           value: current
             ? (current.multi_select_options?.map((option) => option.name) ??
               current.single_select_option?.name ??
@@ -182,7 +194,7 @@ export function createFieldsOperations(context: GitHubOperationContext) {
       );
       if (!field?.supported)
         return invalid(
-          "Select an existing supported Issue field. Its ID is separate from Project fields.",
+          "This Issue field is unavailable. Refresh and select a field again.",
         );
       checkFieldValue(
         field.type,

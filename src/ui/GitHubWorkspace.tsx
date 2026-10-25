@@ -890,89 +890,98 @@ export function GitHubWorkspace({
         <div className="scope-picker">
           <h2 className="viewer-title">
             {projectView
-              ? "Project issues"
+              ? launch.projectName
+                ? `${launch.projectName} issues`
+                : "Issues for this chat"
               : repo
                 ? "Repository issues"
                 : "My issues"}
           </h2>
-          <SingleSelect
-            ref={scopeSelectRef}
-            id="github-scope"
-            className="scope-select"
-            label="GitHub scope"
-            value={repo || (projectView ? "" : `account:${accountView}`)}
-            disabled={mutationBusy || bulkBusy}
-            onChange={(value) => {
-              const view = accountViews.find(
-                (entry) => `account:${entry.value}` === value,
-              );
-              if (view) changeRepo("", view.value);
-              else changeRepo(value);
-            }}
-            options={[
-              ...(!projectView
-                ? [
-                    {
-                      label: "Account views",
-                      options: accountViews.map((view) => ({
-                        value: `account:${view.value}`,
-                        label: view.label,
-                      })),
-                    },
-                  ]
-                : [
-                    {
-                      label: "Project",
-                      options: [
-                        {
-                          value: "",
-                          label: "Choose repository",
-                          disabled: true,
-                        },
-                      ],
-                    },
-                  ]),
-              ...(repositories.length > 0 ||
-              (repositoryDiscovery.isPending && connection.data?.connected)
-                ? [
-                    {
-                      label: "Repositories",
-                      options: [
-                        ...repositories.map((value) => {
-                          const info = repositoryDiscovery.data?.pages
-                            .flatMap((page) => page.repositories)
-                            .find((repository) => repository.repo === value);
-                          return {
-                            value,
-                            label: `${value}${info?.archived ? " (archived)" : ""}${info?.issuesEnabled === false ? " (issues disabled)" : ""}`,
-                            disabled: info?.issuesEnabled === false,
-                          };
-                        }),
-                        ...(repositoryDiscovery.isPending &&
-                        connection.data?.connected
-                          ? [
-                              {
-                                value: "loading:repositories",
-                                label: "Loading repositories…",
-                                disabled: true,
-                              },
-                            ]
-                          : []),
-                      ],
-                    },
-                  ]
-                : []),
-            ]}
-          />
-          <p className="viewer-description">
-            {projectView
-              ? launch.projectName
-                ? `Repository for ${launch.projectName}`
-                : "Repository for this chat"
-              : repo
-                ? "Issues in this repository"
-                : "Your issues across repositories"}
-          </p>
+          <div
+            className="scope-control"
+            title={
+              projectView
+                ? "Repository selection is saved for this chat."
+                : repo
+                  ? "Issues in the selected repository."
+                  : "Issues across your account repositories."
+            }
+          >
+            <SingleSelect
+              ref={scopeSelectRef}
+              id="github-scope"
+              className="scope-select"
+              label="GitHub view"
+              searchPlaceholder={
+                projectView
+                  ? "Search repositories…"
+                  : "Search views or repositories…"
+              }
+              value={repo || (projectView ? "" : `account:${accountView}`)}
+              disabled={mutationBusy || bulkBusy}
+              onChange={(value) => {
+                const view = accountViews.find(
+                  (entry) => `account:${entry.value}` === value,
+                );
+                if (view) changeRepo("", view.value);
+                else changeRepo(value);
+              }}
+              options={[
+                ...(!projectView
+                  ? [
+                      {
+                        label: "Across repositories",
+                        options: accountViews.map((view) => ({
+                          value: `account:${view.value}`,
+                          label: view.label,
+                        })),
+                      },
+                    ]
+                  : [
+                      {
+                        label: "Repository for this chat",
+                        options: [
+                          {
+                            value: "",
+                            label: "Choose repository",
+                            disabled: true,
+                          },
+                        ],
+                      },
+                    ]),
+                ...(repositories.length > 0 ||
+                (repositoryDiscovery.isPending && connection.data?.connected)
+                  ? [
+                      {
+                        label: "Repositories",
+                        options: [
+                          ...repositories.map((value) => {
+                            const info = repositoryDiscovery.data?.pages
+                              .flatMap((page) => page.repositories)
+                              .find((repository) => repository.repo === value);
+                            return {
+                              value,
+                              label: `${value}${info?.archived ? " (archived)" : ""}${info?.issuesEnabled === false ? " (issues disabled)" : ""}`,
+                              disabled: info?.issuesEnabled === false,
+                            };
+                          }),
+                          ...(repositoryDiscovery.isPending &&
+                          connection.data?.connected
+                            ? [
+                                {
+                                  value: "loading:repositories",
+                                  label: "Loading repositories…",
+                                  disabled: true,
+                                },
+                              ]
+                            : []),
+                        ],
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          </div>
           <details className="repo-add repository-management">
             <DisclosureSummary>Manage repositories</DisclosureSummary>
             <div className="scope-actions">
@@ -1199,13 +1208,7 @@ export function GitHubWorkspace({
         )}
         <div className="list-caption">
           <span>
-            {issues.isFetching && !issues.isPending
-              ? "Refreshing…"
-              : repo
-                ? `${state === "all" ? "All" : state === "closed" ? "Closed" : "Open"} issues`
-                : projectView
-                  ? "Repository not selected"
-                  : accountViewLabel}
+            {issues.isFetching && !issues.isPending ? "Refreshing…" : null}
           </span>
           <span>
             {rows.length} {rows.length === 1 ? "issue" : "issues"}
@@ -1372,11 +1375,6 @@ export function GitHubWorkspace({
           selectedDetail ? selectionIssueData(selectedDetail) : undefined
         }
       >
-        {!selectedDetail && (
-          <header className="detail-toolbar">
-            <span className="toolbar-tab">Issue</span>
-          </header>
-        )}
         {!selectedDetail && detailFeedback}
         {detailLoading && <IssueDetailSkeleton />}
         {detail.isError && !selectedDetail && (

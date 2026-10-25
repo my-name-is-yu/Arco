@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useId,
   useImperativeHandle,
   useRef,
@@ -6,11 +7,14 @@ import {
   type Ref,
 } from "react";
 import { Select } from "@openai/apps-sdk-ui/components/Select";
+import { SelectOptionVisual } from "./SelectOptionVisual";
 
 export interface SingleSelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  empty?: boolean;
+  color?: string;
   leading?: ReactNode;
 }
 
@@ -32,27 +36,23 @@ const sdkOption = (option: SingleSelectOption): SdkOption => ({
   nativeValue: option.value,
 });
 
-function SelectedValue({ label, leading }: SingleSelectOption) {
+function SelectedValue({ label, leading, color }: SingleSelectOption) {
   return (
     <span className="source-single-value source-select-content">
-      {leading != null && (
-        <span className="source-select-leading" aria-hidden="true">
-          {leading}
-        </span>
-      )}
+      <SelectOptionVisual leading={leading} color={color} />
       <span className="source-select-text">{label}</span>
     </span>
   );
 }
 
-function OptionView({ label, leading, nativeValue }: SdkOption) {
+function OptionView({ label, leading, color, nativeValue, empty }: SdkOption) {
   return (
-    <span className="source-select-content" data-select-value={nativeValue}>
-      {leading != null && (
-        <span className="source-select-leading" aria-hidden="true">
-          {leading}
-        </span>
-      )}
+    <span
+      className="source-select-content"
+      data-select-value={nativeValue}
+      data-empty={empty || !nativeValue ? "true" : undefined}
+    >
+      <SelectOptionVisual leading={leading} color={color} />
       <span className="source-select-text">{label}</span>
     </span>
   );
@@ -67,6 +67,7 @@ export function SingleSelect({
   loading = false,
   block = false,
   placeholder = "Not set",
+  searchPlaceholder = "Search…",
   id,
   className,
   ref,
@@ -79,6 +80,7 @@ export function SingleSelect({
   loading?: boolean;
   block?: boolean;
   placeholder?: string;
+  searchPlaceholder?: string;
   id?: string;
   className?: string;
   ref?: Ref<SingleSelectHandle>;
@@ -115,8 +117,24 @@ export function SingleSelect({
   const all = options.flatMap((option) =>
     "options" in option ? option.options : [option],
   );
+  const retained = useRef<{
+    label: string;
+    option?: SingleSelectOption;
+  }>({ label });
+  const selected =
+    all.find((option) => option.value === value) ??
+    (retained.current.label === label &&
+    retained.current.option?.value === value
+      ? retained.current.option
+      : undefined);
+  useEffect(() => {
+    retained.current = { label, option: selected };
+  }, [label, selected]);
   const missing = value && !all.some((option) => option.value === value);
-  const current = { value, label: value, disabled: true };
+  const current: SingleSelectOption = {
+    ...(selected ?? { value, label: "Unavailable selection" }),
+    disabled: true,
+  };
   const choices: SingleSelectOption[] | SingleSelectGroup[] = grouped
     ? [
         ...(options as SingleSelectGroup[]).map((group) => ({
@@ -145,6 +163,7 @@ export function SingleSelect({
       role="group"
       aria-label={label}
       data-value={value}
+      data-empty={!value || selected?.empty ? "true" : "false"}
       onKeyDown={(event) => {
         if (event.key === "Escape") requestAnimationFrame(focus);
       }}
@@ -175,7 +194,7 @@ export function SingleSelect({
         dropdownIconType="chevronDown"
         listMinWidth={220}
         listMaxWidth={360}
-        searchPlaceholder={`Search ${label.toLowerCase()}…`}
+        searchPlaceholder={searchPlaceholder}
         TriggerView={SelectedValue}
         OptionView={OptionView}
       />

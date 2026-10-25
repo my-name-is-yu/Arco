@@ -103,7 +103,18 @@ export function LinearCommentEditor({
     >
       <DraftStatus
         status={persistence.statuses[draftStorageId(key)]}
-        onRetry={() => persistence.retry(key, diskDraft())}
+        onRetry={() => {
+          const useSaved =
+            persistence.statuses[draftStorageId(key)]?.retryChoice ===
+            "use-saved";
+          void persistence.retry(key, diskDraft()).then((saved) => {
+            if (saved === undefined || (touched.current && !useSaved)) return;
+            setBody(saved?.comment ?? comment.body);
+            setBaseBody(saved?.baseBody ?? comment.body);
+            setRevision(saved?.baseUpdatedAt ?? comment.updatedAt);
+            touched.current = Boolean(saved);
+          });
+        }}
         onResolve={(choice) => {
           void persistence.resolve(key, choice, diskDraft()).then((saved) => {
             if (saved === undefined) return;

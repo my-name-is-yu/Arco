@@ -397,7 +397,7 @@ describe("advanced fixture operations through validated tool dispatch", () => {
     });
     expect(created.body).toBe(simple.body);
     expect(created.labels.map((label) => label.name)).toEqual(["bug"]);
-    expect(created.issueType).toEqual({ id: 2, name: "Bug" });
+    expect(created.issueType).toEqual({ id: 2, name: "Bug", color: "red" });
     expect((await operations.issueCatalog(created)).issueTypeId).toBe(2);
     expect(form.body).toBeUndefined();
     expect(form.defaults).toBeUndefined();

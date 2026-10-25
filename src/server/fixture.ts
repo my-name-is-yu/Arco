@@ -106,9 +106,13 @@ export function createFixtureService(): FixtureGitHubService {
           fieldName: "Status",
           optionId: "fixture-status-progress",
           options: [
-            { id: "fixture-status-todo", name: "Todo" },
-            { id: "fixture-status-progress", name: "In progress" },
-            { id: "fixture-status-done", name: "Done" },
+            { id: "fixture-status-todo", name: "Todo", color: "GRAY" },
+            {
+              id: "fixture-status-progress",
+              name: "In progress",
+              color: "BLUE",
+            },
+            { id: "fixture-status-done", name: "Done", color: "GREEN" },
           ],
         },
       ],
@@ -138,9 +142,13 @@ export function createFixtureService(): FixtureGitHubService {
           fieldName: "Status",
           optionId: "fixture-status-todo",
           options: [
-            { id: "fixture-status-todo", name: "Todo" },
-            { id: "fixture-status-progress", name: "In progress" },
-            { id: "fixture-status-done", name: "Done" },
+            { id: "fixture-status-todo", name: "Todo", color: "GRAY" },
+            {
+              id: "fixture-status-progress",
+              name: "In progress",
+              color: "BLUE",
+            },
+            { id: "fixture-status-done", name: "Done", color: "GREEN" },
           ],
         },
       ],
@@ -501,6 +509,7 @@ export function createFixtureService(): FixtureGitHubService {
             ? {
                 id: input.issueTypeName === "Bug" ? 2 : 1,
                 name: input.issueTypeName,
+                color: input.issueTypeName === "Bug" ? "red" : "blue",
               }
             : null,
           state: "open",

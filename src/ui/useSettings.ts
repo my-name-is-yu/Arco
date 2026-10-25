@@ -12,7 +12,17 @@ import {
 } from "../shared/state";
 import { enqueueSettingsWrite } from "./settings-queue";
 import { sessionValue } from "./session-state";
+import { ToolCallError } from "../shared/errors";
 type Patch = (latest: Settings) => Partial<Settings>;
+function readSettings(value: unknown): SettingsRecord {
+  const parsed = settingsRecordSchema.safeParse(value);
+  if (!parsed.success)
+    throw new ToolCallError(
+      "invalid-response",
+      "Could not read the saved settings. Reopen Arco and try again.",
+    );
+  return parsed.data;
+}
 export function settingsController(host: ArcoHost, client: QueryClient) {
   return sessionValue(host, "settings-controller", () => {
     let state: { error: string | null; pending: boolean } = {
@@ -50,7 +60,7 @@ export function settingsController(host: ArcoHost, client: QueryClient) {
       publishStatus();
       void enqueueSettingsWrite(host, async () => {
         try {
-          const latest = settingsRecordSchema.parse(
+          const latest = readSettings(
             await host.call<SettingsRecord>("arco_get_settings", {}),
           );
           const patch = build(latest.settings);
@@ -61,7 +71,7 @@ export function settingsController(host: ArcoHost, client: QueryClient) {
           );
           const saved = unchanged
             ? latest
-            : settingsRecordSchema.parse(
+            : readSettings(
                 await host.call<SettingsRecord>("arco_update_settings", {
                   expectedRevision: latest.revision,
                   patch,
@@ -126,9 +136,7 @@ export function useSettings(host: ArcoHost) {
   const query = useQuery({
     queryKey: ["settings"],
     queryFn: async () =>
-      settingsRecordSchema.parse(
-        await host.call<SettingsRecord>("arco_get_settings", {}),
-      ),
+      readSettings(await host.call<SettingsRecord>("arco_get_settings", {})),
   });
   useEffect(() => () => controller.flush(), [controller]);
   return {

@@ -540,7 +540,7 @@ export function createLinearOperation(options: {
         refreshed.deletedCommentId = commentChange.deletedCommentId;
       return refreshed;
     } catch {
-      const message = `${acknowledgement ?? `The change was saved to Linear issue ${scope.issueId}.`} Its details could not be refreshed. Refresh before another change.`;
+      const message = `${acknowledgement ?? "The change was saved in Linear."} The latest issue details could not be loaded. Refresh before making another change.`;
       if (receipt)
         return {
           connectionId: scope.connectionId,

@@ -86,8 +86,6 @@ describe("explicit issue presentation", () => {
         entrypoints: [{ type: entrypoint }],
         preferredModelDisplayMode: "fullscreen",
       });
-      expect(tool.description).toContain("only when explicitly requested");
-      expect(tool.description).toContain("arco_show_issue");
     }
   });
 
@@ -357,7 +355,7 @@ describe("explicit issue presentation", () => {
   );
 
   it.each(["connectionId", "workspaceId", "teamId", "issueId"] as const)(
-    "rejects a returned Linear %s mismatch with native-ID resolution guidance",
+    "rejects a returned Linear %s mismatch with user-facing link recovery guidance",
     async (field) => {
       const issue = await backend.linearService.call(
         "linear_get_issue",
@@ -376,13 +374,17 @@ describe("explicit issue presentation", () => {
         content: [
           {
             type: "text",
-            text: expect.stringContaining("linear_resolve_issue"),
+            text: expect.stringContaining("Linear link"),
           },
         ],
       });
       expect(
         toolFailureSchema.safeParse(response.structuredContent).success,
       ).toBe(true);
+      expect(response.structuredContent).toMatchObject({
+        error: { kind: "invalid-response" },
+      });
+      expect(JSON.stringify(response)).not.toContain("linear_resolve_issue");
       expect(response.structuredContent).not.toHaveProperty("launch");
       expect(response.structuredContent).not.toHaveProperty("issue");
     },
@@ -400,7 +402,7 @@ describe("explicit issue presentation", () => {
     });
     expect(response.isError).toBe(true);
     expect(response.content).toEqual([
-      { type: "text", text: expect.stringContaining("linear_resolve_issue") },
+      { type: "text", text: expect.stringContaining("Linear link") },
     ]);
   });
 

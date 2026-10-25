@@ -31,15 +31,15 @@ const fields = [
     id: 15,
     name: "Priority",
     data_type: "single_select",
-    options: [{ id: 1, name: "High" }],
+    options: [{ id: 1, name: "High", color: "red" }],
   },
   {
     id: 16,
     name: "Areas",
     data_type: "multi_select",
     options: [
-      { id: 2, name: "Frontend" },
-      { id: 3, name: "Backend" },
+      { id: 2, name: "Frontend", color: "blue" },
+      { id: 3, name: "Backend", color: "green" },
     ],
   },
   { id: 17, name: "Unsupported", data_type: "people" },
@@ -52,7 +52,7 @@ const projectDefinitions = [
     id: "project-select",
     name: "Status",
     dataType: "SINGLE_SELECT",
-    options: [{ id: "option-todo", name: "Todo" }],
+    options: [{ id: "option-todo", name: "Todo", color: "GRAY" }],
   },
   {
     id: "project-iteration",
@@ -123,6 +123,7 @@ function setup(
     if (endpoint === "graphql") {
       const query = String(body.query);
       if (query.includes("ArcoProjectFields")) {
+        expect(query).toContain("options { id name color }");
         if (overrides.projectRead)
           return overrides.projectRead(
             z.record(z.string(), z.unknown()).parse(body.variables),
@@ -237,7 +238,9 @@ function setup(
         ],
       ];
     if (endpoint === "orgs/yu/issue-types")
-      return [{ id: 5, name: "Bug", description: "Existing bug type" }];
+      return [
+        { id: 5, name: "Bug", description: "Existing bug type", color: "red" },
+      ];
     if (endpoint?.includes("/milestones?"))
       return [[{ number: 1, title: "Existing milestone", state: "open" }]];
     if (endpoint?.endsWith("/labels?per_page=100"))
@@ -266,6 +269,73 @@ function setup(
 }
 
 describe("explicit additional GitHub operations", () => {
+  it("preserves native colors on issue types and organization select options", async () => {
+    const { operations, writes } = setup();
+    expect((await operations.issueCatalog(ref)).issueTypes).toEqual([
+      { id: 5, name: "Bug", description: "Existing bug type", color: "red" },
+    ]);
+    const result = await operations.issueFields(ref);
+    expect(result.fields.find((field) => field.id === 15)?.options).toEqual([
+      { id: 1, name: "High", color: "red" },
+    ]);
+    expect(result.fields.find((field) => field.id === 16)?.options).toEqual([
+      { id: 2, name: "Frontend", color: "blue" },
+      { id: 3, name: "Backend", color: "green" },
+    ]);
+    expect(writes()).toEqual([]);
+  });
+
+  it("preserves Project option identity and native color tokens", async () => {
+    const { operations, writes } = setup();
+    const result = await operations.projectFields({
+      ...ref,
+      projectId: "project-A",
+      itemId: "item-42",
+    });
+    expect(
+      result.fields.find((field) => field.id === "project-select")?.options,
+    ).toEqual([{ id: "option-todo", name: "Todo", color: "GRAY" }]);
+    expect(writes()).toEqual([]);
+  });
+
+  it.each([undefined, null, "future-native-color", 123])(
+    "keeps select options usable when native color is %s",
+    async (color) => {
+      const { operations } = setup({
+        fieldDefinitions: [
+          {
+            id: 15,
+            name: "Priority",
+            data_type: "single_select",
+            options: [{ id: 1, name: "High", color }],
+          },
+        ],
+        projectRead: () =>
+          projectPage(
+            page([
+              {
+                ...projectDefinitions[3],
+                options: [{ id: "option-todo", name: "Todo", color }],
+              },
+            ]),
+            page([]),
+          ),
+      });
+      expect(
+        (await operations.issueFields(ref)).fields[0].options,
+      ).toStrictEqual([{ id: 1, name: "High" }]);
+      expect(
+        (
+          await operations.projectFields({
+            ...ref,
+            projectId: "project-A",
+            itemId: "item-42",
+          })
+        ).fields[0].options,
+      ).toStrictEqual([{ id: "option-todo", name: "Todo" }]);
+    },
+  );
+
   it("edits a label definition with encoded original name and JSON new_name, distinct from unassigning", async () => {
     const { operations, run } = setup();
     await operations.updateLabel({
@@ -480,8 +550,17 @@ describe("explicit additional GitHub operations", () => {
           fieldId,
           value,
         }),
-      ).rejects.toMatchObject({ code: "invalid" });
+      ).rejects.toMatchObject({
+        code: "invalid",
+        ...(fieldId === 17 || fieldId === 999
+          ? {
+              message:
+                "This Issue field is unavailable. Refresh and select a field again.",
+            }
+          : {}),
+      });
     }
+    expect(writes()).toHaveLength(0);
     await operations.setIssueField({
       ...ref,
       requestId: "valid-multi-select",
@@ -516,7 +595,12 @@ describe("explicit additional GitHub operations", () => {
         fieldId: "15",
         value: "High",
       }),
-    ).rejects.toMatchObject({ code: "invalid" });
+    ).rejects.toMatchObject({
+      code: "invalid",
+      message:
+        "This Project field is unavailable. Refresh and select a field again.",
+    });
+    expect(writes()).toHaveLength(0);
     await operations.setProjectField({
       ...projectRef,
       requestId: "valid-project-id",
@@ -788,7 +872,12 @@ describe("explicit additional GitHub operations", () => {
         fieldId: "project-users",
         value: "person",
       }),
-    ).rejects.toMatchObject({ code: "invalid" });
+    ).rejects.toMatchObject({
+      code: "invalid",
+      message:
+        "This Project field is unavailable. Refresh and select a field again.",
+    });
+    expect(current.writes()).toHaveLength(0);
   });
 
   it("lists Project membership independently of whether the Project has a Status field", async () => {

@@ -88,8 +88,8 @@ const issueDefinitions: IssueField[] = [
     supported: true,
     value: null,
     options: [
-      { id: 1, name: "High" },
-      { id: 2, name: "Normal" },
+      { id: 1, name: "High", color: "red" },
+      { id: 2, name: "Normal", color: "gray" },
     ],
   },
   {
@@ -99,8 +99,8 @@ const issueDefinitions: IssueField[] = [
     supported: true,
     value: null,
     options: [
-      { id: 3, name: "Frontend" },
-      { id: 4, name: "Server" },
+      { id: 3, name: "Frontend", color: "blue" },
+      { id: 4, name: "Server", color: "green" },
     ],
   },
   {
@@ -117,8 +117,13 @@ const milestones: IssueCatalog["milestones"] = [
   { number: 2, title: "Protocol probe", state: "closed" },
 ];
 const issueTypes: IssueCatalog["issueTypes"] = [
-  { id: 1, name: "Task", description: "A bounded implementation task" },
-  { id: 2, name: "Bug", description: "A reproduced problem" },
+  {
+    id: 1,
+    name: "Task",
+    description: "A bounded implementation task",
+    color: "blue",
+  },
+  { id: 2, name: "Bug", description: "A reproduced problem", color: "red" },
 ];
 const key = (ref: IssueRef) => `${ref.repo.toLowerCase()}#${ref.number}`;
 function invalid(message: string): never {
@@ -184,9 +189,9 @@ function projectDefinitions(projectId: string): ProjectField[] {
       supported: true,
       value: null,
       options: [
-        { id: "fixture-status-todo", name: "Todo" },
-        { id: "fixture-status-progress", name: "In progress" },
-        { id: "fixture-status-done", name: "Done" },
+        { id: "fixture-status-todo", name: "Todo", color: "GRAY" },
+        { id: "fixture-status-progress", name: "In progress", color: "BLUE" },
+        { id: "fixture-status-done", name: "Done", color: "GREEN" },
       ],
       iterations: [],
     });
@@ -475,7 +480,9 @@ export function createFixtureGitHubOperations(options: {
             (type) => type.id === input.patch.issueTypeId,
           );
           service.fixture.mutate(input, (issue) => {
-            issue.issueType = type ? { id: type.id, name: type.name } : null;
+            issue.issueType = type
+              ? { id: type.id, name: type.name, color: type.color }
+              : null;
           });
         }
         touch(input);

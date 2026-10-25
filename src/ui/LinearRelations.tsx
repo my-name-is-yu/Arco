@@ -12,6 +12,11 @@ import {
   draftStorageId,
   useDraftPersistence,
 } from "./useDraftPersistence";
+const relationLabels: Record<string, string> = {
+  blocks: "Blocks",
+  "blocked-by": "Blocked by",
+  related: "Related to",
+};
 const ref = (issue: LinearIssue) => ({
   connectionId: issue.connectionId,
   workspaceId: issue.workspaceId,
@@ -96,10 +101,10 @@ export function LinearRelations({
       )}
       <div className="linear-controls">
         <input
-          aria-label="Linear parent Issue ID"
+          aria-label="Linear parent issue"
           value={parentId}
           onChange={(event) => setParentId(event.target.value)}
-          placeholder="Parent Issue ID / ABC-123"
+          placeholder="Parent issue (e.g. ABC-123)"
         />
         <Button
           color="secondary"
@@ -179,7 +184,8 @@ export function LinearRelations({
       {issue.relations.map((relation) => (
         <div key={relation.id}>
           <span>
-            {relation.type}: {relation.identifier} {relation.title}
+            {relationLabels[relation.type] ?? "Related issue"}:{" "}
+            {relation.identifier} {relation.title}
           </span>
           <button
             className="text-button"
@@ -222,10 +228,10 @@ export function LinearRelations({
           />
         </label>
         <input
-          aria-label="Related Linear Issue ID"
+          aria-label="Related Linear issue"
           value={relationTarget}
           onChange={(event) => setRelationTarget(event.target.value)}
-          placeholder="Issue ID / ABC-123"
+          placeholder="Related issue (e.g. ABC-123)"
         />
         <Button
           color="secondary"

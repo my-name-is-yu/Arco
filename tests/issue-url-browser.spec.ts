@@ -89,7 +89,7 @@ test("GitHub URL opens a different repository from account mode, and the optiona
       exact: true,
     }),
   ).toBeVisible();
-  await expect(selectControl(frame(page), "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(frame(page), "GitHub view")).toHaveAttribute(
     "data-value",
     "other/project",
   );
@@ -163,7 +163,7 @@ test("invalid GitHub URLs remain visible without source lookup, and normal title
       exact: true,
     }),
   ).toBeVisible();
-  await choose(frame(page), "GitHub scope", "yu/Arco");
+  await choose(frame(page), "GitHub view", "yu/Arco");
   await search.fill("Separate shared context");
   await expect(frame(page).locator(".issue-sidebar .issue-row")).toHaveCount(1);
   await expect(frame(page).locator(".issue-sidebar .issue-row")).toContainText(

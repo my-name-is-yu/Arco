@@ -18,6 +18,12 @@ import { CopyValue } from "./CopyValue";
 import { MultiSelect } from "./MultiSelect";
 import { SingleSelect } from "./SingleSelect";
 import {
+  IssueAssigneeVisual,
+  IssueLabelVisual,
+  IssuePriorityVisual,
+  IssueStateVisual,
+} from "./IssuePropertyVisual";
+import {
   DraftStatus,
   draftStorageId,
   useDraftPersistence,
@@ -171,7 +177,7 @@ export function LinearDetail({
   onNotice,
 }: {
   feedback: ReactNode;
-  shared: (LinearRef & { identifier: string }) | null;
+  shared: (LinearRef & { identifier?: string; title?: string }) | null;
   onBack: () => void;
   onFullscreen: () => void;
   host: ArcoHost;
@@ -222,6 +228,19 @@ export function LinearDetail({
   const draft = resolveContentDraft(issue, storedDraft);
   const dirty = draft.title !== issue.title || draft.body !== issue.body;
   const conflict = contentConflict(issue, draft);
+  const states = [
+    ...(metadata?.states ?? []),
+    ...(!metadata?.states.some((state) => state.id === issue.state.id)
+      ? [issue.state]
+      : []),
+  ];
+  const members = [
+    ...(metadata?.members ?? []),
+    ...(issue.assignee &&
+    !metadata?.members.some((member) => member.id === issue.assignee?.id)
+      ? [issue.assignee]
+      : []),
+  ];
   const labelsById = new Map(
     [...issue.labels, ...(metadata?.labels ?? [])].map((label) => [
       label.id,
@@ -239,6 +258,14 @@ export function LinearDetail({
       ),
     }));
   const replyTo = draft.linearReplyTo ?? null;
+  const differentSharedTarget =
+    shared &&
+    (shared.connectionId !== issue.connectionId ||
+      shared.workspaceId !== issue.workspaceId ||
+      shared.teamId !== issue.teamId ||
+      shared.issueId !== issue.issueId);
+  const sharedLabel = shared?.identifier || shared?.title;
+  const sharedDescription = `${sharedLabel ? `Shared issue: ${sharedLabel}` : "Shared issue"}${differentSharedTarget ? " · Different from the issue you are browsing" : ""}`;
   const setReplyTo = (value: string | null) =>
     edit({ linearReplyTo: value ?? undefined });
   function persist(next: Draft) {
@@ -303,6 +330,9 @@ export function LinearDetail({
     );
   }
   function commentView(comment: LinearComment): React.ReactNode {
+    const parent = comment.parentId
+      ? discussion.comments.find((item) => item.id === comment.parentId)
+      : undefined;
     return (
       <article
         className={`linear-comment ${comment.parentId ? "linear-comment-reply" : ""}`}
@@ -320,7 +350,9 @@ export function LinearDetail({
             ↗
           </button>
         </div>
-        {comment.parentId && <small>Reply to comment {comment.parentId}</small>}
+        {comment.parentId && (
+          <small>{parent ? `Reply to ${parent.author}` : "Reply"}</small>
+        )}
         {commentEdit?.id === comment.id ? (
           <LinearCommentEditor
             host={host}
@@ -394,13 +426,22 @@ export function LinearDetail({
   return (
     <>
       <DetailToolbar
-        tab="Linear Issue"
+        target={issue.identifier}
         backLabel="Back to Linear list"
         onBack={onBack}
         shared={
           shared ? (
-            <span className="shared-chip" title={shared.identifier}>
-              Chat {shared.identifier}
+            <span
+              className="shared-chip"
+              role="note"
+              title={sharedDescription}
+              aria-label={sharedDescription}
+            >
+              {differentSharedTarget
+                ? sharedLabel
+                  ? `Chat: ${sharedLabel}`
+                  : "Shared issue"
+                : "In chat"}
             </span>
           ) : undefined
         }
@@ -466,21 +507,14 @@ export function LinearDetail({
             </span>
             {dirty && <span className="draft-mark">Unsaved changes</span>}
           </p>
-          {shared && (
-            <div className="shared-target">
-              Shared issue: <strong>{shared.identifier}</strong>
-              {(shared.connectionId !== issue.connectionId ||
-                shared.workspaceId !== issue.workspaceId ||
-                shared.teamId !== issue.teamId ||
-                shared.issueId !== issue.issueId) && (
-                <span> · Different from the issue you are browsing</span>
-              )}
-            </div>
-          )}
         </div>
         <DraftStatus
           status={persistence.statuses[draftStorageId(key)]}
-          onRetry={() => persistence.retry(key, draft)}
+          onRetry={() => {
+            void persistence.retry(key, draft).then((saved) => {
+              if (saved?.baseUpdatedAt) setEditing(true);
+            });
+          }}
           onResolve={(choice) => {
             void persistence.resolve(key, choice, draft);
           }}
@@ -623,9 +657,8 @@ export function LinearDetail({
             <details className="linear-extra linear-upload">
               <DisclosureSummary>Add file or URL</DisclosureSummary>
               <p className="muted">
-                Files are stored in Linear. This Arco upload route supports
-                files up to 10 MiB per request. Add URLs using the Markdown
-                editor.
+                Upload files up to 10 MiB to Linear. Add URLs in the description
+                or a comment.
               </p>
               <input
                 type="file"
@@ -636,7 +669,7 @@ export function LinearDetail({
                   if (!file) return;
                   if (file.size > LINEAR_UPLOAD_MAX_BYTES) {
                     onNotice(
-                      "This Arco upload route supports files up to 10 MiB. Open Linear for larger files.",
+                      "Files up to 10 MiB can be uploaded here. Open Linear for larger files.",
                       "error",
                     );
                     event.target.value = "";
@@ -711,11 +744,9 @@ export function LinearDetail({
                 }}
               >
                 <label>
-                  Comment in Linear
                   {replyTo && (
                     <span>
-                      {" "}
-                      · Reply{" "}
+                      Reply{" "}
                       <button
                         className="text-button"
                         type="button"
@@ -731,6 +762,7 @@ export function LinearDetail({
                     data-comment-composer
                     rows={4}
                     aria-label="Linear comment"
+                    placeholder="Write a comment in Markdown…"
                     disabled={busy}
                     value={draft.comment}
                     onChange={(event) => edit({ comment: event.target.value })}
@@ -759,10 +791,21 @@ export function LinearDetail({
                 label="Linear Workflow state"
                 disabled={busy || issue.state.type === "duplicate"}
                 value={issue.state.id}
-                options={(metadata?.states ?? []).map((state) => ({
+                options={states.map((state) => ({
                   value: state.id,
                   label: state.name,
-                  disabled: state.type === "duplicate",
+                  disabled:
+                    state.type === "duplicate" ||
+                    !metadata?.states.some(
+                      (available) => available.id === state.id,
+                    ),
+                  leading: (
+                    <IssueStateVisual
+                      source="linear"
+                      state={state.type}
+                      color={state.color}
+                    />
+                  ),
                 }))}
                 onChange={(value) => void update({ stateId: value })}
               />
@@ -780,10 +823,18 @@ export function LinearDetail({
                 disabled={busy}
                 value={issue.assignee?.id ?? ""}
                 options={[
-                  { value: "", label: "Unassigned" },
-                  ...(metadata?.members ?? []).map((member) => ({
+                  {
+                    value: "",
+                    label: "Unassigned",
+                    leading: <IssueAssigneeVisual />,
+                  },
+                  ...members.map((member) => ({
                     value: member.id,
                     label: member.name,
+                    disabled: !metadata?.members.some(
+                      (available) => available.id === member.id,
+                    ),
+                    leading: <IssueAssigneeVisual name={member.name} />,
                   })),
                 ]}
                 onChange={(value) => void update({ assigneeId: value || null })}
@@ -796,7 +847,12 @@ export function LinearDetail({
                 disabled={busy}
                 value={String(issue.priority)}
                 options={["No priority", "Urgent", "High", "Medium", "Low"].map(
-                  (label, value) => ({ value: String(value), label }),
+                  (label, value) => ({
+                    value: String(value),
+                    label,
+                    empty: value === 0,
+                    leading: <IssuePriorityVisual priority={value} />,
+                  }),
                 )}
                 onChange={(value) => void update({ priority: Number(value) })}
               />
@@ -810,6 +866,7 @@ export function LinearDetail({
                 disabled={busy || !metadata}
                 loading={busy}
                 placeholder="No labels"
+                placeholderLeading={<IssueLabelVisual />}
                 onChange={(values) => {
                   const add = values.filter(
                     (value) =>
@@ -862,38 +919,56 @@ export function LinearDetail({
                 />
               </label>
               {(["project", "cycle", "projectMilestone"] as const).map(
-                (property) => (
-                  <label key={property}>
-                    {property === "projectMilestone"
+                (property) => {
+                  const current = issue[property];
+                  const propertyLabel =
+                    property === "projectMilestone"
                       ? "Project milestone"
                       : property === "cycle"
                         ? "Cycle"
-                        : "Project"}
-                    <SingleSelect
-                      label={`Linear ${property}`}
-                      disabled={busy}
-                      value={issue[property]?.id ?? ""}
-                      options={[
-                        { value: "", label: "None" },
-                        ...(
-                          (property === "project"
-                            ? metadata?.projects
-                            : property === "cycle"
-                              ? metadata?.cycles
-                              : metadata?.milestones.filter(
-                                  (milestone) =>
-                                    milestone.projectId === issue.project?.id,
-                                )) ?? []
-                        ).map((item) => ({ value: item.id, label: item.name })),
-                      ]}
-                      onChange={(value) =>
-                        void update({
-                          [`${property}Id`]: value || null,
-                        })
-                      }
-                    />
-                  </label>
-                ),
+                        : "Project";
+                  const choices =
+                    (property === "project"
+                      ? metadata?.projects
+                      : property === "cycle"
+                        ? metadata?.cycles
+                        : metadata?.milestones.filter(
+                            (milestone) =>
+                              milestone.projectId === issue.project?.id,
+                          )) ?? [];
+                  return (
+                    <label key={property}>
+                      {propertyLabel}
+                      <SingleSelect
+                        label={`Linear ${propertyLabel.toLowerCase()}`}
+                        disabled={busy}
+                        value={current?.id ?? ""}
+                        options={[
+                          { value: "", label: "None" },
+                          ...choices.map((item) => ({
+                            value: item.id,
+                            label: item.name,
+                          })),
+                          ...(current &&
+                          !choices.some((item) => item.id === current.id)
+                            ? [
+                                {
+                                  value: current.id,
+                                  label: current.name,
+                                  disabled: true,
+                                },
+                              ]
+                            : []),
+                        ]}
+                        onChange={(value) =>
+                          void update({
+                            [`${property}Id`]: value || null,
+                          })
+                        }
+                      />
+                    </label>
+                  );
+                },
               )}
               <LinearLabelManager
                 host={host}

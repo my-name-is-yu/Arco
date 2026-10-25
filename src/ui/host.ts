@@ -268,7 +268,9 @@ export async function connectHost(): Promise<ArcoHost> {
         typeof params.arguments?.requestId === "string"
           ? "uncertain"
           : "unavailable",
-        "Codex did not return an operation result.",
+        typeof params.arguments?.requestId === "string"
+          ? "Codex did not return the result of this change. Check the result in the source and refresh before submitting this change again."
+          : "Could not load data from Codex. Refresh and try again.",
       );
     }
   }
@@ -319,7 +321,7 @@ export async function connectHost(): Promise<ArcoHost> {
       if (!parsed.success)
         throw new ToolCallError(
           "invalid-response",
-          "The server returned invalid image data.",
+          "Could not load this image. Refresh and try again.",
         );
       return parsed.data;
     },
@@ -337,13 +339,21 @@ export async function connectHost(): Promise<ArcoHost> {
       }
       if (result.structuredContent == null)
         throw new ToolCallError(
-          "invalid-response",
-          "The server response contains no data.",
+          typeof args.requestId === "string" ? "uncertain" : "invalid-response",
+          typeof args.requestId === "string"
+            ? "Could not read the result of this change. Check the result in the source and refresh before submitting this change again."
+            : "Could not load the requested information. Refresh and try again.",
         );
       if (name === "arco_show_issues") {
-        const launch = launchContextSchema.parse(
+        const parsed = launchContextSchema.safeParse(
           result.structuredContent.launch,
         );
+        if (!parsed.success)
+          throw new ToolCallError(
+            "invalid-response",
+            "Could not load these issues. Refresh and try again.",
+          );
+        const launch = parsed.data;
         const requested = z
           .array(nativeIssueTargetSchema)
           .safeParse(args.targets);
@@ -444,7 +454,11 @@ export async function connectHost(): Promise<ArcoHost> {
       notify("display");
       if (result.mode !== mode)
         throw new Error(
-          `The host could not switch to ${mode} mode. It kept ${result.mode} mode.`,
+          mode === "inline"
+            ? "Could not show the issue in chat. Try again."
+            : mode === "fullscreen"
+              ? "Could not open issue details. Try again."
+              : "Could not open the compact view. Try again.",
         );
     },
     subscribe(listener) {

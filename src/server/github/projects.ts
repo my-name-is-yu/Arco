@@ -140,7 +140,7 @@ export function createProjectsOperations(context: GitHubOperationContext) {
       );
       if (!field?.supported)
         return invalid(
-          "Select an existing supported Project field. Its ID is separate from organization Issue fields.",
+          "This Project field is unavailable. Refresh and select a field again.",
         );
       checkFieldValue(
         field.type,

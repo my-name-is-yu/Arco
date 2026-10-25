@@ -18,7 +18,7 @@ export class GitHubError extends OperationError {
 export function commandError(stderr: string): GitHubError {
   if (/HTTP 429|(?:secondary |API )?rate limit|abuse detection/i.test(stderr))
     return new GitHubError(
-      "GitHub's API request limit was reached.",
+      "GitHub is temporarily limiting requests. Wait and refresh.",
       "rate-limited",
     );
   if (/HTTP 401|not logged|authentication|gh auth login/i.test(stderr)) {
@@ -39,12 +39,12 @@ export function commandError(stderr: string): GitHubError {
   }
   if (/HTTP 404/i.test(stderr))
     return new GitHubError(
-      "The target was not found, or you do not have permission to view it.",
+      "The target was not found, or you cannot view it. Check its GitHub link and your access.",
       "not-found",
     );
   if (/HTTP 409/i.test(stderr))
     return new GitHubError(
-      "The GitHub target changed while this operation was in progress.",
+      "The GitHub target changed while this operation was in progress. Refresh before trying again.",
       "conflict",
     );
   if (/HTTP 400|HTTP 422/i.test(stderr))
@@ -53,7 +53,10 @@ export function commandError(stderr: string): GitHubError {
       "invalid-input",
     );
   if (/HTTP 408|HTTP 504|timed? ?out|deadline exceeded/i.test(stderr))
-    return new GitHubError("The GitHub request timed out.", "timeout");
+    return new GitHubError(
+      "GitHub took too long to respond. Check your connection and refresh.",
+      "timeout",
+    );
   return new GitHubError(
     "Unable to reach GitHub. Check your connection and refresh.",
   );
@@ -172,7 +175,7 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success)
     throw new GitHubError(
-      "GitHub returned an unexpected response format.",
+      "Could not read the GitHub response. Refresh and try again.",
       "invalid-response",
     );
   return result.data;
@@ -281,15 +284,15 @@ export function createGitHubTransport(options: {
           types.every((type) => type === "RATE_LIMITED")
         )
           throw new GitHubError(
-            "GitHub's API request limit was reached.",
+            "GitHub is temporarily limiting requests. Wait and refresh.",
             "rate-limited",
           );
         throw new GitHubError(
-          extended
-            ? "Unable to verify the GitHub Projects permissions, target, or response."
-            : access === "write"
-              ? "Unable to confirm the Projects update. Refresh to check the result."
-              : "Unable to load Projects. Check the read:project permission in GitHub CLI.",
+          access === "write"
+            ? "Unable to confirm the Projects update. Check GitHub and refresh before retrying."
+            : extended
+              ? "Could not verify access to this GitHub Project. Check your Project permissions and refresh."
+              : "Could not load Projects. Check your GitHub Projects permissions and refresh.",
           access === "write" ? "uncertain" : "forbidden",
         );
       }
@@ -311,8 +314,8 @@ export function createGitHubTransport(options: {
         ? error
         : new GitHubError(
             extended
-              ? "Unable to load information from GitHub."
-              : "Unable to reach GitHub.",
+              ? "Unable to load information from GitHub. Check your connection and refresh."
+              : "Unable to reach GitHub. Check your connection and refresh.",
           );
     }
   }

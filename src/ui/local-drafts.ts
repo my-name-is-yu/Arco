@@ -1,6 +1,17 @@
 import type { ArcoHost } from "../shared/contracts";
 import type { Draft, DraftKey, DraftRecord } from "../shared/state";
 import { draftRecordSchema } from "../shared/state";
+import { ToolCallError } from "../shared/errors";
+
+function readDraftRecord(value: unknown): DraftRecord {
+  const parsed = draftRecordSchema.safeParse(value);
+  if (!parsed.success)
+    throw new ToolCallError(
+      "invalid-response",
+      "Could not read the saved draft. Keep this view open and try again.",
+    );
+  return parsed.data;
+}
 
 type Entry = {
   key: DraftKey;
@@ -36,9 +47,7 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
     return entry;
   };
   const read = async (entry: Entry) =>
-    draftRecordSchema.parse(
-      await host.call("arco_read_draft", { key: entry.key }),
-    );
+    readDraftRecord(await host.call("arco_read_draft", { key: entry.key }));
   function load(key: DraftKey) {
     const entry = entryFor(key);
     return queue(entry, async () => {
@@ -63,7 +72,7 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
       }
       if (entry.conflict) throw new LocalDraftConflict(entry.conflict);
       try {
-        entry.record = draftRecordSchema.parse(
+        entry.record = readDraftRecord(
           await host.call("arco_write_draft", {
             key,
             expectedRevision: entry.record.revision,
@@ -108,7 +117,7 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
         entry.loaded = true;
       }
       if (entry.conflict) throw new LocalDraftConflict(entry.conflict);
-      entry.record = draftRecordSchema.parse(
+      entry.record = readDraftRecord(
         await host.call("arco_delete_draft", {
           key,
           expectedRevision: entry.record.revision,

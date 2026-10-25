@@ -81,7 +81,7 @@ async function listFixture(
 async function open(page: Page) {
   await page.goto("/");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
-  await expect(selectControl(app(page), "GitHub scope")).toBeVisible();
+  await expect(selectControl(app(page), "GitHub view")).toBeVisible();
   await expect(page.locator("#harness-error")).toBeEmpty();
 }
 
@@ -173,7 +173,7 @@ test("automatic continuation has a page budget and resets for a new scope", asyn
   await expect(
     app(page).getByRole("button", { name: "Load more" }),
   ).toBeEnabled();
-  await choose(app(page), "GitHub scope", "account:mentioned");
+  await choose(app(page), "GitHub view", "account:mentioned");
   await expect.poll(() => calls.length).toBe(8);
   await page.waitForTimeout(350);
   expect(

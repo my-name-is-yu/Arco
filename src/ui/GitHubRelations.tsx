@@ -307,7 +307,15 @@ export function GitHubRelations({
       </button>
       <DraftStatus
         status={childPersistence.statuses[draftStorageId(childKey)]}
-        onRetry={() => childPersistence.retry(childKey, childDraft())}
+        onRetry={() => {
+          const useSaved =
+            childPersistence.statuses[draftStorageId(childKey)]?.retryChoice ===
+            "use-saved";
+          void childPersistence.retry(childKey, childDraft()).then((saved) => {
+            if (saved !== undefined && (!childTouched.current || useSaved))
+              restoreChild(saved);
+          });
+        }}
         onResolve={(choice) =>
           void childPersistence
             .resolve(childKey, choice, childDraft())
@@ -339,7 +347,7 @@ export function GitHubRelations({
         >
           <p className="property-note">
             Parent: {issue.repo} #{issue.number}. A new issue will be created on
-            the source.
+            GitHub.
           </p>
           <label>
             Sub-issue repository

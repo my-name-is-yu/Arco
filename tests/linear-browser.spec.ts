@@ -106,9 +106,10 @@ test("Linear comment pages load explicitly and retain drafts and an acknowledged
   await expect(composer).toHaveValue(
     "Draft preserved while loading another page",
   );
-  await expect(
-    ui.getByText("Reply to comment unloaded-parent", { exact: true }),
-  ).toBeVisible();
+  await expect(ui.locator(".linear-comment-reply small")).toHaveText("Reply");
+  await expect(ui.locator(".comments-section")).not.toContainText(
+    "unloaded-parent",
+  );
   await ui
     .locator(".linear-comment")
     .first()
@@ -122,6 +123,12 @@ test("Linear comment pages load explicitly and retain drafts and an acknowledged
   await expect(reply).toHaveText(
     "A newly acknowledged reply beyond the loaded pages",
   );
+  await expect(
+    ui
+      .locator(".linear-comment")
+      .filter({ hasText: "A newly acknowledged reply beyond the loaded pages" })
+      .locator("small"),
+  ).toHaveText("Reply to Fixture user");
   await expect(ui.locator(".linear-comment")).toHaveCount(61);
   await ui.getByRole("button", { name: "Refresh Linear", exact: true }).click();
   await expect(reply).toHaveText(
@@ -205,7 +212,9 @@ async function mockLinearAuthorization(
       });
     if (input.name === "linear_connection") {
       if (state.connectionError)
-        return fail("The Linear connection is temporarily unavailable.");
+        return fail(
+          "The Linear connection is temporarily unavailable. Check the connection and refresh.",
+        );
       if (!state.connected)
         return respond({
           connectionId: "default",
@@ -1200,12 +1209,15 @@ test("a single Linear selection retains its inline target without sending a mess
   expect(await events(page, "message")).toEqual([]);
   const explicitContext = await events(page, "context");
   await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
-  await expect(ui.locator(".shared-chip")).toHaveText("Chat YU-42");
-  await expect(ui.locator(".shared-target")).toHaveText(
+  await expect(ui.locator(".toolbar-target")).toHaveText("YU-43");
+  await expect(ui.locator(".shared-chip")).toHaveText("Chat: YU-42");
+  await expect(ui.locator(".shared-chip")).toHaveAttribute(
+    "aria-label",
     "Shared issue: YU-42 · Different from the issue you are browsing",
   );
+  await expect(ui.locator(".shared-target")).toHaveCount(0);
   expect(await events(page, "message")).toHaveLength(0);
-  await expect(ui.locator(".shared-chip")).toHaveText("Chat YU-42");
+  await expect(ui.locator(".shared-chip")).toHaveText("Chat: YU-42");
   expect(await events(page, "context")).toEqual(explicitContext);
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   await expect(ui.locator(".inline-mode")).toContainText("YU-42");
@@ -1213,7 +1225,12 @@ test("a single Linear selection retains its inline target without sending a mess
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
-  await expect(ui.locator(".shared-target")).toHaveText("Shared issue: YU-42");
+  await expect(ui.locator(".toolbar-target")).toHaveText("YU-42");
+  await expect(ui.locator(".shared-chip")).toHaveText("In chat");
+  await expect(ui.locator(".shared-chip")).toHaveAttribute(
+    "aria-label",
+    "Shared issue: YU-42",
+  );
   await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await ui
@@ -1228,6 +1245,19 @@ test("a single Linear selection retains its inline target without sending a mess
   await expect(
     ui.getByRole("button", { name: "Back to Linear list", exact: true }),
   ).toBeVisible();
+  await ui.locator(".detail-scroll").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect
+    .poll(() =>
+      ui.locator(".detail-scroll").evaluate((element) => element.scrollTop),
+    )
+    .toBeGreaterThan(0);
+  await expect(ui.locator(".toolbar-target")).toHaveText("YU-42");
+  await expect(ui.locator(".toolbar-target")).toBeInViewport();
+  await expect(ui.locator(".shared-chip")).toHaveText("In chat");
+  await expect(ui.locator(".shared-chip")).toBeInViewport();
+  await expect(ui.locator(".shared-target")).toHaveCount(0);
   expect(await events(page, "context")).toEqual(explicitContext);
   expect(await events(page, "message")).toEqual([]);
 });
@@ -1250,9 +1280,7 @@ test("Linear bulk labels, priority, estimate, and due dates preserve per-Issue r
         .check();
     await choose(bulk, "Bulk Linear action", action);
     await choose(bulk, control, value);
-    await bulk
-      .getByRole("button", { name: "Apply to 2 issues", exact: true })
-      .click();
+    await bulk.getByRole("button", { name: "Apply", exact: true }).click();
     await expect(bulk).toHaveCount(0);
   }
   for (const number of [42, 43])
@@ -1263,9 +1291,7 @@ test("Linear bulk labels, priority, estimate, and due dates preserve per-Issue r
   await bulk
     .getByLabel("Bulk Linear due date", { exact: true })
     .fill("2026-11-02");
-  await bulk
-    .getByRole("button", { name: "Apply to 2 issues", exact: true })
-    .click();
+  await bulk.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(bulk).toHaveCount(0);
   await moreProperties(ui);
   await expect(ui.getByLabel("Linear Due date", { exact: true })).toHaveValue(
@@ -1708,7 +1734,7 @@ test("Linear duplicate workflow meanings remain visible and require the source m
     selectControl(bulk, "Bulk Linear workflow state").getByRole("button"),
   ).toBeDisabled();
   await expect(
-    bulk.getByRole("button", { name: "Apply to 1 issues", exact: true }),
+    bulk.getByRole("button", { name: "Apply", exact: true }),
   ).toBeDisabled();
   const writes = ((await events(page, "tool")) as { name: string }[]).filter(
     (call) => ["linear_update_issue", "linear_bulk"].includes(call.name),
@@ -1850,10 +1876,13 @@ test("Linear source switches retain browsing and list position while using the l
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
-  await expect(ui.locator(".shared-chip")).toHaveText("Chat YU-43");
-  await expect(ui.locator(".shared-target")).toHaveText(
+  await expect(ui.locator(".toolbar-target")).toHaveText("YU-42");
+  await expect(ui.locator(".shared-chip")).toHaveText("Chat: YU-43");
+  await expect(ui.locator(".shared-chip")).toHaveAttribute(
+    "aria-label",
     "Shared issue: YU-43 · Different from the issue you are browsing",
   );
+  await expect(ui.locator(".shared-target")).toHaveCount(0);
   await expect
     .poll(() =>
       ui.locator(".issue-list").evaluate((element) => element.scrollTop),
@@ -1875,6 +1904,7 @@ test("Linear source switches retain browsing and list position while using the l
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
+  await expect(ui.locator(".toolbar-target")).toHaveText("YU-42");
   await expect(ui.locator(".shared-chip")).toHaveCount(0);
   await expect(ui.locator(".shared-target")).toHaveCount(0);
   await expect
@@ -1906,6 +1936,7 @@ test("Linear acknowledged writes retain receipts and clear posted drafts when re
   let unavailableIssue = "";
   let allowRead = false;
   let createdId = "";
+  let createdCommentId = "";
   await page.route("**/tool", async (route) => {
     const input = route.request().postDataJSON() as {
       name: string;
@@ -1932,6 +1963,7 @@ test("Linear acknowledged writes retain receipts and clear posted drafts when re
       unavailableIssue = issue.issueId;
       allowRead = false;
       if (input.name === "linear_create_issue") createdId = issue.issueId;
+      else createdCommentId = issue.comments.at(-1).id;
       const receipt = {
         connectionId: issue.connectionId,
         workspaceId: issue.workspaceId,
@@ -1981,8 +2013,16 @@ test("Linear acknowledged writes retain receipts and clear posted drafts when re
   await expect(receipt).toHaveAttribute("aria-label", "Saved Linear receipt");
   await expect(receipt).toContainText("Saved in Linear");
   await expect(receipt).toContainText("Linear confirmed this write.");
-  await expect(receipt).toContainText(createdId);
+  await expect(receipt.locator(":scope > div > p")).not.toContainText(
+    createdId,
+  );
+  await expect(
+    receipt.getByText(`Issue ID: ${createdId}`, { exact: true }),
+  ).not.toBeVisible();
   await receipt.getByText("Request receipt", { exact: true }).click();
+  await expect(
+    receipt.getByText(`Issue ID: ${createdId}`, { exact: true }),
+  ).toBeVisible();
   const creates = (
     (await events(page, "tool")) as {
       name: string;
@@ -2020,7 +2060,22 @@ test("Linear acknowledged writes retain receipts and clear posted drafts when re
   await expect(
     ui.getByRole("textbox", { name: "Linear comment", exact: true }),
   ).toHaveValue("");
-  await expect(receipt).toContainText("Comment ID:");
+  await expect(receipt.locator(":scope > div > p")).not.toContainText(
+    createdId,
+  );
+  await expect(receipt.locator(":scope > div > p")).not.toContainText(
+    createdCommentId,
+  );
+  const receiptDetails = receipt.locator("details");
+  if ((await receiptDetails.getAttribute("open")) !== null)
+    await receipt.getByText("Request receipt", { exact: true }).click();
+  await expect(
+    receipt.getByText(`Comment ID: ${createdCommentId}`, { exact: true }),
+  ).not.toBeVisible();
+  await receipt.getByText("Request receipt", { exact: true }).click();
+  await expect(
+    receipt.getByText(`Comment ID: ${createdCommentId}`, { exact: true }),
+  ).toBeVisible();
   allowRead = true;
   await receipt
     .getByRole("button", { name: "Check saved issue", exact: true })
@@ -2110,7 +2165,7 @@ test("Linear inline details report a refused fullscreen request and allow retry"
 
   await expect(ui.locator(".inline-mode")).toBeVisible();
   await expect(ui.getByRole("alert")).toHaveText(
-    "The host could not switch to fullscreen mode. It kept inline mode.",
+    "Could not open issue details. Try again.",
   );
   await expect(
     ui.getByText("Display mode updated.", { exact: true }),
@@ -2538,17 +2593,15 @@ test("Linear mixed bulk outcomes show only failed issues and retry only those fa
   const bulk = ui.getByRole("region", { name: "Bulk Linear actions" });
   await choose(bulk, "Bulk Linear action", "priority");
   await choose(bulk, "Bulk Linear priority", "4");
-  await bulk
-    .getByRole("button", { name: "Apply to 2 issues", exact: true })
-    .click();
+  await bulk.getByRole("button", { name: "Apply", exact: true }).click();
   const failures = bulk.getByRole("list", {
     name: "Failed issues",
     exact: true,
   });
   await expect(failures.getByRole("listitem")).toHaveCount(1);
-  await expect(failures).toContainText(
-    "fixture-linear-43: Fixture permission denied for YU-43",
-  );
+  await expect(failures).toContainText("YU-43");
+  await expect(failures).toContainText("Fixture permission denied for YU-43");
+  await expect(failures).not.toContainText("fixture-linear-43");
   await expect(failures).not.toContainText("fixture-linear-42");
   await bulk
     .getByRole("button", { name: "Retry failed issues only", exact: true })

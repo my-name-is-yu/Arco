@@ -21,7 +21,7 @@ async function accountCalls(page: Page) {
 async function open(page: Page) {
   await page.goto("/");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
-  await expect(selectControl(app(page), "GitHub scope")).toBeVisible();
+  await expect(selectControl(app(page), "GitHub view")).toBeVisible();
   await expect(page.locator("#harness-error")).toBeEmpty();
 }
 
@@ -62,7 +62,7 @@ test("personal issues load without a repository, and broader scopes stay explici
   await open(page);
   const frame = app(page);
   const sidebar = frame.locator(".issue-sidebar");
-  const scope = selectControl(frame, "GitHub scope");
+  const scope = selectControl(frame, "GitHub view");
   await expect(scope).toHaveAttribute("data-value", "account:assigned");
   await scope.getByRole("button").click();
   await expect(
@@ -87,16 +87,16 @@ test("personal issues load without a repository, and broader scopes stay explici
     (await accountCalls(page)).every((call) => call.filter === "assigned"),
   ).toBe(true);
 
-  await choose(frame, "GitHub scope", "account:mentioned");
+  await choose(frame, "GitHub view", "account:mentioned");
   await expect(sidebar.locator(".issue-row")).toHaveCount(1);
   await expect(sidebar.locator(".issue-row")).toContainText(mentionedTitle);
   await expect(sidebar.locator(".row-meta")).toContainText("yu/Arco #43");
 
-  await choose(frame, "GitHub scope", "account:created");
+  await choose(frame, "GitHub view", "account:created");
   await expect(sidebar.locator(".issue-row")).toHaveCount(1);
   await expect(sidebar.locator(".issue-row")).toContainText(assignedTitle);
 
-  await choose(frame, "GitHub scope", "account:all");
+  await choose(frame, "GitHub view", "account:all");
   await expect(sidebar.locator(".issue-row")).toHaveCount(2);
   await frame.getByRole("button", { name: "All", exact: true }).click();
   await expect(sidebar.locator(".issue-row")).toHaveCount(3);
@@ -125,14 +125,14 @@ test("discovered repositories enable search without typing a URL", async ({
   });
   await open(page);
   const frame = app(page);
-  const scope = selectControl(frame, "GitHub scope");
+  const scope = selectControl(frame, "GitHub view");
   await scope.getByRole("button").click();
   await expect(
     frame
       .getByRole("dialog")
       .getByRole("option", { name: "yu/Arco", exact: true }),
   ).toHaveCount(1);
-  await choose(frame, "GitHub scope", "yu/Arco");
+  await choose(frame, "GitHub view", "yu/Arco");
   const search = frame.getByRole("textbox", {
     name: "Search issues",
     exact: true,
@@ -175,15 +175,21 @@ test("Scope searches grouped options, skips disabled repositories, and preserves
   });
   await open(page);
   const ui = app(page);
-  const scope = selectControl(ui, "GitHub scope");
+  const scope = selectControl(ui, "GitHub view");
   const trigger = scope.getByRole("button");
   await expect(trigger).toHaveAccessibleName("Assigned to me");
   await trigger.focus();
   await page.keyboard.press("Space");
   const menu = ui.getByRole("dialog");
-  await expect(menu.getByText("Account views", { exact: true })).toBeVisible();
+  await expect(
+    menu.getByText("Across repositories", { exact: true }),
+  ).toBeVisible();
   await expect(menu.getByText("Repositories", { exact: true })).toBeVisible();
   const searchOptions = menu.getByRole("combobox");
+  await expect(searchOptions).toHaveAttribute(
+    "placeholder",
+    "Search views or repositories…",
+  );
   await searchOptions.fill("disabled-repo");
   await expect(
     menu.getByRole("option", {
@@ -205,7 +211,7 @@ test("Scope searches grouped options, skips disabled repositories, and preserves
   });
   await search.fill("Separate shared context");
   await expect(ui.locator(".issue-row")).toHaveCount(1);
-  await choose(ui, "GitHub scope", "yu/Arco");
+  await choose(ui, "GitHub view", "yu/Arco");
   await expect(search).toHaveValue("Separate shared context");
   await expect(ui.locator(".issue-row")).toContainText(mentionedTitle);
   await expect(ui.locator("select")).toHaveCount(0);
@@ -351,8 +357,8 @@ test("compact personal feed resolves loading to empty without broadening scope",
     await page
       .getByRole("button", { name: "Mock fullscreen", exact: true })
       .click();
-    const scope = selectControl(app(page), "GitHub scope");
-    await choose(app(page), "GitHub scope", "account:assigned");
+    const scope = selectControl(app(page), "GitHub view");
+    await choose(app(page), "GitHub view", "account:assigned");
     await expect(
       app(page).getByRole("button", {
         name: "View issues created by me",
@@ -399,7 +405,7 @@ test("personal feed failures stay visible in compact mode and retry the same sco
   await expect(
     app(page).getByRole("heading", { name: assignedTitle, exact: true }),
   ).toBeVisible();
-  await expect(selectControl(app(page), "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(app(page), "GitHub view")).toHaveAttribute(
     "data-value",
     "account:assigned",
   );

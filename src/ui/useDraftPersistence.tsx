@@ -16,6 +16,8 @@ type Status = {
     | "resolving";
   error?: string;
   remote?: DraftRecord;
+  operation?: "load" | "save" | "delete";
+  retryChoice?: "keep-local" | "use-saved";
 };
 export const draftStorageId = (key: DraftKey) => JSON.stringify(key);
 export function draftController(host: ArcoHost) {
@@ -35,18 +37,32 @@ export function draftController(host: ArcoHost) {
     const versions = new Map<string, number>();
     const current = new Map<string, Draft | null>();
     const loading = new Map<string, Promise<Draft | undefined>>();
+    const failedLoads = new Set<string>();
     const setStatus = (id: string, status: Status) => {
       statuses = { ...statuses, [id]: status };
       listeners.forEach((listener) => listener());
     };
-    const report = (id: string, error: unknown) =>
+    const report = (
+      id: string,
+      error: unknown,
+      operation: NonNullable<Status["operation"]>,
+      retryChoice?: Status["retryChoice"],
+    ) =>
       setStatus(
         id,
         error instanceof LocalDraftConflict
-          ? { state: "conflict", error: error.message, remote: error.remote }
+          ? {
+              state: "conflict",
+              error: error.message,
+              remote: error.remote,
+              operation,
+              retryChoice,
+            }
           : {
               state: "error",
               error: error instanceof Error ? error.message : String(error),
+              operation,
+              retryChoice,
             },
       );
     const advance = (id: string) => {
@@ -60,10 +76,23 @@ export function draftController(host: ArcoHost) {
     const write = async (key: DraftKey, draft: Draft, version: number) => {
       const id = draftStorageId(key);
       try {
+        await loading.get(id);
+        if (failedLoads.has(id)) {
+          const recovered = await store.load(key);
+          if (
+            recovered.draft &&
+            JSON.stringify(recovered.draft) !== JSON.stringify(draft)
+          )
+            throw new LocalDraftConflict(recovered);
+        }
         await store.save(key, draft);
-        if (versions.get(id) === version) setStatus(id, { state: "saved" });
+        failedLoads.delete(id);
+        if (versions.get(id) === version) {
+          setStatus(id, { state: "saved" });
+          return draft;
+        }
       } catch (error) {
-        if (versions.get(id) === version) report(id, error);
+        if (versions.get(id) === version) report(id, error, "save");
       }
     };
     const load = (key: DraftKey): Promise<Draft | undefined> => {
@@ -78,12 +107,14 @@ export function draftController(host: ArcoHost) {
         .then((record) => {
           if ((versions.get(id) ?? 0) !== version)
             return current.get(id) ?? undefined;
+          failedLoads.delete(id);
           current.set(id, record.draft);
           setStatus(id, { state: record.draft ? "saved" : "idle" });
           return record.draft ?? undefined;
         })
         .catch((error) => {
-          if ((versions.get(id) ?? 0) === version) report(id, error);
+          failedLoads.add(id);
+          if ((versions.get(id) ?? 0) === version) report(id, error, "load");
           return undefined;
         })
         .finally(() => loading.delete(id));
@@ -97,7 +128,7 @@ export function draftController(host: ArcoHost) {
         void write(entry.key, entry.draft, entry.version);
       }
     };
-    return {
+    const controller = {
       get: () => statuses,
       subscribe(listener: () => void) {
         listeners.add(listener);
@@ -119,12 +150,18 @@ export function draftController(host: ArcoHost) {
         }, 250);
         pending.set(id, { key, draft, timer, version });
       },
-      retry(key: DraftKey, draft: Draft) {
+      retry(key: DraftKey, draft: Draft): Promise<Draft | null | undefined> {
         const id = draftStorageId(key);
+        const status = statuses[id];
+        if (status?.retryChoice)
+          return controller.resolve(key, status.retryChoice, draft);
+        if (status?.operation === "load" || status?.state === "loading")
+          return load(key);
+        if (status?.operation === "delete") return controller.remove(key);
         const version = advance(id);
         current.set(id, draft);
         setStatus(id, { state: "pending" });
-        void write(key, draft, version);
+        return write(key, draft, version);
       },
       async resolve(
         key: DraftKey,
@@ -136,29 +173,36 @@ export function draftController(host: ArcoHost) {
         setStatus(id, { state: "resolving" });
         try {
           const result = await store.resolve(key, choice, local);
+          failedLoads.delete(id);
           if (versions.get(id) !== version) return undefined;
           current.set(id, result.draft);
           setStatus(id, { state: result.draft ? "saved" : "idle" });
           return result.draft;
         } catch (error) {
-          report(id, error);
+          if (versions.get(id) === version)
+            report(id, error, choice === "use-saved" ? "load" : "save", choice);
           return undefined;
         }
       },
-      async remove(key: DraftKey) {
+      async remove(key: DraftKey): Promise<null | undefined> {
         const id = draftStorageId(key);
         const version = advance(id);
         current.set(id, null);
         setStatus(id, { state: "pending" });
         try {
           await store.remove(key);
-          if (versions.get(id) === version) setStatus(id, { state: "idle" });
+          failedLoads.delete(id);
+          if (versions.get(id) === version) {
+            setStatus(id, { state: "idle" });
+            return null;
+          }
         } catch (error) {
-          report(id, error);
+          if (versions.get(id) === version) report(id, error, "delete");
         }
       },
       flush,
     };
+    return controller;
   });
 }
 export function useDraftPersistence(host: ArcoHost) {
@@ -234,7 +278,11 @@ export function DraftStatus({
         </details>
       ) : (
         <button className="text-button" onClick={onRetry}>
-          Retry saving draft
+          {status.operation === "load"
+            ? "Retry loading draft"
+            : status.operation === "delete"
+              ? "Retry removing draft"
+              : "Retry saving draft"}
         </button>
       )}
     </section>

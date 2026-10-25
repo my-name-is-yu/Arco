@@ -1,4 +1,19 @@
 function nativeColor(color?: string | null): string | undefined {
+  const name = color?.toLowerCase();
+  if (
+    name &&
+    [
+      "gray",
+      "blue",
+      "green",
+      "yellow",
+      "orange",
+      "red",
+      "pink",
+      "purple",
+    ].includes(name)
+  )
+    return `var(--property-option-${name})`;
   const hex = color?.replace(/^#/, "");
   return hex && /^[\da-f]{6}$/i.test(hex) ? `#${hex}` : undefined;
 }

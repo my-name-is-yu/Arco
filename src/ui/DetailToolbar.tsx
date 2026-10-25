@@ -12,14 +12,14 @@ export function closeDetailUtility(button: HTMLElement) {
 }
 
 export function DetailToolbar({
-  tab,
+  target,
   shared,
   primary,
   utilities,
   backLabel,
   onBack,
 }: {
-  tab: string;
+  target: string;
   shared?: ReactNode;
   primary: ReactNode;
   utilities: ReactNode;
@@ -36,7 +36,9 @@ export function DetailToolbar({
         >
           <ArrowLeft aria-hidden="true" />
         </button>
-        <span className="toolbar-tab">{tab}</span>
+        <span className="toolbar-target" title={target}>
+          {target}
+        </span>
         {shared}
       </div>
       <div className="detail-primary-actions">{primary}</div>

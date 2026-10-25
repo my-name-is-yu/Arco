@@ -32,12 +32,26 @@ type Memberships = {
   }[];
   errors: string[];
 };
-const showValue = (value: FieldValue) =>
-  value === null
-    ? "Not set"
-    : Array.isArray(value)
-      ? value.join(", ")
-      : String(value);
+function fieldValueLabel(
+  field: IssueField | ProjectField,
+  kind: "issue" | "project",
+) {
+  const { value } = field;
+  if (value === null) return "Not set";
+  if (kind === "project") {
+    const type = field.type.toLowerCase().replace(/[_ -]/g, "");
+    if (type === "singleselect")
+      return typeof value === "string"
+        ? (field.options.find((option) => option.id === value)?.name ?? null)
+        : null;
+    if (type === "iteration")
+      return typeof value === "string" && "iterations" in field
+        ? (field.iterations.find((iteration) => iteration.id === value)
+            ?.title ?? null)
+        : null;
+  }
+  return Array.isArray(value) ? value.join(", ") : String(value);
+}
 
 export function FieldEditor({
   host,
@@ -70,13 +84,27 @@ export function FieldEditor({
   const type = field.type.toLowerCase().replace(/[_ -]/g, "");
   const changedElsewhere =
     edited && JSON.stringify(base) !== JSON.stringify(field.value);
+  const latestValue = fieldValueLabel(field, kind);
   const set = (next: FieldValue) => {
     setDraft({ edited: true, value: next, base: edited ? base : field.value });
   };
-  const choices = field.options.map((option) => ({
+  const available = field.options.map((option) => ({
     value: kind === "issue" ? option.name : String(option.id),
     label: option.name,
+    color: option.color,
   }));
+  const namedValues =
+    kind === "issue" && ["singleselect", "multiselect"].includes(type)
+      ? [current]
+          .flat()
+          .filter((name): name is string => typeof name === "string" && !!name)
+      : [];
+  const choices = [
+    ...available,
+    ...namedValues
+      .filter((name) => !available.some((option) => option.value === name))
+      .map((name) => ({ value: name, label: name, disabled: true })),
+  ];
   const numberValue =
     current === null || current === "" ? null : Number(current);
   const valid =
@@ -89,12 +117,9 @@ export function FieldEditor({
     <section className="field-editor">
       <div className="field-title">
         <strong>{field.name}</strong>
-        <span>{field.type}</span>
       </div>
       {!field.supported ? (
-        <p className="property-note">
-          {showValue(field.value)} · Edit this field type on GitHub.
-        </p>
+        <p className="property-note">View and edit this field on GitHub.</p>
       ) : (
         <>
           {type === "singleselect" ? (
@@ -146,7 +171,9 @@ export function FieldEditor({
           )}
           {changedElsewhere && (
             <p className="inline-error">
-              The source value changed to “{showValue(field.value)}”.
+              {latestValue === null
+                ? "The value on GitHub changed."
+                : `The value on GitHub changed to “${latestValue}”.`}
               <button
                 className="text-button"
                 onClick={() => setDraft({ ...draft, base: field.value })}
@@ -207,7 +234,6 @@ function Catalog({ host, issue }: { host: ArcoHost; issue: IssueDetail }) {
     });
   return (
     <section>
-      <h3>Milestone and issue type</h3>
       {query.isPending && <p className="muted">Loading…</p>}
       {query.isError && (
         <p className="inline-error" role="alert">
@@ -252,7 +278,22 @@ function Catalog({ host, issue }: { host: ArcoHost; issue: IssueDetail }) {
                 ...query.data.issueTypes.map((type) => ({
                   value: String(type.id),
                   label: type.name,
+                  color: type.color,
                 })),
+                ...(issue.issueType &&
+                issue.issueType.id === query.data.issueTypeId &&
+                !query.data.issueTypes.some(
+                  (type) => type.id === issue.issueType?.id,
+                )
+                  ? [
+                      {
+                        value: String(issue.issueType.id),
+                        label: issue.issueType.name,
+                        color: issue.issueType.color,
+                        disabled: true,
+                      },
+                    ]
+                  : []),
               ]}
             />
           </label>
@@ -435,9 +476,7 @@ function ProjectFields({
         />
       ))}
       {query.data?.hasMore && (
-        <p className="property-note">
-          View fields outside this API page on GitHub.
-        </p>
+        <p className="property-note">View all fields on GitHub.</p>
       )}
       {action.error && (
         <p className="inline-error" role="alert">

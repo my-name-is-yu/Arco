@@ -1,12 +1,17 @@
 import { expect, test } from "@playwright/test";
 import { toolFailure } from "./tool-failure";
+import { commandError } from "../src/server/github/transport";
 
 const title = "Preserve issue selection and scroll position";
 
-for (const [kind, guidance] of [
-  ["auth", "Reconnect the source account"],
-  ["forbidden", "Check your access to this target"],
-  ["rate-limited", "Wait for the source's API limit to reset"],
+for (const [kind, stderr, guidance] of [
+  ["auth", "gh: Bad credentials (HTTP 401)", "Check gh auth login"],
+  [
+    "forbidden",
+    "gh: Resource not accessible by integration (HTTP 403)",
+    "Check the target and your GitHub CLI permissions",
+  ],
+  ["rate-limited", "gh: Too many requests (HTTP 429)", "Wait and refresh"],
 ] as const) {
   test(`${kind} refresh failures retain loaded content and explain the next action`, async ({
     page,
@@ -26,7 +31,7 @@ for (const [kind, guidance] of [
       if (input.name !== "arco_get_issue") return route.continue();
       reads++;
       return route.fulfill({
-        json: toolFailure("A safe source failure.", kind),
+        json: toolFailure(commandError(stderr).message, kind),
       });
     });
     await app.getByRole("button", { name: "Refresh", exact: true }).click();
@@ -34,6 +39,7 @@ for (const [kind, guidance] of [
       .getByRole("alert")
       .filter({ hasText: "Could not refresh this issue." });
     await expect(error).toContainText(guidance);
+    await expect(error).not.toContainText("submitting this change again");
     await expect(
       app.getByRole("heading", { name: title, exact: true }),
     ).toBeVisible();
@@ -78,7 +84,7 @@ test(
       requestIds.push(input.arguments.requestId);
       return route.fulfill({
         json: toolFailure(
-          "The source did not confirm this comment.",
+          "The source did not confirm this comment. Check the result in the source and refresh before submitting this change again.",
           "uncertain",
         ),
       });

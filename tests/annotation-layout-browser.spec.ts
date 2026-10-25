@@ -7,7 +7,7 @@ test("an unsaved annotation comment survives a temporarily hidden range without 
   await page.goto("/?entry=project");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
   const app = page.frameLocator("#arco");
-  await choose(app, "GitHub scope", "yu/Arco");
+  await choose(app, "GitHub view", "yu/Arco");
   const source = app.locator('[data-context-origin="comment"] p').first();
   await source.scrollIntoViewIfNeeded();
   await source.evaluate(async (element) => {

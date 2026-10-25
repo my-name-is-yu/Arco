@@ -91,7 +91,7 @@ const issueTitles = {
 async function open(page: Page, session: string, query = "") {
   await page.goto(`/?session=${session}${query}`);
   await expect(page.locator("#bridge-status")).toHaveText("ready");
-  await expect(selectControl(app(page), "GitHub scope")).toBeVisible();
+  await expect(selectControl(app(page), "GitHub view")).toBeVisible();
   await expect(page.locator("#harness-error")).toBeEmpty();
 }
 
@@ -123,7 +123,7 @@ test("the global entry starts My issues despite a saved repository", async ({
     "personal",
   );
   await expect(ui.locator(".viewer-title")).toHaveText("My issues");
-  await expect(selectControl(ui, "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(ui, "GitHub view")).toHaveAttribute(
     "data-value",
     "account:assigned",
   );
@@ -152,12 +152,12 @@ test("the project entry uses its detected repository instead of personal setting
     "data-viewer",
     "project",
   );
-  await expect(ui.locator(".viewer-title")).toHaveText("Project issues");
+  await expect(ui.locator(".viewer-title")).toHaveText("Arco issues");
   await expect(selectControl(ui, "Issue source")).toHaveAttribute(
     "data-value",
     "github",
   );
-  await expect(selectControl(ui, "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(ui, "GitHub view")).toHaveAttribute(
     "data-value",
     "yu/Arco",
   );
@@ -168,9 +168,9 @@ test("the project entry uses its detected repository instead of personal setting
   const lists = await calls(page, "arco_list_issues");
   expect(lists.length).toBeGreaterThan(0);
   expect(lists.every((input) => input.repo === "yu/Arco")).toBe(true);
-  await selectControl(ui, "GitHub scope").getByRole("button").click();
+  await selectControl(ui, "GitHub view").getByRole("button").click();
   await expect(
-    ui.getByRole("dialog").getByText("Account views", { exact: true }),
+    ui.getByRole("dialog").getByText("Across repositories", { exact: true }),
   ).toHaveCount(0);
   await page.keyboard.press("Escape");
 });
@@ -186,12 +186,12 @@ for (const shared of ["github", "linear"]) {
       "data-viewer",
       "project",
     );
-    await expect(ui.locator(".viewer-title")).toHaveText("Project issues");
+    await expect(ui.locator(".viewer-title")).toHaveText("Arco issues");
     await expect(selectControl(ui, "Issue source")).toHaveAttribute(
       "data-value",
       "github",
     );
-    await expect(selectControl(ui, "GitHub scope")).toHaveAttribute(
+    await expect(selectControl(ui, "GitHub view")).toHaveAttribute(
       "data-value",
       "yu/Arco",
     );
@@ -214,15 +214,18 @@ for (const variant of ["none", "ambiguous"]) {
     });
     await open(page, session, `&entry=project&repo=${variant}`);
     const ui = app(page);
-    await expect(ui.locator(".viewer-title")).toHaveText("Project issues");
+    await expect(ui.locator(".viewer-title")).toHaveText(
+      variant === "none" ? "Issues for this chat" : "Arco issues",
+    );
     await expect(ui.locator(".project-repository-empty strong")).toHaveText(
       "Choose a repository",
     );
-    await expect(ui.locator(".viewer-description")).toHaveText(
-      variant === "none" ? "Repository for this chat" : "Repository for Arco",
+    await expect(ui.locator(".scope-control")).toHaveAttribute(
+      "title",
+      "Repository selection is saved for this chat.",
     );
     await expect(ui.locator(".issue-row")).toHaveCount(0);
-    await expect(selectControl(ui, "GitHub scope")).toHaveAttribute(
+    await expect(selectControl(ui, "GitHub view")).toHaveAttribute(
       "data-value",
       "",
     );
@@ -233,9 +236,9 @@ for (const variant of ["none", "ambiguous"]) {
       .getByRole("button", { name: "Choose repository", exact: true })
       .click();
     const menu = ui.getByRole("dialog");
-    await expect(menu.getByText("Account views", { exact: true })).toHaveCount(
-      0,
-    );
+    await expect(
+      menu.getByText("Across repositories", { exact: true }),
+    ).toHaveCount(0);
     await expect(
       menu.getByRole("option", { name: "yu/Arco", exact: true }),
     ).toBeVisible();
@@ -245,7 +248,7 @@ for (const variant of ["none", "ambiguous"]) {
       ).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(
-      selectControl(ui, "GitHub scope").getByRole("button"),
+      selectControl(ui, "GitHub view").getByRole("button"),
     ).toBeFocused();
   });
 }
@@ -262,10 +265,11 @@ test("a manual repository is remembered within the same chat without using anoth
   await expect(ui.locator(".project-repository-empty strong")).toHaveText(
     "Choose a repository",
   );
-  await expect(ui.locator(".viewer-description")).toHaveText(
-    "Repository for this chat",
+  await expect(ui.locator(".scope-control")).toHaveAttribute(
+    "title",
+    "Repository selection is saved for this chat.",
   );
-  await choose(ui, "GitHub scope", "yu/Arco");
+  await choose(ui, "GitHub view", "yu/Arco");
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
@@ -282,10 +286,11 @@ test("a manual repository is remembered within the same chat without using anoth
   const saved = await tool<SettingsRecord>(page, session, "arco_get_settings");
   expect(saved.settings.activeGithubRepo).toBe("yu/Other");
   await page.reload();
-  await expect(ui.locator(".viewer-description")).toHaveText(
-    "Repository for this chat",
+  await expect(ui.locator(".scope-control")).toHaveAttribute(
+    "title",
+    "Repository selection is saved for this chat.",
   );
-  await expect(selectControl(ui, "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(ui, "GitHub view")).toHaveAttribute(
     "data-value",
     "yu/Arco",
   );
@@ -326,9 +331,9 @@ test("choosing a repository at capacity keeps the newest 100 chat bindings and r
   await expect(ui.locator(".project-repository-empty strong")).toHaveText(
     "Choose a repository",
   );
-  await selectControl(ui, "GitHub scope").getByRole("button").click();
+  await selectControl(ui, "GitHub view").getByRole("button").click();
   await ui.getByRole("dialog").getByRole("combobox").fill("yu/Arco");
-  await choose(ui, "GitHub scope", "yu/Arco");
+  await choose(ui, "GitHub view", "yu/Arco");
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
@@ -357,12 +362,13 @@ test("choosing a repository at capacity keeps the newest 100 chat bindings and r
   await expect(ui.locator(".settings-error")).toHaveCount(0);
 
   await page.reload();
-  await expect(selectControl(ui, "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(ui, "GitHub view")).toHaveAttribute(
     "data-value",
     "yu/Arco",
   );
-  await expect(ui.locator(".viewer-description")).toHaveText(
-    "Repository for this chat",
+  await expect(ui.locator(".scope-control")).toHaveAttribute(
+    "title",
+    "Repository selection is saved for this chat.",
   );
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),
@@ -372,9 +378,10 @@ test("choosing a repository at capacity keeps the newest 100 chat bindings and r
   await expect(app(personalPage).locator(".viewer-title")).toHaveText(
     "My issues",
   );
-  await expect(
-    selectControl(app(personalPage), "GitHub scope"),
-  ).toHaveAttribute("data-value", "account:mentioned");
+  await expect(selectControl(app(personalPage), "GitHub view")).toHaveAttribute(
+    "data-value",
+    "account:mentioned",
+  );
 });
 
 test("personal and project filters survive separate tabs without leaking source choices", async ({
@@ -384,7 +391,7 @@ test("personal and project filters survive separate tabs without leaking source 
   const session = await sessionWithSettings(page);
   await open(page, session);
   const personal = app(page);
-  await choose(personal, "GitHub scope", "account:mentioned");
+  await choose(personal, "GitHub view", "account:mentioned");
   await personal.getByRole("button", { name: "All", exact: true }).click();
   await expect(personal.locator(".issue-row")).toContainText(mentionedTitle);
   await expect
@@ -425,7 +432,7 @@ test("personal and project filters survive separate tabs without leaking source 
 
   await page.reload();
   await expect(personal.locator(".viewer-title")).toHaveText("My issues");
-  await expect(selectControl(personal, "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(personal, "GitHub view")).toHaveAttribute(
     "data-value",
     "account:mentioned",
   );
@@ -433,7 +440,7 @@ test("personal and project filters survive separate tabs without leaking source 
     personal.getByRole("button", { name: "All", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await projectPage.reload();
-  await expect(project.locator(".viewer-title")).toHaveText("Project issues");
+  await expect(project.locator(".viewer-title")).toHaveText("Arco issues");
   await expect(selectControl(project, "Issue source")).toHaveAttribute(
     "data-value",
     "github",
@@ -485,8 +492,8 @@ test("external issue results and host presentation changes preserve the project 
     "data-viewer",
     "project",
   );
-  await expect(ui.locator(".viewer-title")).toHaveText("Project issues");
-  await expect(selectControl(ui, "GitHub scope")).toHaveAttribute(
+  await expect(ui.locator(".viewer-title")).toHaveText("Arco issues");
+  await expect(selectControl(ui, "GitHub view")).toHaveAttribute(
     "data-value",
     "yu/Arco",
   );

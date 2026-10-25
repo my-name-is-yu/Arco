@@ -42,7 +42,7 @@ export function BulkActionPanel({
         disabled={disabled}
         onClick={onApply}
       >
-        {busy ? "Applying…" : `Apply to ${count} issues`}
+        {busy ? "Applying…" : "Apply"}
       </Button>
       {feedback}
     </section>

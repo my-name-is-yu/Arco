@@ -27,7 +27,9 @@ Both providers use the same bulk panel below the scrollable issue list, at the b
 
 Do not reserve a sidebar footer for the connected account. Linear connection actions remain reachable from the workspace header, including when no issues are available.
 
-The details toolbar holds **Add to chat** and an issue-actions menu. Body and comments form a continuous reading area. Properties sit alongside the content when width permits and return to a single-column layout when narrow. Narrow views switch between list and detail while retaining filters, selection, and list position.
+The details toolbar keeps the current native issue identifier visible while scrolling, alongside **Add to chat** and an issue-actions menu. Shared context appears once in that toolbar: **In chat** for the current issue, or **Chat: [native reference]** when another issue is attached. GitHub references include the repository; Linear comparisons retain connection, workspace, team, and issue identity. Body and comments form a continuous reading area. Properties sit alongside the content when width permits and return to a single-column layout when narrow. Narrow views switch between list and detail while retaining filters, selection, and list position.
+
+Use the scope heading and grouped picker to identify the project or chat repository and account-wide views. Keep the chat-specific repository persistence hint in the picker tooltip. List captions show counts and refresh progress without repeating selected scope or state. In compact cards and bulk panels, let icons, values, and the selected action identify controls; preserve accessible names when removing visible labels.
 
 Keep body reading prominent; avoid stacking secondary controls ahead of the content. Free-form body editing, comments/replies, project and relationship management, custom fields, and bulk work belong here. Unsupported operations link to the source service.
 
@@ -52,6 +54,8 @@ Options and saves belong to the card's own repository/team even if another panel
 Free-form title/body editing, comments, relationships, project/cycle/milestone membership, due dates, estimates, custom fields, lists, and bulk operations are outside the card.
 
 Use text, shape, and color together. Preserve source status/label colors where available and use a neutral fallback rather than inventing semantics. Color must not be the sole way to distinguish a state or action.
+
+Selection controls use the normal body text color for chosen values and muted text for unset values, unassigned users, unrestricted filters, and **No priority**. A real zero estimate remains a chosen value. Disabled and loading controls retain their distinct appearance. Show available state icons, assignee initials, priority icons, and native color marks in both the menu and the selected value. Expanded multi-select values retain each value's own mark; compact cards keep the leading value and additional count. GitHub's named option colors use a theme-aware palette, while source hex colors remain unchanged. Keep one separator between Labels and **More properties**.
 
 The utility menu closes on outside pointer or focus movement and when the iframe loses focus, without taking focus from the user's chosen control. Escape returns focus to its trigger. A delayed copy result must not steal focus after the menu has closed.
 

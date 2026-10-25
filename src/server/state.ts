@@ -49,6 +49,7 @@ export function createStateStore(directory = stateDirectory()) {
     file: string,
     schema: z.ZodType<T>,
     initial: T,
+    kind: "settings" | "draft" | "selection highlights",
   ): Promise<T> {
     let content;
     try {
@@ -62,7 +63,7 @@ export function createStateStore(directory = stateDirectory()) {
       )
         return initial;
       throw new OperationError(
-        "Unable to read local settings and drafts.",
+        `Could not read your saved ${kind}. Check storage access and try again.`,
         "storage",
       );
     }
@@ -77,7 +78,7 @@ export function createStateStore(directory = stateDirectory()) {
     const parsed = schema.safeParse(value);
     if (parsed.success) return parsed.data;
     throw new OperationError(
-      "Local settings, drafts, or annotations do not match the current format. The stored data was preserved without overwriting it.",
+      `Your saved ${kind} could not be opened. ${kind === "draft" ? "It has" : "They have"} been kept unchanged.`,
       "storage",
     );
   }
@@ -115,12 +116,15 @@ export function createStateStore(directory = stateDirectory()) {
     annotationSnapshotIdSchema,
     annotationSnapshotSchema,
   );
-  const readAnnotations = () => read(annotationsFile, annotationsSchema, {});
+  const readAnnotations = () =>
+    read(annotationsFile, annotationsSchema, {}, "selection highlights");
   const readSettings = () =>
-    read(settingsFile, settingsRecordSchema, {
-      revision: 0,
-      settings: { ...defaultSettings },
-    });
+    read(
+      settingsFile,
+      settingsRecordSchema,
+      { revision: 0, settings: { ...defaultSettings } },
+      "settings",
+    );
   function draftFile(input: DraftKey) {
     const key = draftKeySchema.parse(input);
     return join(
@@ -130,7 +134,12 @@ export function createStateStore(directory = stateDirectory()) {
     );
   }
   const readDraft = (key: DraftKey) =>
-    read(draftFile(key), draftRecordSchema, { revision: 0, draft: null });
+    read(
+      draftFile(key),
+      draftRecordSchema,
+      { revision: 0, draft: null },
+      "draft",
+    );
   return {
     async readAnnotationSnapshot(id: string) {
       const key = annotationSnapshotIdSchema.parse(id);

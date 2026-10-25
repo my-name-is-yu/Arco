@@ -115,7 +115,7 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("/?entry=project");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
-  await choose(issueFrame(page), "GitHub scope", "yu/Arco");
+  await choose(issueFrame(page), "GitHub view", "yu/Arco");
   await expect(
     issueFrame(page).getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
@@ -1277,14 +1277,21 @@ test("whole-Issue sharing and mock mentions retain explicit context without send
   expect(sharedContext).not.toHaveProperty("selection");
   const explicitContext = await events(page, "context");
   expect(await events(page, "message")).toHaveLength(0);
-  await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
-  await expect(app.locator(".shared-target")).toContainText("yu/Arco #42");
-  await expect(app.locator(".shared-target")).toContainText(
-    "Different from the issue you are browsing",
+  await expect(app.locator(".shared-chip")).toHaveText("In chat");
+  await expect(app.locator(".shared-chip")).toHaveAttribute(
+    "aria-label",
+    "Shared issue: yu/Arco #42",
   );
+  await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
+  await expect(app.locator(".shared-chip")).toContainText("yu/Arco #42");
+  await expect(app.locator(".shared-chip")).toHaveAttribute(
+    "aria-label",
+    "Shared issue: yu/Arco #42 · Different from the issue you are browsing",
+  );
+  await expect(app.locator(".toolbar-target")).toHaveText("yu/Arco #43");
   expect(await events(page, "message")).toEqual([]);
   expect(await events(page, "context")).toEqual(explicitContext);
-  await expect(app.locator(".shared-target")).toContainText("yu/Arco #42");
+  await expect(app.locator(".shared-chip")).toContainText("yu/Arco #42");
   await page.getByRole("button", { name: "Mock inline", exact: true }).click();
   await expect(
     app
@@ -1386,7 +1393,7 @@ test("an inline card reports a host fullscreen fallback and keeps shared context
   await fallback.check();
   await app.getByRole("button", { name: "Open details", exact: true }).click();
   await expect(app.getByRole("alert")).toHaveText(
-    "The host could not switch to fullscreen mode. It kept inline mode.",
+    "Could not open issue details. Try again.",
   );
   await expect(app.locator(".inline-mode")).toBeVisible();
   await expect(app.locator(".workspace")).toHaveCount(0);
@@ -1808,9 +1815,7 @@ test("bulk changes keep per-Issue results and report partial permission failures
       });
     } else await route.continue();
   });
-  await app
-    .getByRole("button", { name: "Apply to 2 issues", exact: true })
-    .click();
+  await app.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(
     app.locator('.bulk-results[aria-label="Failed issues"] li'),
   ).toHaveCount(1);
@@ -1948,9 +1953,7 @@ test("Markdown tasks, comment edits, reactions, and label definitions use explic
   ).toHaveAttribute("data-selected", "");
   await page.keyboard.press("Escape");
   await expect(trigger).toBeFocused();
-  await bulk
-    .getByRole("button", { name: "Apply to 1 issues", exact: true })
-    .click();
+  await bulk.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(bulk).toHaveCount(0);
   expect(await events(page, "tool")).toContainEqual(
     expect.objectContaining({
@@ -2410,7 +2413,7 @@ test("compact GitHub resolves the account feed when no repository is selected", 
     await route.fulfill({ response, json: result });
   });
   await page.goto("/");
-  await expect(selectControl(app, "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(app, "GitHub view")).toHaveAttribute(
     "data-value",
     "account:assigned",
   );
@@ -2422,7 +2425,7 @@ test("compact GitHub resolves the account feed when no repository is selected", 
   expect(accountRead).toBe(true);
   await app.getByRole("button", { name: "Open details", exact: true }).click();
   await expect(app.locator(".workspace")).toBeVisible();
-  await expect(selectControl(app, "GitHub scope")).toHaveAttribute(
+  await expect(selectControl(app, "GitHub view")).toHaveAttribute(
     "data-value",
     "yu/Arco",
   );
@@ -2606,6 +2609,8 @@ test("detail toolbar stays visible and utilities support keyboard and clipboard 
   await expect(
     app.getByRole("button", { name: "Add to chat", exact: true }),
   ).toBeInViewport();
+  await expect(app.locator(".toolbar-target")).toHaveText("yu/Arco #42");
+  await expect(app.locator(".toolbar-target")).toBeInViewport();
   const summary = app.getByLabel("Issue actions", { exact: true });
   const utilities = app.locator(".detail-utilities");
   await summary.focus();
@@ -2972,7 +2977,7 @@ for (const change of ["replacement", "removal"] as const) {
             ),
           )
           .toBe(true);
-      else await expect(app.locator(".shared-target")).toHaveCount(0);
+      else await expect(app.locator(".shared-chip")).toHaveCount(0);
     } finally {
       releaseRead();
     }
