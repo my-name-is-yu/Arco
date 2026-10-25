@@ -118,17 +118,18 @@ try {
   assert.equal(connection.mode, "github");
   assert.equal(connection.connected, true);
   const tools = await client.listTools();
-  for (const name of [
+  [
     "arco_create_label",
     "arco_edit_comment",
     "arco_reactions",
     "arco_create_sub_issue",
     "arco_bulk_update",
-  ])
+  ].forEach((name) =>
     assert(
       tools.tools.some((tool) => tool.name === name),
       `Build missing ${name}`,
-    );
+    ),
+  );
   originalIssue = await call("arco_get_issue", ref);
   assert(
     originalIssue.title.startsWith("[Arco validation]"),
@@ -169,8 +170,9 @@ try {
       });
       const issue = await call("arco_get_issue", ref);
       assert(issue.labels.some((label) => label.name === `${prefix}-renamed`));
-      for (const label of originalIssue.labels)
-        assert(issue.labels.some((candidate) => candidate.id === label.id));
+      originalIssue.labels.forEach((label) =>
+        assert(issue.labels.some((candidate) => candidate.id === label.id)),
+      );
     },
   );
 

@@ -6,12 +6,9 @@ import { join } from "node:path";
 
 await rm("dist/npm", { recursive: true, force: true });
 const project = JSON.parse(await readFile("package.json", "utf8"));
-const marketplace = JSON.parse(
+const source = JSON.parse(
   await readFile(".agents/plugins/marketplace.json", "utf8"),
-);
-const source = marketplace.plugins.find(
-  (plugin) => plugin.name === "arco",
-).source;
+).plugins.find((plugin) => plugin.name === "arco").source;
 assert.equal(source.source, "npm");
 assert.equal(
   source.version,
@@ -19,9 +16,8 @@ assert.equal(
   "marketplace version must match package.json",
 );
 for (const path of ["plugin/plugin.json", "plugin/.codex-plugin/plugin.json"]) {
-  const manifest = JSON.parse(await readFile(path, "utf8"));
   assert.equal(
-    manifest.version,
+    JSON.parse(await readFile(path, "utf8")).version,
     project.version,
     `${path} version must match package.json`,
   );
@@ -40,7 +36,7 @@ const options = {
   loader: { ".svg": "text" },
   external: ["@napi-rs/keyring"],
   banner: {
-    js: "import { createRequire as __arcoCreateRequire } from 'node:module'; const require = __arcoCreateRequire(import.meta.url);",
+    js: "import { Module } from 'node:module'; const require = Module.createRequire(import.meta.url);",
   },
 };
 await build({
@@ -76,16 +72,19 @@ for (const name of runtimePackages)
   await cp(join("node_modules", name), join("dist/plugin/node_modules", name), {
     recursive: true,
   });
-const dependencies = {};
-for (const name of runtimePackages) {
-  const metadata = JSON.parse(
-    await readFile(
-      join("dist/plugin/node_modules", name, "package.json"),
-      "utf8",
-    ),
-  );
-  dependencies[name] = metadata.version;
-}
+const dependencies = Object.fromEntries(
+  await Promise.all(
+    runtimePackages.map(async (name) => [
+      name,
+      JSON.parse(
+        await readFile(
+          join("dist/plugin/node_modules", name, "package.json"),
+          "utf8",
+        ),
+      ).version,
+    ]),
+  ),
+);
 await writeFile(
   "dist/plugin/package.json",
   JSON.stringify(
@@ -161,11 +160,10 @@ const paths = execFileSync(
 const notices = [];
 for (const path of [...new Set(paths)]) {
   const pkg = JSON.parse(await readFile(join(path, "package.json"), "utf8"));
-  const names = (await readdir(path)).filter((name) =>
-    /^(license|copying|notice)(\.|$)/i.test(name),
-  );
   const licenses = await Promise.all(
-    names.map((name) => readFile(join(path, name), "utf8")),
+    (await readdir(path))
+      .filter((name) => /^(license|copying|notice)(\.|$)/i.test(name))
+      .map((name) => readFile(join(path, name), "utf8")),
   );
   notices.push(
     `${pkg.name}@${pkg.version} (${pkg.license ?? "See package metadata"})\n${licenses.join("\n")}`,

@@ -281,15 +281,14 @@ try {
       "retain the dedicated source issue content, state, assignees, and labels",
       async () => {
         const after = await call("arco_get_issue", ref);
-        for (const key of [
+        [
           "title",
           "body",
           "state",
           "stateReason",
           "assignees",
           "labels",
-        ])
-          assert.deepEqual(after[key], original[key]);
+        ].forEach((key) => assert.deepEqual(after[key], original[key]));
       },
     );
   const keepItemForUi =

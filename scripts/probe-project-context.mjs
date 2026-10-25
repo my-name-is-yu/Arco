@@ -22,17 +22,15 @@ const temporary = await mkdtemp(join(tmpdir(), "arco-project-context-"));
 const nonRepository = join(temporary, "empty");
 const codexHome = join(temporary, "codex-home");
 await Promise.all([mkdir(nonRepository), mkdir(codexHome)]);
-let executable = "codex";
 const bundled =
   "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex";
-if (process.platform === "darwin") {
-  try {
-    await access(bundled);
-    executable = bundled;
-  } catch {
-    // Other installations use the public CLI on PATH.
-  }
-}
+const executable =
+  process.platform === "darwin"
+    ? await access(bundled).then(
+        () => bundled,
+        () => "codex",
+      )
+    : "codex";
 const probeServer = join(temporary, "server.mjs");
 await writeFile(
   probeServer,
@@ -87,18 +85,19 @@ const child = spawn(executable, args, {
 });
 child.stderr.on("data", () => {});
 const protocol = createAppServerClient(child);
-const { call } = protocol;
 function readTool(threadId, server, tool) {
-  return call("mcpServer/tool/call", {
-    threadId,
-    server,
-    tool,
-    arguments: {},
-  }).then((result) => {
-    assert(!result.isError, `${tool} failed`);
-    assert(result.structuredContent, `${tool} returned no structured result`);
-    return result.structuredContent;
-  });
+  return protocol
+    .call("mcpServer/tool/call", {
+      threadId,
+      server,
+      tool,
+      arguments: {},
+    })
+    .then((result) => {
+      assert(!result.isError, `${tool} failed`);
+      assert(result.structuredContent, `${tool} returned no structured result`);
+      return result.structuredContent;
+    });
 }
 const safeRepositories = (values) =>
   (values ?? []).filter(
@@ -107,7 +106,7 @@ const safeRepositories = (values) =>
       /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(value),
   );
 try {
-  const initialized = await call("initialize", {
+  const initialized = await protocol.call("initialize", {
     clientInfo: { name: "arco-context-probe", version: "0.0.1" },
     capabilities: { experimentalApi: true },
   });
@@ -118,14 +117,17 @@ try {
     ["project", project],
     ["non-repository", nonRepository],
   ]) {
-    const { thread } = await call("thread/start", { cwd, ephemeral: true });
-    const status = await call("mcpServerStatus/list", {
-      threadId: thread.id,
+    const started = await protocol.call("thread/start", {
+      cwd,
+      ephemeral: true,
+    });
+    const status = await protocol.call("mcpServerStatus/list", {
+      threadId: started.thread.id,
       detail: "full",
     });
     assert(status.data.some((item) => item.name === "arco_context_probe"));
     const facts = await readTool(
-      thread.id,
+      started.thread.id,
       "arco_context_probe",
       "context_probe",
     );
@@ -141,12 +143,12 @@ try {
     };
     if (production) {
       const personal = await readTool(
-        thread.id,
+        started.thread.id,
         "arco_viewer_probe",
         "arco_open",
       );
       const projectView = await readTool(
-        thread.id,
+        started.thread.id,
         "arco_viewer_probe",
         "arco_open_project",
       );
@@ -204,8 +206,11 @@ try {
   protocol.close();
   const stop = (signal) => {
     try {
-      if (process.platform === "win32") child.kill(signal);
-      else if (child.pid) process.kill(-child.pid, signal);
+      if (process.platform === "win32") {
+        child.kill(signal);
+        return;
+      }
+      if (child.pid) process.kill(-child.pid, signal);
     } catch {
       // The isolated process group may already have exited.
     }

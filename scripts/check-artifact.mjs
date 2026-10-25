@@ -13,20 +13,20 @@ assert.equal(
   await readFile("LICENSE", "utf8"),
   "project license missing or changed in plugin artifact",
 );
-for (const developmentLiteral of [
+[
   "fixture-issue-42",
   "fixture-linear-workspace",
   "arco-fixture/selection.png",
   "Preserve issue selection and scroll position",
-])
+].forEach((developmentLiteral) =>
   assert(
     !server.includes(developmentLiteral),
     "development fixture data in production server",
-  );
+  ),
+);
 assert(!/<script\b[^>]*\bsrc\s*=/i.test(html), "external script");
 assert(!/<link\b[^>]*rel=["']stylesheet/i.test(html), "external stylesheet");
-const styles = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)];
-for (const [, css] of styles) {
+[...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].forEach(([, css]) => {
   const ast = postcss.parse(css);
   ast.walkAtRules("import", () => {
     throw new Error("CSS import");
@@ -37,10 +37,9 @@ for (const [, css] of styles) {
       "remote CSS URL",
     );
   });
-}
+});
 const guardedDependencyProbes = [];
-for (const [, js] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
-  const ast = parse(js, { ecmaVersion: "latest", sourceType: "module" });
+[...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].forEach(([, js]) => {
   function walk(node) {
     if (!node || typeof node !== "object") return;
     assert(node.type !== "ImportExpression", "dynamic import");
@@ -68,14 +67,17 @@ for (const [, js] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
       );
       guardedDependencyProbes.push(literal);
     }
-    for (const [key, value] of Object.entries(node))
-      if (key !== "type") {
-        if (Array.isArray(value)) value.forEach(walk);
-        else walk(value);
+    Object.entries(node).forEach(([key, value]) => {
+      if (key === "type") return;
+      if (Array.isArray(value)) {
+        value.forEach(walk);
+        return;
       }
+      walk(value);
+    });
   }
-  walk(ast);
-}
+  walk(parse(js, { ecmaVersion: "latest", sourceType: "module" }));
+});
 const files = await readdir(directory, { recursive: true });
 assert(
   !files.some((file) => /\.map$|\.env|fixture/.test(file)),

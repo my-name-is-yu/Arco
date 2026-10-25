@@ -36,7 +36,7 @@ try {
     );
   }
   const tools = await client.listTools();
-  for (const name of [
+  [
     "arco_open",
     "arco_open_project",
     "arco_show_issue",
@@ -53,11 +53,12 @@ try {
     "search_mentions",
     "arco_read_draft",
     "arco_write_draft",
-  ])
+  ].forEach((name) =>
     assert(
       tools.tools.some((tool) => tool.name === name),
       `Missing ${name}`,
-    );
+    ),
+  );
   const open = tools.tools.find((tool) => tool.name === "arco_open");
   assert.equal(open._meta.ui.resourceUri, "ui://arco/issues");
   assert.deepEqual(open._meta["openai/ui"].entrypoints, [{ type: "global" }]);
@@ -68,11 +69,12 @@ try {
   assert.deepEqual(projectOpen._meta["openai/ui"].entrypoints, [
     { type: "thread" },
   ]);
-  for (const tool of [open, projectOpen])
+  [open, projectOpen].forEach((tool) =>
     assert.equal(
       tool._meta["openai/ui"].preferredModelDisplayMode,
       "fullscreen",
-    );
+    ),
+  );
   for (const [name, uri, mode] of [
     ["arco_show_issue", "ui://arco/issue-card", "inline"],
     ["arco_open_issue", "ui://arco/issues", "fullscreen"],
@@ -127,10 +129,10 @@ try {
   assert.equal(grouped.structuredContent.launch.issues.length, 2);
   assert.equal(grouped.structuredContent.launch.issues[0].source, "github");
   assert.equal(grouped.structuredContent.launch.issues[1].source, "linear");
-  for (const issue of grouped.structuredContent.launch.issues) {
+  grouped.structuredContent.launch.issues.forEach((issue) => {
     assert.equal(issue.body, undefined);
     assert.equal(issue.comments, undefined);
-  }
+  });
   const personalLaunch = await client.callTool({
     name: "arco_open",
     arguments: {},
@@ -246,11 +248,12 @@ try {
   });
   assert(!repositories.isError);
   assert.equal(repositories.structuredContent.repositories[0].repo, "yu/Arco");
-  for (const name of ["arco_account_issues", "arco_repositories"])
+  ["arco_account_issues", "arco_repositories"].forEach((name) =>
     assert.equal(
       tools.tools.find((tool) => tool.name === name).annotations.readOnlyHint,
       true,
-    );
+    ),
+  );
   const params = {
     repo: "yu/Arco",
     number: 42,
