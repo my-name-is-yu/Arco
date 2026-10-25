@@ -1,10 +1,9 @@
 import { useId, useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
-import {
-  launchContextSchema,
-  type IssuePresentationSummary,
-  type NativeIssueTarget,
+import type {
+  IssuePresentationSummary,
+  NativeIssueTarget,
 } from "../shared/launch";
 import { Notice } from "./Notice";
 import { isTextSelectionClick, selectionIssueData } from "./selection-context";
@@ -41,12 +40,6 @@ export function presentationIdentity(target: NativeIssueTarget) {
   );
 }
 
-function identifier(issue: IssuePresentationSummary) {
-  return issue.source === "github"
-    ? `${issue.repo} #${issue.number}`
-    : issue.identifier;
-}
-
 function stateLabel(issue: IssuePresentationSummary) {
   if (issue.source === "linear") return issue.state.name;
   return githubStatePresentation(issue).label;
@@ -75,25 +68,13 @@ export function InlineIssueTabs({
     initialData: issues,
     initialDataUpdatedAt: host.presentationIssues?.()?.receivedAt,
     queryFn: async ({ signal }) => {
-      const response = await host.call<{ launch: unknown }>(
+      const response = await host.call(
         "arco_show_issues",
         { targets },
         { signal },
       );
-      const refreshed = launchContextSchema.parse(response.launch).issues;
-      if (
-        !refreshed ||
-        refreshed.length !== issues.length ||
-        refreshed.some(
-          (issue, index) =>
-            presentationIdentity(issue) !== presentationIdentity(issues[index]),
-        )
-      )
-        throw new Error(
-          "The issue tabs returned different targets. Try refreshing again.",
-        );
       seedPresentationCache(client, host);
-      return refreshed;
+      return response.launch.issues;
     },
   });
   usePresentationImagePrefetch(
@@ -135,13 +116,16 @@ export function InlineIssueTabs({
         {query.data.map((issue, index) => {
           const key = presentationIdentity(issue);
           const selected = key === activeKey;
-          const label = `${identifier(issue)} ${issue.title}`;
+          const label = `${issue.source === "github" ? `${issue.repo} #${issue.number}` : issue.identifier} ${issue.title}`;
           return (
             <button
               key={key}
               ref={(button) => {
-                if (button) buttons.current.set(key, button);
-                else buttons.current.delete(key);
+                if (!button) {
+                  buttons.current.delete(key);
+                  return;
+                }
+                buttons.current.set(key, button);
               }}
               type="button"
               className="inline-issue-tab"

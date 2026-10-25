@@ -1,7 +1,11 @@
 import { z } from "zod";
 import type { LinearIssue, LinearRef } from "./linear";
 import type { ImageData } from "./images";
-import type { LaunchContext } from "./launch";
+import type {
+  IssuePresentationSummary,
+  LaunchContext,
+  NativeIssueTarget,
+} from "./launch";
 
 export const repoSchema = z
   .string()
@@ -255,6 +259,13 @@ export interface ArcoHost {
   sharedIssue(): SharedIssueRef | null;
   sharedAnnotations(): SelectionAnnotationContext[] | null;
   annotationSnapshotId(): string | null;
+  call(
+    name: "arco_show_issues",
+    args: { targets: NativeIssueTarget[] },
+    options?: { signal?: AbortSignal; priority?: "background" | "interactive" },
+  ): Promise<{
+    launch: LaunchContext & { issues: IssuePresentationSummary[] };
+  }>;
   call<T>(
     name: string,
     args: Record<string, unknown>,

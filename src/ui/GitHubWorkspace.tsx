@@ -58,7 +58,7 @@ import type {
 } from "../shared/contracts";
 import { DisclosureSummary } from "./DisclosureSummary";
 import type { LaunchContext } from "../shared/launch";
-import { resolveContentDraft as resolveDraft } from "./content-drafts";
+import { resolveContentDraft } from "./content-drafts";
 import { toggleMarkdownTask } from "./markdown-tasks";
 import type { Draft } from "../shared/state";
 import {
@@ -69,7 +69,7 @@ import {
 import { useHostView } from "./HostProvider";
 import { Notice, type NoticeValue } from "./Notice";
 import {
-  githubIssueKey as issueKey,
+  githubIssueKey,
   useGitHubIssueList,
   useGitHubIssue,
   useGitHubMetadata,
@@ -82,7 +82,6 @@ import { useDebouncedSearch } from "./useDebouncedSearch";
 const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
-const requestId = () => crypto.randomUUID();
 const accountViews = [
   { value: "assigned", label: "Assigned to me" },
   { value: "created", label: "Created by me" },
@@ -160,7 +159,7 @@ export function GitHubWorkspace({
       : null;
   const queryClient = useQueryClient();
   const persistence = useDraftPersistence(host);
-  const { load: loadDraft, schedule: scheduleDraft } = persistence;
+  const loadDraft = persistence.load;
   const settings = useGitHubSettings(
     host,
     projectView ? { key: launch.projectKey } : undefined,
@@ -253,12 +252,7 @@ export function GitHubWorkspace({
     false,
   );
   const hostLock = useSessionRef(host, "github:hostLock", false);
-  const {
-    busy: mutationBusy,
-    setBusy: setMutationBusy,
-    lock: mutationLock,
-    requests: pendingRequestIds,
-  } = useCommandSession(host, "github");
+  const commands = useCommandSession(host, "github");
   const searchRef = useRef<HTMLInputElement>(null);
   const scopeSelectRef = useRef<SingleSelectHandle>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -310,29 +304,23 @@ export function GitHubWorkspace({
       sort: "updated" as const,
       order: "desc" as const,
     };
-  const { query, state, sort, order } = filter;
-  const search = useDebouncedSearch(query, filterKey);
+  const search = useDebouncedSearch(filter.query, filterKey);
   const updateFilter = (patch: Partial<Settings["githubFilters"][string]>) => {
-    const current = filtersRef.current[filterKey] ?? filter;
-    const next = { ...current, ...patch };
+    const next = { ...(filtersRef.current[filterKey] ?? filter), ...patch };
     filtersRef.current = { ...filtersRef.current, [filterKey]: next };
     setLocalFilters(filtersRef.current);
-    if (repo) settings.saveFilter(repo, next);
-    else
-      settings.saveAccountFilter({
-        filter: accountView,
-        state: next.state,
-        sort: next.sort,
-        order: next.order,
-      });
+    if (repo) {
+      settings.saveFilter(repo, next);
+      return;
+    }
+    settings.saveAccountFilter({
+      filter: accountView,
+      state: next.state,
+      sort: next.sort,
+      order: next.order,
+    });
   };
   const setQuery = (query: string) => updateFilter({ query });
-  const setState = (state: "open" | "closed" | "all") =>
-    updateFilter({ state });
-  const setSort = (sort: "updated" | "created" | "comments") =>
-    updateFilter({ sort });
-  const setOrder = (order: "asc" | "desc") => updateFilter({ order });
-  const setSource = onSourceChange;
   const repositories = [
     ...new Set(
       [
@@ -350,7 +338,7 @@ export function GitHubWorkspace({
     nextRepo: string,
     nextAccountView?: AccountIssuesInput["filter"],
   ) => {
-    if (mutationLock.current || bulkBusy) return;
+    if (commands.lock.current || bulkBusy) return;
     urlRequest.current += 1;
     setUrlBusy(false);
     setSearchEntry(null);
@@ -367,15 +355,15 @@ export function GitHubWorkspace({
     setSelected(previous ? { repo: nextRepo, number: previous } : null);
     setShowDetail(false);
   };
-  const listScope = `${connectionIdentity}|${repo || `@account:${accountView}`}|${search.query}|${state}|${sort}|${order}`;
+  const listScope = `${connectionIdentity}|${repo || `@account:${accountView}`}|${search.query}|${filter.state}|${filter.sort}|${filter.order}`;
   const issues = useGitHubIssueList(host, {
     connection: connection.data,
     repo,
     accountView,
     query: search.query,
-    state,
-    sort,
-    order,
+    state: filter.state,
+    sort: filter.sort,
+    order: filter.order,
     enabled:
       !targetedInline &&
       connection.data?.connected === true &&
@@ -465,27 +453,28 @@ export function GitHubWorkspace({
     args: Record<string, unknown>,
     after?: (result: IssueDetail) => void,
   ) => {
-    if (mutationLock.current) return;
-    mutationLock.current = true;
-    setMutationBusy(true);
+    if (commands.lock.current) return;
+    commands.lock.current = true;
+    commands.setBusy(true);
     setNotice(null);
     const operationKey = JSON.stringify([name, args]);
-    const operationId = pendingRequestIds.get(operationKey) ?? requestId();
-    pendingRequestIds.set(operationKey, operationId);
+    const operationId =
+      commands.requests.get(operationKey) ?? crypto.randomUUID();
+    commands.requests.set(operationKey, operationId);
     try {
       const result = await mutation.mutateAsync({
         name,
         args: { ...args, requestId: operationId },
       });
-      pendingRequestIds.delete(operationKey);
+      commands.requests.delete(operationKey);
       after?.(result);
     } catch (error) {
       setNotice({ kind: "error", text: errorText(error) });
       await queryClient.invalidateQueries({ queryKey: ["issue"] });
       await queryClient.invalidateQueries({ queryKey: ["issues"] });
     } finally {
-      mutationLock.current = false;
-      setMutationBusy(false);
+      commands.lock.current = false;
+      commands.setBusy(false);
     }
   };
   const hostAction = async (action: () => Promise<void>) => {
@@ -508,7 +497,7 @@ export function GitHubWorkspace({
       await host.display(next);
     });
   const updateDraft = (issue: IssueDetail, patch: Partial<Draft>) => {
-    const current = resolveDraft(
+    const current = resolveContentDraft(
       issue,
       persistence.value({
         source: "github",
@@ -518,20 +507,19 @@ export function GitHubWorkspace({
     );
     const startsContentEdit =
       ("title" in patch || "body" in patch) && !current.baseUpdatedAt;
-    const next = {
-      ...current,
-      ...(startsContentEdit
-        ? {
-            baseUpdatedAt: issue.updatedAt,
-            baseTitle: issue.title,
-            baseBody: issue.body,
-          }
-        : {}),
-      ...patch,
-    };
-    scheduleDraft(
+    persistence.schedule(
       { source: "github", repo: issue.repo, issue: String(issue.number) },
-      next,
+      {
+        ...current,
+        ...(startsContentEdit
+          ? {
+              baseUpdatedAt: issue.updatedAt,
+              baseTitle: issue.title,
+              baseBody: issue.body,
+            }
+          : {}),
+        ...patch,
+      },
     );
   };
   const openIssueUrl = async (
@@ -544,7 +532,7 @@ export function GitHubWorkspace({
     setRepoError("");
     try {
       const target = githubIssueUrl(value);
-      if (mutationLock.current || bulkBusy)
+      if (commands.lock.current || bulkBusy)
         throw new Error(
           "Wait for the current change before opening another issue.",
         );
@@ -558,7 +546,7 @@ export function GitHubWorkspace({
           "GitHub returned a different issue than the pasted URL.",
         );
       const resolved = { repo: issue.repo, number: issue.number };
-      queryClient.setQueryData(issueKey(resolved), issue);
+      queryClient.setQueryData(githubIssueKey(resolved), issue);
       changeRepo(resolved.repo);
       setSelected(resolved);
       setShowDetail(true);
@@ -572,7 +560,7 @@ export function GitHubWorkspace({
   };
   const submitRepo = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (mutationBusy) return;
+    if (commands.busy) return;
     const entered = String(
       new FormData(event.currentTarget).get("repo") ?? "",
     ).trim();
@@ -621,7 +609,10 @@ export function GitHubWorkspace({
       issue: String(retainedIssue.number),
     };
     const controller = draftController(host);
-    const draft = resolveDraft(retainedIssue, await controller.load(key));
+    const draft = resolveContentDraft(
+      retainedIssue,
+      await controller.load(key),
+    );
     const status = controller.get()[draftStorageId(key)];
     if (
       status?.state === "error" ||
@@ -707,7 +698,7 @@ export function GitHubWorkspace({
             persistence.retry(
               activeDraftKey,
               persistence.value(activeDraftKey!) ??
-                resolveDraft(selectedDetail),
+                resolveContentDraft(selectedDetail),
             )
           }
           onResolve={(choice) => {
@@ -715,7 +706,7 @@ export function GitHubWorkspace({
               activeDraftKey,
               choice,
               persistence.value(activeDraftKey!) ??
-                resolveDraft(selectedDetail),
+                resolveContentDraft(selectedDetail),
             );
           }}
         />
@@ -745,7 +736,7 @@ export function GitHubWorkspace({
       <InlineSummaryCard
         host={host}
         issue={retainedIssue}
-        busy={mutationBusy || hostBusy}
+        busy={commands.busy || hostBusy}
         onOpen={openRetainedDetails}
         onOpenLink={(url) => void hostAction(() => host.openLink(url))}
         onToggleTask={(line, checked) => void toggleRetainedTask(line, checked)}
@@ -755,7 +746,7 @@ export function GitHubWorkspace({
             currentUser={connection.data?.account}
             metadata={metadata.data}
             metadataError={metadata.error}
-            busy={mutationBusy || hostBusy}
+            busy={commands.busy || hostBusy}
             onRetry={() => void metadata.refetch()}
             onSave={(name, args) => void save(name, args)}
           />
@@ -804,7 +795,7 @@ export function GitHubWorkspace({
                 : "No matching issues"}
             </h1>
             <p className="compact-summary">
-              {`${repo || accountViewLabel} · ${state === "all" ? "All states" : state === "closed" ? "Closed" : "Open"}${repo && query ? ` · ${query}` : ""}`}
+              {`${repo || accountViewLabel} · ${filter.state === "all" ? "All states" : filter.state === "closed" ? "Closed" : "Open"}${repo && filter.query ? ` · ${filter.query}` : ""}`}
             </p>
             {issues.hasNextPage ? (
               <Button
@@ -875,7 +866,7 @@ export function GitHubWorkspace({
           source="github"
           onSourceChange={(next) => {
             rememberListScroll();
-            setSource(next);
+            onSourceChange(next);
           }}
           onCreate={() => {
             if (repo) setCreateOpen(true);
@@ -918,7 +909,7 @@ export function GitHubWorkspace({
                   : "Search views or repositories…"
               }
               value={repo || (projectView ? "" : `account:${accountView}`)}
-              disabled={mutationBusy || bulkBusy}
+              disabled={commands.busy || bulkBusy}
               onChange={(value) => {
                 const view = accountViews.find(
                   (entry) => `account:${entry.value}` === value,
@@ -1007,7 +998,7 @@ export function GitHubWorkspace({
                 <input
                   id="repo-input"
                   name="repo"
-                  disabled={mutationBusy}
+                  disabled={commands.busy}
                   defaultValue=""
                   placeholder="owner/repository"
                   autoComplete="off"
@@ -1059,7 +1050,7 @@ export function GitHubWorkspace({
             <input
               ref={searchRef}
               aria-label="Search issues"
-              value={searchEntry ?? (repo ? query : "")}
+              value={searchEntry ?? (repo ? filter.query : "")}
               disabled={!connection.data?.connected}
               onCompositionStart={search.onCompositionStart}
               onCompositionEnd={search.onCompositionEnd}
@@ -1070,11 +1061,12 @@ export function GitHubWorkspace({
                 setSearchError("");
                 rememberListScroll();
                 const value = event.target.value;
-                if (isIssueUrlInput(value) || !repo) setSearchEntry(value);
-                else {
-                  setSearchEntry(null);
-                  setQuery(value);
+                if (isIssueUrlInput(value) || !repo) {
+                  setSearchEntry(value);
+                  return;
                 }
+                setSearchEntry(null);
+                setQuery(value);
               }}
               onPaste={(event) => {
                 const value = event.clipboardData.getData("text").trim();
@@ -1116,10 +1108,10 @@ export function GitHubWorkspace({
               {(["open", "closed", "all"] as const).map((value) => (
                 <button
                   key={value}
-                  aria-pressed={state === value}
+                  aria-pressed={filter.state === value}
                   onClick={() => {
                     rememberListScroll();
-                    setState(value);
+                    updateFilter({ state: value });
                   }}
                 >
                   {value === "open"
@@ -1151,10 +1143,12 @@ export function GitHubWorkspace({
               Sort by
               <SingleSelect
                 label="Sort issues"
-                value={sort}
+                value={filter.sort}
                 onChange={(value) => {
                   rememberListScroll();
-                  setSort(value as "updated" | "created" | "comments");
+                  updateFilter({
+                    sort: value as "updated" | "created" | "comments",
+                  });
                 }}
                 options={[
                   { value: "updated", label: "Last updated" },
@@ -1167,10 +1161,10 @@ export function GitHubWorkspace({
               Direction
               <SingleSelect
                 label="Sort direction"
-                value={order}
+                value={filter.order}
                 onChange={(value) => {
                   rememberListScroll();
-                  setOrder(value === "asc" ? "asc" : "desc");
+                  updateFilter({ order: value === "asc" ? "asc" : "desc" });
                 }}
                 options={[
                   { value: "desc", label: "Descending" },
@@ -1183,10 +1177,10 @@ export function GitHubWorkspace({
                 key={`project-scope:${repo}`}
                 host={host}
                 repo={repo}
-                value={/(?:^|\s)project:([^\s]+)/.exec(query)?.[1] ?? ""}
+                value={/(?:^|\s)project:([^\s]+)/.exec(filter.query)?.[1] ?? ""}
                 onChange={(value) => {
                   rememberListScroll();
-                  const rest = query
+                  const rest = filter.query
                     .replace(/(?:^|\s)project:[^\s]+/g, "")
                     .trim();
                   setQuery(`${rest}${value ? ` project:${value}` : ""}`.trim());
@@ -1411,14 +1405,14 @@ export function GitHubWorkspace({
             feedback={detailFeedback}
             onBack={() => setShowDetail(false)}
             onFullscreen={() => void switchMode("fullscreen")}
-            draft={resolveDraft(
+            draft={resolveContentDraft(
               selectedDetail,
               activeDraftKey ? persistence.value(activeDraftKey) : undefined,
             )}
             onDraft={(patch) => updateDraft(selectedDetail, patch)}
             metadata={metadata.data}
             metadataError={metadata.error}
-            busy={mutationBusy}
+            busy={commands.busy}
             save={save}
             host={host}
             hostBusy={hostBusy}
@@ -1431,7 +1425,7 @@ export function GitHubWorkspace({
         host={host}
         repo={repo}
         open={createOpen}
-        busy={mutationBusy}
+        busy={commands.busy}
         fixture={connection.data?.mode === "fixture"}
         notice={notice}
         save={save}

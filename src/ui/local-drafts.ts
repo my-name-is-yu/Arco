@@ -33,17 +33,16 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
   const entries = new Map<string, Entry>();
   const entryFor = (key: DraftKey) => {
     const id = JSON.stringify(key);
-    let entry = entries.get(id);
-    if (!entry) {
-      entry = {
-        key,
-        record: { revision: 0, draft: null },
-        loaded: false,
-        conflict: null,
-        tail: Promise.resolve(),
-      };
-      entries.set(id, entry);
-    }
+    const existing = entries.get(id);
+    if (existing) return existing;
+    const entry: Entry = {
+      key,
+      record: { revision: 0, draft: null },
+      loaded: false,
+      conflict: null,
+      tail: Promise.resolve(),
+    };
+    entries.set(id, entry);
     return entry;
   };
   const read = async (entry: Entry) =>

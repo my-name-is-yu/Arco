@@ -22,7 +22,6 @@ import type {
   LinearIssue,
   LinearRef,
   LinearSavedReceipt,
-  LinearScope,
   LinearScopes,
 } from "../shared/linear";
 import {
@@ -145,7 +144,7 @@ export function LinearWorkspace({
   const [receipt, setReceipt] = useSessionState<
     (LinearSavedReceipt & { requestId: string }) | null
   >(host, "linear:receipt", null);
-  const { busy, setBusy, lock, requests } = useCommandSession(host, "linear");
+  const commands = useCommandSession(host, "linear");
   const [disconnecting, setDisconnecting] = useSessionState(
     host,
     "linear:disconnecting",
@@ -246,12 +245,12 @@ export function LinearWorkspace({
       }),
     enabled: canRead && !targetedInline,
   });
-  const savedTeam = settings.query.data?.settings.activeLinearTeam;
-  const requestedTeam = teamOverride || savedTeam || "";
+  const requestedTeam =
+    teamOverride || settings.query.data?.settings.activeLinearTeam || "";
   const teamId = scopes.data?.teams.some((team) => team.id === requestedTeam)
     ? requestedTeam
     : "";
-  const scope: LinearScope | null = useMemo(
+  const scope = useMemo(
     () =>
       connected &&
       scopes.data &&
@@ -287,7 +286,6 @@ export function LinearWorkspace({
     setLocalFilters(filtersRef.current);
     if (scope) settings.saveFilter(scope, next);
   };
-  const setQuery = (query: string) => updateFilter({ query });
   const setFilters = (
     update: (
       current: Omit<LinearFilter, "query">,
@@ -461,22 +459,21 @@ export function LinearWorkspace({
     name: string,
     args: Record<string, unknown>,
   ): Promise<T | LinearSavedReceipt | undefined> {
-    if (lock.current || !connected) return;
-    lock.current = true;
-    setBusy(true);
+    if (commands.lock.current || !connected) return;
+    commands.lock.current = true;
+    commands.setBusy(true);
     setNotice("");
     const key = JSON.stringify([name, args]);
-    const requestId = requests.get(key) ?? crypto.randomUUID();
-    requests.set(key, requestId);
+    const requestId = commands.requests.get(key) ?? crypto.randomUUID();
+    commands.requests.set(key, requestId);
     try {
       const result = await host.call<T | LinearSavedReceipt>(name, {
         ...args,
         requestId,
       });
-      requests.delete(key);
+      commands.requests.delete(key);
       if (isSavedReceipt(result)) {
-        const saved = { ...result, requestId };
-        setReceipt(saved);
+        setReceipt({ ...result, requestId });
         setSelected(linearRef(result));
         setShowDetail(true);
         void cache.invalidateQueries({ queryKey: ["linear-issue"] });
@@ -500,8 +497,8 @@ export function LinearWorkspace({
       await issueCache.refresh();
       return undefined;
     } finally {
-      lock.current = false;
-      setBusy(false);
+      commands.lock.current = false;
+      commands.setBusy(false);
     }
   }
   async function hostAction(action: () => Promise<void>) {
@@ -541,9 +538,9 @@ export function LinearWorkspace({
     selectedStateTypes.current.clear();
   }
   async function disconnect() {
-    if (lock.current || connection.data?.mode === "fixture") return;
-    lock.current = true;
-    setBusy(true);
+    if (commands.lock.current || connection.data?.mode === "fixture") return;
+    commands.lock.current = true;
+    commands.setBusy(true);
     setDisconnecting(true);
     setNotice("");
     urlRequest.current += 1;
@@ -570,9 +567,9 @@ export function LinearWorkspace({
       if (status?.connected === false) disconnected(connectionId);
       else setNotice(message(error), "error");
     } finally {
-      lock.current = false;
+      commands.lock.current = false;
       setDisconnecting(false);
-      setBusy(false);
+      commands.setBusy(false);
       accountMenu.current?.querySelector("summary")?.focus();
     }
   }
@@ -597,7 +594,7 @@ export function LinearWorkspace({
     setSearchError("");
     try {
       linearIssueUrl(value);
-      if (lock.current)
+      if (commands.lock.current)
         throw new Error(
           "Wait for the current change before opening another issue.",
         );
@@ -747,7 +744,7 @@ export function LinearWorkspace({
         host={host}
         issue={retained}
         busy={
-          busy ||
+          commands.busy ||
           (target
             ? targetIssue.isFetching
             : shared
@@ -764,7 +761,7 @@ export function LinearWorkspace({
             currentUserId={connection.data?.userId}
             metadata={detailMetadata.data}
             metadataError={detailMetadata.error}
-            busy={busy}
+            busy={commands.busy}
             onRetry={() => void detailMetadata.refetch()}
             onSave={(name, args) => void run(name, args)}
           />
@@ -825,7 +822,7 @@ export function LinearWorkspace({
             onSourceChange(next);
           }}
           onCreate={() => setCreateOpen(true)}
-          createDisabled={!scope || busy}
+          createDisabled={!scope || commands.busy}
           createLabel="Create Linear Issue"
           actions={
             connection.data?.mode !== "fixture" && (
@@ -850,7 +847,7 @@ export function LinearWorkspace({
                   <button
                     className="utility-item"
                     disabled={
-                      busy ||
+                      commands.busy ||
                       (!connected && !authPending && !connection.isError)
                     }
                     onClick={() => {
@@ -886,7 +883,7 @@ export function LinearWorkspace({
             </label>
             <Button
               color="primary"
-              disabled={!clientId || busy}
+              disabled={!clientId || commands.busy}
               onClick={() =>
                 void hostAction(async () => {
                   const result = await host.call<{ authorizationUrl: string }>(
@@ -977,7 +974,7 @@ export function LinearWorkspace({
                 className="scope-select"
                 label="Linear Team"
                 value={teamId}
-                disabled={busy}
+                disabled={commands.busy}
                 options={[
                   { value: "", label: "Choose a team", disabled: true },
                   ...(scopes.data?.teams ?? []).map((team) => ({
@@ -1051,11 +1048,12 @@ export function LinearWorkspace({
                       setSearchError("");
                       capturePosition();
                       const value = event.target.value;
-                      if (isIssueUrlInput(value)) setSearchEntry(value);
-                      else {
-                        setSearchEntry(null);
-                        setQuery(value);
+                      if (isIssueUrlInput(value)) {
+                        setSearchEntry(value);
+                        return;
                       }
+                      setSearchEntry(null);
+                      updateFilter({ query: value });
                     }}
                     onPaste={(event) => {
                       const value = event.clipboardData.getData("text").trim();
@@ -1239,7 +1237,7 @@ export function LinearWorkspace({
                               .type ?? selectedStateTypes.current.get(id)) ===
                             "duplicate",
                         )}
-                        busy={busy}
+                        busy={commands.busy}
                         run={run}
                         onClear={() => setBulk([])}
                       />
@@ -1253,7 +1251,7 @@ export function LinearWorkspace({
                         type="checkbox"
                         aria-label={`${issue.identifier} — select for bulk actions`}
                         checked={bulk.includes(issue.issueId)}
-                        disabled={busy}
+                        disabled={commands.busy}
                         onChange={(event) => {
                           selectedStateTypes.current.set(
                             issue.issueId,
@@ -1368,7 +1366,7 @@ export function LinearWorkspace({
             metadata={detailMetadata.data}
             metadataError={detailMetadata.error}
             connection={connection.data}
-            busy={busy}
+            busy={commands.busy}
             run={run}
             onNotice={setNotice}
           />
@@ -1398,7 +1396,7 @@ export function LinearWorkspace({
           host={host}
           scope={scope}
           open={createOpen}
-          busy={busy}
+          busy={commands.busy}
           notice={notice}
           workspaceName={scopes.data?.workspace.name ?? "Workspace"}
           teamName={

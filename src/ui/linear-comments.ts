@@ -41,17 +41,19 @@ export function displayedLinearComments(
   pages: LinearCommentPage[],
   changes: LinearCommentChanges,
 ) {
-  const comments = new Map<string, LinearComment>();
-  for (const page of pages)
-    for (const comment of page.comments) comments.set(comment.id, comment);
-  for (const [id, comment] of Object.entries(changes)) {
-    if (!comment) comments.delete(id);
-    else if (
-      comment &&
-      (!comments.has(id) || comment.updatedAt >= comments.get(id)!.updatedAt)
-    )
+  const comments = new Map(
+    pages.flatMap((page) =>
+      page.comments.map((comment) => [comment.id, comment] as const),
+    ),
+  );
+  Object.entries(changes).forEach(([id, comment]) => {
+    if (!comment) {
+      comments.delete(id);
+      return;
+    }
+    if (!comments.has(id) || comment.updatedAt >= comments.get(id)!.updatedAt)
       comments.set(id, comment);
-  }
+  });
   return [...comments.values()];
 }
 
