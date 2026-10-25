@@ -30,24 +30,6 @@ export interface FixtureGitHubService extends GitHubService {
   };
 }
 
-export function isFixtureGitHubService(
-  service: GitHubService,
-): service is FixtureGitHubService {
-  return (
-    "fixture" in service &&
-    service.fixture !== null &&
-    typeof service.fixture === "object" &&
-    "mutate" in service.fixture &&
-    typeof service.fixture.mutate === "function" &&
-    "labels" in service.fixture &&
-    typeof service.fixture.labels === "function" &&
-    "replaceLabels" in service.fixture &&
-    typeof service.fixture.replaceLabels === "function" &&
-    "issues" in service.fixture &&
-    typeof service.fixture.issues === "function"
-  );
-}
-
 export const FIXTURE_REPO = "yu/Arco";
 function listSummary(issue: IssueDetail): IssueSummary {
   return {

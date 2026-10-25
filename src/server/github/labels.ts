@@ -22,23 +22,25 @@ function labelDto(label: z.infer<typeof apiLabelSchema>): LabelDefinition {
   };
 }
 export function createLabelsOperations(context: GitHubOperationContext) {
-  const { once, api, pages } = context;
   async function labelDefinitions(input: Input<"arco_label_definitions">) {
     return {
       repo: input.repo,
       labels: (
-        await pages(`repos/${input.repo}/labels?per_page=100`, apiLabelSchema)
+        await context.pages(
+          `repos/${input.repo}/labels?per_page=100`,
+          apiLabelSchema,
+        )
       ).map(labelDto),
     };
   }
 
   function createLabel(input: Input<"arco_create_label">) {
-    return once(input.requestId, ["createLabel", input], async () => ({
+    return context.once(input.requestId, ["createLabel", input], async () => ({
       repo: input.repo,
       label: labelDto(
         parse(
           apiLabelSchema,
-          await api("write", `repos/${input.repo}/labels`, "POST", {
+          await context.api("write", `repos/${input.repo}/labels`, "POST", {
             name: input.name,
             color: input.color,
             description: input.description,
@@ -49,7 +51,7 @@ export function createLabelsOperations(context: GitHubOperationContext) {
   }
 
   function updateLabel(input: Input<"arco_update_label">) {
-    return once(input.requestId, ["updateLabel", input], async () => {
+    return context.once(input.requestId, ["updateLabel", input], async () => {
       if (!Object.keys(input.patch).length)
         return invalid("Select the label definition fields to change.");
       const { name, ...patch } = input.patch;
@@ -58,7 +60,7 @@ export function createLabelsOperations(context: GitHubOperationContext) {
         label: labelDto(
           parse(
             apiLabelSchema,
-            await api(
+            await context.api(
               "write",
               `repos/${input.repo}/labels/${encodeURIComponent(input.name)}`,
               "PATCH",
@@ -71,8 +73,8 @@ export function createLabelsOperations(context: GitHubOperationContext) {
   }
 
   function deleteLabel(input: Input<"arco_delete_label">) {
-    return once(input.requestId, ["deleteLabel", input], async () => {
-      await api(
+    return context.once(input.requestId, ["deleteLabel", input], async () => {
+      await context.api(
         "write",
         `repos/${input.repo}/labels/${encodeURIComponent(input.name)}`,
         "DELETE",

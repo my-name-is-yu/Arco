@@ -15,13 +15,10 @@ export function createBulkOperations(
   fields: ReturnType<typeof createFieldsOperations>,
   projects: ReturnType<typeof createProjectsOperations>,
 ) {
-  const { service, once } = context;
-  const { issueAttributes, setIssueField } = fields;
-  const { issueProjects, setProjectField } = projects;
   const onceMember =
     createGitHubWriteGuard<BulkUpdateResult["results"][number]>();
   function bulkUpdate(input: Input<"arco_bulk_update">) {
-    return once(input.requestId, ["bulkUpdate", input], async () => {
+    return context.once(input.requestId, ["bulkUpdate", input], async () => {
       const repo = input.issues[0].repo.toLowerCase();
       if (
         input.issues.some((issue) => issue.repo.toLowerCase() !== repo) ||
@@ -51,7 +48,7 @@ export function createBulkOperations(
                 const { milestoneNumber, issueTypeId, ...patch } =
                   input.patch ?? {};
                 if (Object.keys(patch).length)
-                  issue = await service.update({
+                  issue = await context.service.update({
                     ...ref,
                     requestId: `${key}-issue`,
                     patch,
@@ -60,7 +57,7 @@ export function createBulkOperations(
                   milestoneNumber !== undefined ||
                   issueTypeId !== undefined
                 ) {
-                  const result = await issueAttributes({
+                  const result = await fields.issueAttributes({
                     ...ref,
                     requestId: `${key}-attrs`,
                     patch: {
@@ -73,13 +70,13 @@ export function createBulkOperations(
                   issue = "issue" in result ? result.issue : undefined;
                 }
                 if (input.labels)
-                  issue = await service.labels({
+                  issue = await context.service.labels({
                     ...ref,
                     requestId: `${key}-labels`,
                     ...input.labels,
                   });
                 if (input.issueField) {
-                  const result = await setIssueField({
+                  const result = await fields.setIssueField({
                     ...ref,
                     requestId: `${key}-field`,
                     ...input.issueField,
@@ -88,13 +85,13 @@ export function createBulkOperations(
                 }
                 if (input.projectField) {
                   const membership = (
-                    await issueProjects(ref)
+                    await projects.issueProjects(ref)
                   ).memberships.find(
                     (item) => item.projectId === input.projectField?.projectId,
                   );
                   if (!membership)
                     return invalid("An issue is not in the selected Project.");
-                  const result = await setProjectField({
+                  const result = await projects.setProjectField({
                     ...ref,
                     requestId: `${key}-project`,
                     ...input.projectField,
@@ -105,7 +102,7 @@ export function createBulkOperations(
                 return {
                   ...ref,
                   ok: true,
-                  issue: issue ?? (await service.get(ref)),
+                  issue: issue ?? (await context.service.get(ref)),
                 };
               } catch (error) {
                 const progress = getWriteProgress();

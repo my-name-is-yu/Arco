@@ -15,29 +15,30 @@ export function registerGitHubOperationTools(
   server: McpServer,
   operations: ReturnType<typeof createGitHubOperations>,
 ) {
-  for (const name of Object.keys(
-    githubOperationSchemas,
-  ) as GitHubOperationToolName[]) {
-    server.registerTool(
-      name,
-      {
-        title: name,
-        description: `GitHub native Issue operation: ${name}. Source IDs/scopes remain distinct. Changes only explicitly supplied attributes; requestId deduplicates this action within the process.`,
-        inputSchema: githubOperationSchemas[name].shape,
-        annotations: {
-          readOnlyHint: githubOperationReadOnly.has(name),
-          destructiveHint: !githubOperationReadOnly.has(name),
-          openWorldHint: true,
+  (Object.keys(githubOperationSchemas) as GitHubOperationToolName[]).forEach(
+    (name) => {
+      server.registerTool(
+        name,
+        {
+          title: name,
+          description: `GitHub native Issue operation: ${name}. Source IDs/scopes remain distinct. Changes only explicitly supplied attributes; requestId deduplicates this action within the process.`,
+          inputSchema: githubOperationSchemas[name].shape,
+          annotations: {
+            readOnlyHint: githubOperationReadOnly.has(name),
+            destructiveHint: !githubOperationReadOnly.has(name),
+            openWorldHint: true,
+          },
         },
-      },
-      async (args: Record<string, unknown>): Promise<CallToolResult> => {
-        try {
-          const response = await callGitHubOperation(operations, name, args);
-          return dataResult(response);
-        } catch (error) {
-          return failureResult(error, "The GitHub operation failed.");
-        }
-      },
-    );
-  }
+        async (args: Record<string, unknown>): Promise<CallToolResult> => {
+          try {
+            return dataResult(
+              await callGitHubOperation(operations, name, args),
+            );
+          } catch (error) {
+            return failureResult(error, "The GitHub operation failed.");
+          }
+        },
+      );
+    },
+  );
 }

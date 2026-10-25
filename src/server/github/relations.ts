@@ -32,34 +32,29 @@ function related(raw: unknown): RelatedIssue {
   };
 }
 export function createRelationsOperations(context: GitHubOperationContext) {
-  const { service, once, api, pages, issueRecord, refresh } = context;
   async function issueRelations(
     input: Input<"arco_issue_relations">,
   ): Promise<IssueRelations> {
-    await issueRecord(input);
+    await context.issueRecord(input);
     const errors: string[] = [];
-    let parent: RelatedIssue | null = null;
-    try {
-      parent = related(await api("read", `${issuePath(input)}/parent`));
-    } catch (error) {
-      if (!(error instanceof GitHubError && error.code === "not-found"))
-        errors.push("Unable to load the parent issue.");
-    }
+    const parent = await context
+      .api("read", `${issuePath(input)}/parent`)
+      .then(related)
+      .catch((error) => {
+        if (!(error instanceof GitHubError && error.code === "not-found"))
+          errors.push("Unable to load the parent issue.");
+        return null;
+      });
     const lists = await Promise.all(
       ["sub_issues", "dependencies/blocked_by", "dependencies/blocking"].map(
-        async (path) => {
-          try {
-            return (
-              await pages(
-                `${issuePath(input)}/${path}?per_page=100`,
-                apiIssueSchema,
-              )
-            ).map(related);
-          } catch {
-            errors.push(`Unable to load ${path}.`);
-            return [];
-          }
-        },
+        (path) =>
+          context
+            .pages(`${issuePath(input)}/${path}?per_page=100`, apiIssueSchema)
+            .then((items) => items.map(related))
+            .catch(() => {
+              errors.push(`Unable to load ${path}.`);
+              return [];
+            }),
       ),
     );
     return {
@@ -81,7 +76,7 @@ export function createRelationsOperations(context: GitHubOperationContext) {
   }
 
   function setParent(input: Input<"arco_set_parent">) {
-    return once(input.requestId, ["setParent", input], async () => {
+    return context.once(input.requestId, ["setParent", input], async () => {
       checkDifferent(input, input.parent);
       if (
         input.repo.split("/")[0].toLowerCase() !==
@@ -91,23 +86,30 @@ export function createRelationsOperations(context: GitHubOperationContext) {
           "Parent and child issues must have the same repository owner.",
         );
       const [child] = await Promise.all([
-        issueRecord(input),
-        issueRecord(input.parent),
+        context.issueRecord(input),
+        context.issueRecord(input.parent),
       ]);
-      await api("write", `${issuePath(input.parent)}/sub_issues`, "POST", {
-        sub_issue_id: child.id,
-        replace_parent: input.replace,
-      });
-      return refresh(input);
+      await context.api(
+        "write",
+        `${issuePath(input.parent)}/sub_issues`,
+        "POST",
+        {
+          sub_issue_id: child.id,
+          replace_parent: input.replace,
+        },
+      );
+      return context.refresh(input);
     });
   }
 
   function removeParent(input: Input<"arco_remove_parent">) {
-    return once(input.requestId, ["removeParent", input], async () => {
+    return context.once(input.requestId, ["removeParent", input], async () => {
       checkDifferent(input, input.parent);
-      const child = await issueRecord(input);
-      await issueRecord(input.parent);
-      const actual = related(await api("read", `${issuePath(input)}/parent`));
+      const child = await context.issueRecord(input);
+      await context.issueRecord(input.parent);
+      const actual = related(
+        await context.api("read", `${issuePath(input)}/parent`),
+      );
       if (
         actual.repo.toLowerCase() !== input.parent.repo.toLowerCase() ||
         actual.number !== input.parent.number
@@ -115,52 +117,61 @@ export function createRelationsOperations(context: GitHubOperationContext) {
         return invalid(
           "The selected parent does not match the current parent issue.",
         );
-      await api("write", `${issuePath(input.parent)}/sub_issue`, "DELETE", {
-        sub_issue_id: child.id,
-      });
-      return refresh(input);
+      await context.api(
+        "write",
+        `${issuePath(input.parent)}/sub_issue`,
+        "DELETE",
+        {
+          sub_issue_id: child.id,
+        },
+      );
+      return context.refresh(input);
     });
   }
 
   function createSubIssue(input: Input<"arco_create_sub_issue">) {
-    return once(input.requestId, ["createSubIssue", input], async () => {
-      await issueRecord(input);
-      if (
-        input.repo.split("/")[0].toLowerCase() !==
-        input.childRepo.split("/")[0].toLowerCase()
-      )
-        return invalid(
-          "Create the child issue under the same repository owner as its parent.",
-        );
-      const createdIssue = await service.create({
-        repo: input.childRepo,
-        requestId: childRequestId(input.requestId, "child"),
-        title: input.title,
-        body: input.body,
-      });
-      try {
-        const child = await issueRecord(createdIssue);
-        await api("write", `${issuePath(input)}/sub_issues`, "POST", {
-          sub_issue_id: child.id,
+    return context.once(
+      input.requestId,
+      ["createSubIssue", input],
+      async () => {
+        await context.issueRecord(input);
+        if (
+          input.repo.split("/")[0].toLowerCase() !==
+          input.childRepo.split("/")[0].toLowerCase()
+        )
+          return invalid(
+            "Create the child issue under the same repository owner as its parent.",
+          );
+        const createdIssue = await context.service.create({
+          repo: input.childRepo,
+          requestId: childRequestId(input.requestId, "child"),
+          title: input.title,
+          body: input.body,
         });
-      } catch {
-        throw new GitHubError(
-          `Child issue ${createdIssue.repo} #${createdIssue.number} was created, but its parent relationship could not be confirmed. Check ${createdIssue.url} and do not create it again.`,
-          "partial",
-        );
-      }
-      return { ...(await refresh(input)), createdIssue };
-    });
+        try {
+          const child = await context.issueRecord(createdIssue);
+          await context.api("write", `${issuePath(input)}/sub_issues`, "POST", {
+            sub_issue_id: child.id,
+          });
+        } catch {
+          throw new GitHubError(
+            `Child issue ${createdIssue.repo} #${createdIssue.number} was created, but its parent relationship could not be confirmed. Check ${createdIssue.url} and do not create it again.`,
+            "partial",
+          );
+        }
+        return { ...(await context.refresh(input)), createdIssue };
+      },
+    );
   }
 
   function addDependency(input: Input<"arco_add_dependency">) {
-    return once(input.requestId, ["addDependency", input], async () => {
+    return context.once(input.requestId, ["addDependency", input], async () => {
       checkDifferent(input, input.blockedBy);
       const [, blocker] = await Promise.all([
-        issueRecord(input),
-        issueRecord(input.blockedBy),
+        context.issueRecord(input),
+        context.issueRecord(input.blockedBy),
       ]);
-      await api(
+      await context.api(
         "write",
         `${issuePath(input)}/dependencies/blocked_by`,
         "POST",
@@ -168,32 +179,36 @@ export function createRelationsOperations(context: GitHubOperationContext) {
           issue_id: blocker.id,
         },
       );
-      return refresh(input);
+      return context.refresh(input);
     });
   }
 
   function removeDependency(input: Input<"arco_remove_dependency">) {
-    return once(input.requestId, ["removeDependency", input], async () => {
-      checkDifferent(input, input.blockedBy);
-      const [, blocker] = await Promise.all([
-        issueRecord(input),
-        issueRecord(input.blockedBy),
-      ]);
-      const existing = await pages(
-        `${issuePath(input)}/dependencies/blocked_by?per_page=100`,
-        apiIssueSchema,
-      );
-      if (!existing.some((issue) => issue.id === blocker.id))
-        return invalid(
-          "The selected issue is not an existing blocked-by dependency.",
+    return context.once(
+      input.requestId,
+      ["removeDependency", input],
+      async () => {
+        checkDifferent(input, input.blockedBy);
+        const [, blocker] = await Promise.all([
+          context.issueRecord(input),
+          context.issueRecord(input.blockedBy),
+        ]);
+        const existing = await context.pages(
+          `${issuePath(input)}/dependencies/blocked_by?per_page=100`,
+          apiIssueSchema,
         );
-      await api(
-        "write",
-        `${issuePath(input)}/dependencies/blocked_by/${blocker.id}`,
-        "DELETE",
-      );
-      return refresh(input);
-    });
+        if (!existing.some((issue) => issue.id === blocker.id))
+          return invalid(
+            "The selected issue is not an existing blocked-by dependency.",
+          );
+        await context.api(
+          "write",
+          `${issuePath(input)}/dependencies/blocked_by/${blocker.id}`,
+          "DELETE",
+        );
+        return context.refresh(input);
+      },
+    );
   }
   return {
     issueRelations,

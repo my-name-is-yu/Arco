@@ -34,15 +34,9 @@ import { conversationLaunchKey, resolveProjectLaunch } from "./launch";
 import { registerLinearTools } from "./linear/tools";
 import { createMentionSearch } from "./mentions";
 import { registerStateTools } from "./state-tools";
-import { failureResult as failure, dataResult as result } from "./tool-results";
+import { failureResult, dataResult } from "./tool-results";
 import { callDataTool, dataSchemas, type DataToolName } from "./tools";
-export function createArcoServer({
-  service,
-  stateStore,
-  linearService,
-  operations,
-  fixture,
-}: ArcoBackend) {
+export function createArcoServer(backend: ArcoBackend) {
   const server = new McpServer(
     {
       name: "Arco",
@@ -71,14 +65,16 @@ export function createArcoServer({
   );
   const uri = "ui://arco/issues";
   const cardUri = "ui://arco/issue-card";
-  registerStateTools(server, stateStore);
-  registerGitHubImageTool(server, service, { fixture });
-  registerGitHubOperationTools(server, operations);
-  registerLinearTools(server, linearService);
+  registerStateTools(server, backend.stateStore);
+  registerGitHubImageTool(server, backend.service, {
+    fixture: backend.fixture,
+  });
+  registerGitHubOperationTools(server, backend.operations);
+  registerLinearTools(server, backend.linearService);
   const searchMentions = createMentionSearch(
-    service,
-    linearService,
-    stateStore,
+    backend.service,
+    backend.linearService,
+    backend.stateStore,
   );
   const readOnly = new Set<DataToolName>([
     "arco_connection",
@@ -91,10 +87,12 @@ export function createArcoServer({
     "search_mentions",
   ]);
 
-  for (const resource of [
-    { name: "arco", uri, preferredDisplayMode: "fullscreen" },
-    { name: "arco-issue-card", uri: cardUri, preferredDisplayMode: "inline" },
-  ] as const) {
+  (
+    [
+      { name: "arco", uri, preferredDisplayMode: "fullscreen" },
+      { name: "arco-issue-card", uri: cardUri, preferredDisplayMode: "inline" },
+    ] as const
+  ).forEach((resource) => {
     registerAppResource(
       server,
       resource.name,
@@ -126,17 +124,18 @@ export function createArcoServer({
         ],
       }),
     );
-  }
+  });
 
   const issuePresentationInput = z
     .object({ target: nativeIssueTargetSchema })
     .strict();
   const readPresentationIssue = async (target: NativeIssueTarget) => {
-    let issue: ConversationIssue;
-    let canonical: NativeIssueTarget;
     if (target.source === "github") {
-      issue = await service.get({ repo: target.repo, number: target.number });
-      canonical = z
+      const issue = await backend.service.get({
+        repo: target.repo,
+        number: target.number,
+      });
+      const canonical = z
         .object({ source: z.literal("github"), ...issueRefSchema.shape })
         .parse(issue);
       if (
@@ -147,57 +146,59 @@ export function createArcoServer({
           "GitHub returned a different issue than the requested target.",
           "invalid-response",
         );
-    } else {
-      issue = (await linearService.call("linear_get_issue", {
-        connectionId: target.connectionId,
-        workspaceId: target.workspaceId,
-        teamId: target.teamId,
-        issueId: target.issueId,
-      })) as LinearIssue;
-      canonical = z
-        .object({ source: z.literal("linear"), ...linearRefSchema.shape })
-        .parse(issue);
-      if (
-        canonical.connectionId !== target.connectionId ||
-        canonical.workspaceId !== target.workspaceId ||
-        canonical.teamId !== target.teamId ||
-        canonical.issueId !== target.issueId
-      )
-        throw new OperationError(
-          "Could not open the selected Linear issue. Open it again using its Linear link.",
-          "invalid-response",
-        );
+      return { canonical, issue };
     }
+    const issue = (await backend.linearService.call("linear_get_issue", {
+      connectionId: target.connectionId,
+      workspaceId: target.workspaceId,
+      teamId: target.teamId,
+      issueId: target.issueId,
+    })) as LinearIssue;
+    const canonical = z
+      .object({ source: z.literal("linear"), ...linearRefSchema.shape })
+      .parse(issue);
+    if (
+      canonical.connectionId !== target.connectionId ||
+      canonical.workspaceId !== target.workspaceId ||
+      canonical.teamId !== target.teamId ||
+      canonical.issueId !== target.issueId
+    )
+      throw new OperationError(
+        "Could not open the selected Linear issue. Open it again using its Linear link.",
+        "invalid-response",
+      );
     return { canonical, issue };
   };
   const presentIssue = async (raw: unknown) => {
     try {
       const { target } = issuePresentationInput.parse(raw);
       const { canonical, issue } = await readPresentationIssue(target);
-      return result({
+      return dataResult({
         launch: { ...personalLaunchContext, target: canonical },
         issue,
       });
     } catch (error) {
-      return failure(error);
+      return failureResult(error);
     }
   };
-  for (const presentation of [
-    {
-      name: "arco_show_issue",
-      title: "Show issue",
-      uri: cardUri,
-      mode: "inline",
-      description: "View a GitHub or Linear issue in chat.",
-    },
-    {
-      name: "arco_open_issue",
-      title: "Open issue details",
-      uri,
-      mode: "fullscreen",
-      description: "View a GitHub or Linear issue in detail.",
-    },
-  ] as const) {
+  (
+    [
+      {
+        name: "arco_show_issue",
+        title: "Show issue",
+        uri: cardUri,
+        mode: "inline",
+        description: "View a GitHub or Linear issue in chat.",
+      },
+      {
+        name: "arco_open_issue",
+        title: "Open issue details",
+        uri,
+        mode: "fullscreen",
+        description: "View a GitHub or Linear issue in detail.",
+      },
+    ] as const
+  ).forEach((presentation) => {
     registerAppTool(
       server,
       presentation.name,
@@ -220,7 +221,7 @@ export function createArcoServer({
       },
       presentIssue,
     );
-  }
+  });
   const issuesPresentationInput = z
     .object({
       targets: z
@@ -294,11 +295,11 @@ export function createArcoServer({
           issueDetails.push(issue);
         }
         return {
-          ...result({ launch: { ...personalLaunchContext, issues } }),
+          ...dataResult({ launch: { ...personalLaunchContext, issues } }),
           _meta: { issueDetails },
         };
       } catch (error) {
-        return failure(error);
+        return failureResult(error);
       }
     },
   );
@@ -330,16 +331,16 @@ export function createArcoServer({
         const { source } = workspaceOpenInput.parse(raw);
         const connection =
           source === "linear"
-            ? await linearService.call("linear_connection", {})
-            : await service.connection();
-        return result({
+            ? await backend.linearService.call("linear_connection", {})
+            : await backend.service.connection();
+        return dataResult({
           ...connection,
           launch: source
             ? { ...personalLaunchContext, source }
             : personalLaunchContext,
         });
       } catch (error) {
-        return failure(error);
+        return failureResult(error);
       }
     },
   );
@@ -373,8 +374,8 @@ export function createArcoServer({
                 .roots
           : undefined,
       });
-      return result({
-        ...(await service.connection()),
+      return dataResult({
+        ...(await backend.service.connection()),
         launch: {
           ...launch,
           projectKey: launch.projectKey ?? conversationLaunchKey(threadId),
@@ -411,7 +412,7 @@ export function createArcoServer({
       "Search native Issue resources for composer @Arco. Use source:github repo:owner/name or source:linear team:key to choose a scope; otherwise use the saved Arco scope.",
   };
   // Keep each schema intact while using the standard v1 registration API.
-  for (const name of Object.keys(dataSchemas) as DataToolName[]) {
+  (Object.keys(dataSchemas) as DataToolName[]).forEach((name) => {
     server.registerTool(
       name,
       {
@@ -437,10 +438,10 @@ export function createArcoServer({
       },
       async (args: Record<string, unknown>) => {
         try {
-          const response = result(
+          const response = dataResult(
             await (name === "search_mentions"
               ? searchMentions(args)
-              : callDataTool(service, name, args)),
+              : callDataTool(backend.service, name, args)),
           );
           if (name === "search_mentions") response.content = [];
           if (!readOnly.has(name)) {
@@ -454,11 +455,11 @@ export function createArcoServer({
           }
           return response;
         } catch (error) {
-          return failure(error);
+          return failureResult(error);
         }
       },
     );
-  }
+  });
   server.registerResource(
     "github-issue",
     new ResourceTemplate("issue://github/{owner}/{repo}/{number}", {
@@ -473,7 +474,7 @@ export function createArcoServer({
         repo: `${variables.owner}/${variables.repo}`,
         number: Number(variables.number),
       });
-      const issue = await service.get(ref);
+      const issue = await backend.service.get(ref);
       return {
         contents: [
           {
@@ -505,7 +506,7 @@ export function createArcoServer({
           url: z.string(),
           state: z.object({ name: z.string() }),
         })
-        .parse(await linearService.call("linear_get_issue", ref));
+        .parse(await backend.linearService.call("linear_get_issue", ref));
       return {
         contents: [
           {

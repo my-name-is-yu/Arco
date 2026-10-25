@@ -1,6 +1,6 @@
 import type { GitHubService } from "../shared/contracts";
 import {
-  githubOperationSchemas as schemas,
+  githubOperationSchemas,
   type GitHubOperationToolName,
 } from "../shared/github-operations";
 import { createBulkOperations } from "./github/bulk";
@@ -49,56 +49,74 @@ export async function callGitHubOperation(
 ): Promise<object> {
   switch (name) {
     case "arco_label_definitions":
-      return operations.labelDefinitions(schemas[name].parse(args));
+      return operations.labelDefinitions(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_create_label":
-      return operations.createLabel(schemas[name].parse(args));
+      return operations.createLabel(githubOperationSchemas[name].parse(args));
     case "arco_update_label":
-      return operations.updateLabel(schemas[name].parse(args));
+      return operations.updateLabel(githubOperationSchemas[name].parse(args));
     case "arco_delete_label":
-      return operations.deleteLabel(schemas[name].parse(args));
+      return operations.deleteLabel(githubOperationSchemas[name].parse(args));
     case "arco_edit_comment":
-      return operations.editComment(schemas[name].parse(args));
+      return operations.editComment(githubOperationSchemas[name].parse(args));
     case "arco_delete_comment":
-      return operations.deleteComment(schemas[name].parse(args));
+      return operations.deleteComment(githubOperationSchemas[name].parse(args));
     case "arco_reactions":
-      return operations.reactions(schemas[name].parse(args));
+      return operations.reactions(githubOperationSchemas[name].parse(args));
     case "arco_add_reaction":
-      return operations.addReaction(schemas[name].parse(args));
+      return operations.addReaction(githubOperationSchemas[name].parse(args));
     case "arco_remove_reaction":
-      return operations.removeReaction(schemas[name].parse(args));
+      return operations.removeReaction(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_issue_catalog":
-      return operations.issueCatalog(schemas[name].parse(args));
+      return operations.issueCatalog(githubOperationSchemas[name].parse(args));
     case "arco_issue_attributes":
-      return operations.issueAttributes(schemas[name].parse(args));
+      return operations.issueAttributes(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_issue_fields":
-      return operations.issueFields(schemas[name].parse(args));
+      return operations.issueFields(githubOperationSchemas[name].parse(args));
     case "arco_set_issue_field":
-      return operations.setIssueField(schemas[name].parse(args));
+      return operations.setIssueField(githubOperationSchemas[name].parse(args));
     case "arco_projects":
-      return operations.projects(schemas[name].parse(args));
+      return operations.projects(githubOperationSchemas[name].parse(args));
     case "arco_issue_projects":
-      return operations.issueProjects(schemas[name].parse(args));
+      return operations.issueProjects(githubOperationSchemas[name].parse(args));
     case "arco_project_membership":
-      return operations.projectMembership(schemas[name].parse(args));
+      return operations.projectMembership(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_project_fields":
-      return operations.projectFields(schemas[name].parse(args));
+      return operations.projectFields(githubOperationSchemas[name].parse(args));
     case "arco_set_project_field":
-      return operations.setProjectField(schemas[name].parse(args));
+      return operations.setProjectField(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_issue_relations":
-      return operations.issueRelations(schemas[name].parse(args));
+      return operations.issueRelations(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_set_parent":
-      return operations.setParent(schemas[name].parse(args));
+      return operations.setParent(githubOperationSchemas[name].parse(args));
     case "arco_remove_parent":
-      return operations.removeParent(schemas[name].parse(args));
+      return operations.removeParent(githubOperationSchemas[name].parse(args));
     case "arco_create_sub_issue":
-      return operations.createSubIssue(schemas[name].parse(args));
+      return operations.createSubIssue(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_add_dependency":
-      return operations.addDependency(schemas[name].parse(args));
+      return operations.addDependency(githubOperationSchemas[name].parse(args));
     case "arco_remove_dependency":
-      return operations.removeDependency(schemas[name].parse(args));
+      return operations.removeDependency(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_issue_templates":
-      return operations.issueTemplates(schemas[name].parse(args));
+      return operations.issueTemplates(
+        githubOperationSchemas[name].parse(args),
+      );
     case "arco_bulk_update":
-      return operations.bulkUpdate(schemas[name].parse(args));
+      return operations.bulkUpdate(githubOperationSchemas[name].parse(args));
   }
 }

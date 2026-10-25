@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { GitHubService, IssueRef } from "../shared/contracts";
+import type { IssueRef } from "../shared/contracts";
 import {
   type BulkUpdateResult,
   type FieldValue,
@@ -17,7 +17,7 @@ import {
   type Reaction,
   type RelatedIssue,
 } from "../shared/github-operations";
-import { FIXTURE_REPO, isFixtureGitHubService } from "./fixture";
+import { FIXTURE_REPO, type FixtureGitHubService } from "./fixture";
 import { GitHubError } from "./github";
 import {
   checkFieldValue,
@@ -200,13 +200,8 @@ function projectDefinitions(projectId: string): ProjectField[] {
 
 /** Development-only mutations. This factory has no CLI runner or live-network fallback. */
 export function createFixtureGitHubOperations(options: {
-  service: GitHubService;
+  service: FixtureGitHubService;
 }): ReturnType<typeof createGitHubOperations> {
-  if (!isFixtureGitHubService(options.service))
-    throw new GitHubError(
-      "Advanced fixture operations require a fixture service.",
-      "fixture",
-    );
   const service = options.service;
   const extras = new Map<string, Extras>();
   const reactionTargets = new Map<string, Reaction[]>();
@@ -271,8 +266,9 @@ export function createFixtureGitHubOperations(options: {
     return value;
   }
   async function reactionKey(input: IssueRef & { commentId?: number }) {
-    if (input.commentId !== undefined) await comment(input, input.commentId);
-    else await service.get(input);
+    await (input.commentId === undefined
+      ? service.get(input)
+      : comment(input, input.commentId));
     return `${key(input)}:${input.commentId ?? "issue"}`;
   }
   async function membership(

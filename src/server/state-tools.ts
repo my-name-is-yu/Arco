@@ -28,75 +28,75 @@ export function registerStateTools(
   server: McpServer,
   store: ReturnType<typeof createStateStore>,
 ) {
-  for (const name of Object.keys(
-    stateToolSchemas,
-  ) as (keyof typeof stateToolSchemas)[]) {
-    server.registerTool(
-      name,
-      {
-        title: name,
-        description:
-          "Read or explicitly save Arco settings, unsent drafts, or annotation positions on this device. Contains no source credentials.",
-        inputSchema: stateToolSchemas[name].shape,
-        annotations: {
-          readOnlyHint: [
-            "arco_get_settings",
-            "arco_read_draft",
-            "arco_read_annotation_snapshot",
-          ].includes(name),
-          openWorldHint: false,
-          destructiveHint:
-            name === "arco_delete_draft" ||
-            name === "arco_delete_annotation_snapshot",
+  (Object.keys(stateToolSchemas) as (keyof typeof stateToolSchemas)[]).forEach(
+    (name) => {
+      server.registerTool(
+        name,
+        {
+          title: name,
+          description:
+            "Read or explicitly save Arco settings, unsent drafts, or annotation positions on this device. Contains no source credentials.",
+          inputSchema: stateToolSchemas[name].shape,
+          annotations: {
+            readOnlyHint: [
+              "arco_get_settings",
+              "arco_read_draft",
+              "arco_read_annotation_snapshot",
+            ].includes(name),
+            openWorldHint: false,
+            destructiveHint:
+              name === "arco_delete_draft" ||
+              name === "arco_delete_annotation_snapshot",
+          },
+          _meta: { ui: { visibility: ["app"] } },
         },
-        _meta: { ui: { visibility: ["app"] } },
-      },
-      async (input: Record<string, unknown>): Promise<CallToolResult> => {
-        try {
-          let value;
-          switch (name) {
-            case "arco_read_annotation_snapshot":
-              value = await store.readAnnotationSnapshot(
-                annotationSnapshotKeySchema.parse(input).id,
-              );
-              break;
-            case "arco_write_annotation_snapshot":
-              value = await store.writeAnnotationSnapshot(
-                annotationSnapshotSchema.parse(input),
-              );
-              break;
-            case "arco_delete_annotation_snapshot":
-              value = await store.deleteAnnotationSnapshot(
-                annotationSnapshotKeySchema.parse(input).id,
-              );
-              break;
-            case "arco_get_settings":
-              value = await store.readSettings();
-              break;
-            case "arco_update_settings":
-              value = await store.updateSettings(
-                settingsUpdateSchema.parse(input),
-              );
-              break;
-            case "arco_read_draft":
-              value = await store.readDraft(draftReadSchema.parse(input).key);
-              break;
-            case "arco_write_draft":
-              value = await store.writeDraft(draftWriteSchema.parse(input));
-              break;
-            case "arco_delete_draft":
-              value = await store.deleteDraft(draftDeleteSchema.parse(input));
-              break;
+        async (input: Record<string, unknown>): Promise<CallToolResult> => {
+          try {
+            let value;
+            switch (name) {
+              case "arco_read_annotation_snapshot":
+                value = await store.readAnnotationSnapshot(
+                  annotationSnapshotKeySchema.parse(input).id,
+                );
+                break;
+              case "arco_write_annotation_snapshot":
+                value = await store.writeAnnotationSnapshot(
+                  annotationSnapshotSchema.parse(input),
+                );
+                break;
+              case "arco_delete_annotation_snapshot":
+                value = await store.deleteAnnotationSnapshot(
+                  annotationSnapshotKeySchema.parse(input).id,
+                );
+                break;
+              case "arco_get_settings":
+                value = await store.readSettings();
+                break;
+              case "arco_update_settings":
+                value = await store.updateSettings(
+                  settingsUpdateSchema.parse(input),
+                );
+                break;
+              case "arco_read_draft":
+                value = await store.readDraft(draftReadSchema.parse(input).key);
+                break;
+              case "arco_write_draft":
+                value = await store.writeDraft(draftWriteSchema.parse(input));
+                break;
+              case "arco_delete_draft":
+                value = await store.deleteDraft(draftDeleteSchema.parse(input));
+                break;
+            }
+            return dataResult(value, "empty");
+          } catch (error) {
+            return failureResult(
+              error,
+              "Unable to save locally. Keep your current input.",
+              "storage",
+            );
           }
-          return dataResult(value, "empty");
-        } catch (error) {
-          return failureResult(
-            error,
-            "Unable to save locally. Keep your current input.",
-            "storage",
-          );
-        }
-      },
-    );
-  }
+        },
+      );
+    },
+  );
 }

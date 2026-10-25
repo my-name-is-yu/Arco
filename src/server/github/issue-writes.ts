@@ -45,21 +45,14 @@ interface IssueWriteContext {
   get: GitHubService["get"];
   refreshAfterWrite(ref: IssueRef): Promise<IssueDetail>;
 }
-export function createIssueWrites({
-  api,
-  once,
-  issueRecord,
-  metadata,
-  get,
-  refreshAfterWrite,
-}: IssueWriteContext) {
+export function createIssueWrites(context: IssueWriteContext) {
   return {
     update(raw) {
       const input = updateInputSchema.parse(raw);
-      return once(input.requestId, ["update", input], async () => {
+      return context.once(input.requestId, ["update", input], async () => {
         if (!Object.keys(input.patch).length)
           throw new GitHubError("Select the fields to change.", "invalid");
-        const latest = await issueRecord(input);
+        const latest = await context.issueRecord(input);
         if (input.expectedUpdatedAt) {
           if (latest.updated_at !== input.expectedUpdatedAt)
             throw new GitHubError(
@@ -68,7 +61,7 @@ export function createIssueWrites({
             );
         }
         const { stateReason, ...patch } = input.patch;
-        await api(
+        await context.api(
           "write",
           `repos/${input.repo}/issues/${input.number}`,
           "PATCH",
@@ -78,7 +71,7 @@ export function createIssueWrites({
           },
           false,
         );
-        const saved = await refreshAfterWrite(input);
+        const saved = await context.refreshAfterWrite(input);
         if (
           input.patch.assignees !== undefined &&
           JSON.stringify(
@@ -102,7 +95,7 @@ export function createIssueWrites({
     },
     labels(raw) {
       const input = labelInputSchema.parse(raw);
-      return once(input.requestId, ["labels", input], async () => {
+      return context.once(input.requestId, ["labels", input], async () => {
         if (
           input.add.some((add) =>
             input.remove.some(
@@ -116,8 +109,8 @@ export function createIssueWrites({
           );
         }
         const [issue, choices] = await Promise.all([
-          issueRecord(input),
-          metadata(input.repo),
+          context.issueRecord(input),
+          context.metadata(input.repo),
         ]);
         if (
           input.add.some(
@@ -141,7 +134,7 @@ export function createIssueWrites({
         let saved = false;
         try {
           if (add.length) {
-            await api(
+            await context.api(
               "write",
               `repos/${input.repo}/issues/${input.number}/labels`,
               "POST",
@@ -155,7 +148,7 @@ export function createIssueWrites({
               (label) => label.name.toLowerCase() === name.toLowerCase(),
             );
             if (existing) {
-              await api(
+              await context.api(
                 "write",
                 `repos/${input.repo}/issues/${input.number}/labels/${encodeURIComponent(existing.name)}`,
                 "DELETE",
@@ -173,16 +166,16 @@ export function createIssueWrites({
             );
           throw error;
         }
-        return refreshAfterWrite(input);
+        return context.refreshAfterWrite(input);
       });
     },
     comment(raw) {
       const input = commentInputSchema.parse(raw);
-      return once(input.requestId, ["comment", input], async () => {
-        await issueRecord(input);
+      return context.once(input.requestId, ["comment", input], async () => {
+        await context.issueRecord(input);
         const posted = parse(
           apiCommentSchema,
-          await api(
+          await context.api(
             "write",
             `repos/${input.repo}/issues/${input.number}/comments`,
             "POST",
@@ -191,21 +184,21 @@ export function createIssueWrites({
           ),
         );
         return {
-          ...(await refreshAfterWrite(input)),
+          ...(await context.refreshAfterWrite(input)),
           postedComment: commentDto(posted),
         };
       });
     },
     create(raw) {
       const input = createInputSchema.parse(raw);
-      return once(input.requestId, ["create", input], async () => {
+      return context.once(input.requestId, ["create", input], async () => {
         let issueType: { id: number; name: string } | undefined;
         if (input.issueTypeName !== undefined) {
           const repository = parse(
             z.object({
               owner: z.object({ login: z.string(), type: z.string() }),
             }),
-            await api("read", `repos/${input.repo}`),
+            await context.api("read", `repos/${input.repo}`),
           );
           if (repository.owner.type !== "Organization")
             throw new GitHubError(
@@ -216,7 +209,10 @@ export function createIssueWrites({
             z.array(
               z.object({ id: z.number().int().positive(), name: z.string() }),
             ),
-            await api("read", `orgs/${repository.owner.login}/issue-types`),
+            await context.api(
+              "read",
+              `orgs/${repository.owner.login}/issue-types`,
+            ),
           );
           const matches = types.filter(
             (type) =>
@@ -230,7 +226,7 @@ export function createIssueWrites({
           issueType = matches[0];
         }
         if (input.labels !== undefined || input.assignees !== undefined) {
-          const choices = await metadata(input.repo);
+          const choices = await context.metadata(input.repo);
           if (
             input.labels?.some(
               (name) =>
@@ -253,7 +249,7 @@ export function createIssueWrites({
         }
         const created = parse(
           apiIssueSchema,
-          await api(
+          await context.api(
             "write",
             `repos/${input.repo}/issues`,
             "POST",
@@ -269,18 +265,17 @@ export function createIssueWrites({
             false,
           ),
         );
-        let saved: IssueDetail;
-        try {
-          saved = await refreshAfterWrite({
+        const saved = await context
+          .refreshAfterWrite({
             repo: input.repo,
             number: created.number,
+          })
+          .catch(() => {
+            throw new GitHubError(
+              `Issue ${input.repo} #${created.number} was created, but its details could not be refreshed. Check ${created.html_url} and do not create it again.`,
+              "refresh",
+            );
           });
-        } catch {
-          throw new GitHubError(
-            `Issue ${input.repo} #${created.number} was created, but its details could not be refreshed. Check ${created.html_url} and do not create it again.`,
-            "refresh",
-          );
-        }
         if (
           (issueType !== undefined && saved.issueType?.id !== issueType.id) ||
           input.labels?.some(
@@ -306,25 +301,29 @@ export function createIssueWrites({
     },
     projectStatus(raw) {
       const input = projectInputSchema.parse(raw);
-      return once(input.requestId, ["projectStatus", input], async () => {
-        validateProjectStatus(await get(input), input);
-        await api(
-          "write",
-          "graphql",
-          "POST",
-          {
-            query: PROJECT_MUTATION,
-            variables: {
-              projectId: input.projectId,
-              itemId: input.itemId,
-              fieldId: input.fieldId,
-              optionId: input.optionId,
+      return context.once(
+        input.requestId,
+        ["projectStatus", input],
+        async () => {
+          validateProjectStatus(await context.get(input), input);
+          await context.api(
+            "write",
+            "graphql",
+            "POST",
+            {
+              query: PROJECT_MUTATION,
+              variables: {
+                projectId: input.projectId,
+                itemId: input.itemId,
+                fieldId: input.fieldId,
+                optionId: input.optionId,
+              },
             },
-          },
-          false,
-        );
-        return refreshAfterWrite(input);
-      });
+            false,
+          );
+          return context.refreshAfterWrite(input);
+        },
+      );
     },
   } satisfies Pick<
     GitHubService,
