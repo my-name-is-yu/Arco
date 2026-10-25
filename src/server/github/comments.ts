@@ -30,16 +30,18 @@ const apiReactionSchema = z.object({
   user: z.object({ login: z.string() }).nullable(),
 });
 export function createCommentsOperations(context: GitHubOperationContext) {
-  const { service, once, api, pages, issueRecord, refresh } = context;
   async function commentRecord(
     ref: IssueRef,
     commentId: number,
     expected?: string,
   ) {
-    await issueRecord(ref);
+    await context.issueRecord(ref);
     const comment = parse(
       apiCommentSchema,
-      await api("read", `repos/${ref.repo}/issues/comments/${commentId}`),
+      await context.api(
+        "read",
+        `repos/${ref.repo}/issues/comments/${commentId}`,
+      ),
     );
     if (
       comment.id !== commentId ||
@@ -55,11 +57,11 @@ export function createCommentsOperations(context: GitHubOperationContext) {
     return comment;
   }
   function editComment(input: Input<"arco_edit_comment">) {
-    return once(input.requestId, ["editComment", input], async () => {
+    return context.once(input.requestId, ["editComment", input], async () => {
       await commentRecord(input, input.commentId, input.expectedUpdatedAt);
       const changed = parse(
         changedCommentSchema,
-        await api(
+        await context.api(
           "write",
           `repos/${input.repo}/issues/comments/${input.commentId}`,
           "PATCH",
@@ -73,7 +75,7 @@ export function createCommentsOperations(context: GitHubOperationContext) {
       )
         return invalid("GitHub returned a different comment after editing.");
       return {
-        ...(await refresh(input)),
+        ...(await context.refresh(input)),
         changedComment: {
           id: changed.node_id,
           databaseId: changed.id,
@@ -87,14 +89,14 @@ export function createCommentsOperations(context: GitHubOperationContext) {
   }
 
   function deleteComment(input: Input<"arco_delete_comment">) {
-    return once(input.requestId, ["deleteComment", input], async () => {
+    return context.once(input.requestId, ["deleteComment", input], async () => {
       await commentRecord(input, input.commentId, input.expectedUpdatedAt);
-      await api(
+      await context.api(
         "write",
         `repos/${input.repo}/issues/comments/${input.commentId}`,
         "DELETE",
       );
-      return { ...(await refresh(input)), deleted: true };
+      return { ...(await context.refresh(input)), deleted: true };
     });
   }
 
@@ -103,7 +105,7 @@ export function createCommentsOperations(context: GitHubOperationContext) {
       await commentRecord(input, input.commentId);
       return `repos/${input.repo}/issues/comments/${input.commentId}/reactions`;
     }
-    await issueRecord(input);
+    await context.issueRecord(input);
     return `${issuePath(input)}/reactions`;
   }
 
@@ -112,8 +114,8 @@ export function createCommentsOperations(context: GitHubOperationContext) {
   ): Promise<ReactionList> {
     const endpoint = await reactionEndpoint(input);
     const [items, connection] = await Promise.all([
-      pages(`${endpoint}?per_page=100`, apiReactionSchema),
-      service.connection(),
+      context.pages(`${endpoint}?per_page=100`, apiReactionSchema),
+      context.service.connection(),
     ]);
     return {
       repo: input.repo,
@@ -129,34 +131,38 @@ export function createCommentsOperations(context: GitHubOperationContext) {
   }
 
   function addReaction(input: Input<"arco_add_reaction">) {
-    return once(input.requestId, ["addReaction", input], async () => {
+    return context.once(input.requestId, ["addReaction", input], async () => {
       const endpoint = await reactionEndpoint(input);
-      await api("write", endpoint, "POST", { content: input.content });
-      return refresh(input);
+      await context.api("write", endpoint, "POST", { content: input.content });
+      return context.refresh(input);
     });
   }
 
   function removeReaction(input: Input<"arco_remove_reaction">) {
-    return once(input.requestId, ["removeReaction", input], async () => {
-      const current = await reactions(input);
-      if (
-        !current.account ||
-        !current.reactions.some(
-          (item) =>
-            item.id === input.reactionId &&
-            item.author.toLowerCase() === current.account?.toLowerCase(),
+    return context.once(
+      input.requestId,
+      ["removeReaction", input],
+      async () => {
+        const current = await reactions(input);
+        if (
+          !current.account ||
+          !current.reactions.some(
+            (item) =>
+              item.id === input.reactionId &&
+              item.author.toLowerCase() === current.account?.toLowerCase(),
+          )
         )
-      )
-        return invalid(
-          "You can only remove your own reaction from this target.",
-        );
-      const endpoint =
-        input.commentId === undefined
-          ? `${issuePath(input)}/reactions`
-          : `repos/${input.repo}/issues/comments/${input.commentId}/reactions`;
-      await api("write", `${endpoint}/${input.reactionId}`, "DELETE");
-      return refresh(input);
-    });
+          return invalid(
+            "You can only remove your own reaction from this target.",
+          );
+        const endpoint =
+          input.commentId === undefined
+            ? `${issuePath(input)}/reactions`
+            : `repos/${input.repo}/issues/comments/${input.commentId}/reactions`;
+        await context.api("write", `${endpoint}/${input.reactionId}`, "DELETE");
+        return context.refresh(input);
+      },
+    );
   }
   return { editComment, deleteComment, reactions, addReaction, removeReaction };
 }

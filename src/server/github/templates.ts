@@ -7,7 +7,6 @@ import {
 import { type GitHubOperationContext, type Input } from "./operations-context";
 import { GitHubError, parse } from "./transport";
 export function createTemplatesOperations(context: GitHubOperationContext) {
-  const { api } = context;
   async function issueTemplates(
     input: Input<"arco_issue_templates">,
   ): Promise<IssueTemplates> {
@@ -29,7 +28,7 @@ export function createTemplatesOperations(context: GitHubOperationContext) {
             type: z.string(),
           }),
         ),
-        await api(
+        await context.api(
           "read",
           `repos/${input.repo}/contents/.github/ISSUE_TEMPLATE`,
         ),
@@ -44,7 +43,7 @@ export function createTemplatesOperations(context: GitHubOperationContext) {
       try {
         const repository = parse(
           z.object({ private: z.boolean(), full_name: z.string() }),
-          await api("read", `repos/${defaultsRepo}`),
+          await context.api("read", `repos/${defaultsRepo}`),
         );
         if (
           repository.private ||
@@ -61,7 +60,7 @@ export function createTemplatesOperations(context: GitHubOperationContext) {
               type: z.string(),
             }),
           ),
-          await api(
+          await context.api(
             "read",
             `repos/${templateRepo}/contents/.github/ISSUE_TEMPLATE`,
           ),
@@ -97,7 +96,7 @@ export function createTemplatesOperations(context: GitHubOperationContext) {
       }
       const contents = parse(
         z.object({ content: z.string(), encoding: z.literal("base64") }),
-        await api(
+        await context.api(
           "read",
           `repos/${templateRepo}/contents/${file.path.split("/").map(encodeURIComponent).join("/")}`,
         ),
@@ -143,26 +142,8 @@ export function classifyMarkdownTemplate(
       entry[1] in metadata
     )
       return fallback;
-    const raw = entry[2];
-    if ((raw.length > 0 && "[]{}>&*!|".includes(raw[0])) || /\s#/.test(raw))
-      return fallback;
-    let value = raw;
-    if (raw.startsWith('"')) {
-      try {
-        const decoded: unknown = JSON.parse(raw);
-        if (typeof decoded !== "string") return fallback;
-        value = decoded;
-      } catch {
-        return fallback;
-      }
-    } else if (raw.startsWith("'")) {
-      if (!raw.endsWith("'")) return fallback;
-      value = raw.slice(1, -1).replaceAll("''", "'");
-    } else if (
-      [...raw].some((char) => ":[]{}".includes(char)) ||
-      /^(?:true|false|null|~|[-+]?\d+(?:\.\d+)?)$/i.test(raw)
-    )
-      return fallback;
+    const value = templateScalar(entry[2]);
+    if (value === undefined) return fallback;
     metadata[entry[1]] = value;
   }
   if (!metadata.name) return fallback;
@@ -186,4 +167,27 @@ export function classifyMarkdownTemplate(
         .filter(Boolean),
     },
   };
+}
+
+function templateScalar(raw: string) {
+  if ((raw.length > 0 && "[]{}>&*!|".includes(raw[0])) || /\s#/.test(raw))
+    return undefined;
+  if (raw.startsWith('"')) {
+    try {
+      const decoded: unknown = JSON.parse(raw);
+      return typeof decoded === "string" ? decoded : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  if (raw.startsWith("'"))
+    return raw.endsWith("'")
+      ? raw.slice(1, -1).replaceAll("''", "'")
+      : undefined;
+  if (
+    [...raw].some((char) => ":[]{}".includes(char)) ||
+    /^(?:true|false|null|~|[-+]?\d+(?:\.\d+)?)$/i.test(raw)
+  )
+    return undefined;
+  return raw;
 }

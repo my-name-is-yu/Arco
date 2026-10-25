@@ -126,11 +126,12 @@ export function createStateStore(directory = stateDirectory()) {
       "settings",
     );
   function draftFile(input: DraftKey) {
-    const key = draftKeySchema.parse(input);
     return join(
       directory,
       "drafts",
-      `${createHash("sha256").update(JSON.stringify(key)).digest("hex")}.json`,
+      `${createHash("sha256")
+        .update(JSON.stringify(draftKeySchema.parse(input)))
+        .digest("hex")}.json`,
     );
   }
   const readDraft = (key: DraftKey) =>
@@ -153,8 +154,11 @@ export function createStateStore(directory = stateDirectory()) {
         if (previous && JSON.stringify(previous) !== JSON.stringify(snapshot))
           throw new StateConflict();
         snapshots[snapshot.id] = snapshot;
-        for (const id of Object.keys(snapshots).slice(0, -100))
-          delete snapshots[id];
+        Object.keys(snapshots)
+          .slice(0, -100)
+          .forEach((id) => {
+            delete snapshots[id];
+          });
         await writeAtomic(annotationsFile, snapshots);
         return { saved: true };
       });

@@ -6,7 +6,7 @@ import {
   type IssueRef,
 } from "../../shared/contracts";
 import {
-  githubOperationSchemas as schemas,
+  githubOperationSchemas,
   type BulkUpdateResult,
   type GitHubOperationResult,
   type GitHubOperationToolName,
@@ -19,7 +19,7 @@ import {
   type GhRunner,
 } from "./transport";
 export type Input<K extends GitHubOperationToolName> = z.infer<
-  (typeof schemas)[K]
+  (typeof githubOperationSchemas)[K]
 >;
 
 export const apiIssueSchema = z.object({
@@ -52,7 +52,7 @@ export function createGitHubOperationContext(options: {
   service: GitHubService;
   run?: GhRunner;
 }) {
-  const { service } = options;
+  const service = options.service;
   const once = createGitHubWriteGuard<
     GitHubOperationResult | BulkUpdateResult
   >();
@@ -73,8 +73,6 @@ export function createGitHubOperationContext(options: {
     },
   });
   const api = transport.request;
-  const graphql = transport.query;
-  const mutate = transport.mutate;
   async function pages<T>(
     endpoint: string,
     schema: z.ZodType<T>,
@@ -129,8 +127,8 @@ export function createGitHubOperationContext(options: {
     service,
     once,
     api,
-    graphql,
-    mutate,
+    graphql: transport.query,
+    mutate: transport.mutate,
     pages,
     issueRecord,
     refresh,

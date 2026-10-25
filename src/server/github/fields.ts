@@ -13,24 +13,23 @@ import {
 import { GitHubError, parse } from "./transport";
 import { optionColorSchema } from "./option-color";
 export function createFieldsOperations(context: GitHubOperationContext) {
-  const { once, api, pages, issueRecord, refresh, repoOwner } = context;
   async function issueCatalog(
     input: Input<"arco_issue_catalog">,
   ): Promise<IssueCatalog> {
     const [issue, owner] = await Promise.all([
-      issueRecord(input),
-      repoOwner(input.repo),
+      context.issueRecord(input),
+      context.repoOwner(input.repo),
     ]);
     return readCatalog(input, issue, owner);
   }
 
   async function readCatalog(
     input: Input<"arco_issue_catalog">,
-    issue: Awaited<ReturnType<typeof issueRecord>>,
-    owner: Awaited<ReturnType<typeof repoOwner>>,
+    issue: Awaited<ReturnType<typeof context.issueRecord>>,
+    owner: Awaited<ReturnType<typeof context.repoOwner>>,
   ): Promise<IssueCatalog> {
     const errors: string[] = [];
-    const milestones = await pages(
+    const milestones = await context.pages(
       `repos/${input.repo}/milestones?state=all&per_page=100`,
       z.object({
         number: z.number(),
@@ -50,7 +49,7 @@ export function createFieldsOperations(context: GitHubOperationContext) {
               color: optionColorSchema,
             }),
           ),
-          await api("read", `orgs/${owner.login}/issue-types`),
+          await context.api("read", `orgs/${owner.login}/issue-types`),
         ).map((type) => ({
           id: type.id,
           name: type.name,
@@ -75,60 +74,67 @@ export function createFieldsOperations(context: GitHubOperationContext) {
   }
 
   function issueAttributes(input: Input<"arco_issue_attributes">) {
-    return once(input.requestId, ["issueAttributes", input], async () => {
-      if (!Object.keys(input.patch).length)
-        return invalid("Select the attributes to change.");
-      const issue = await issueRecord(input);
-      if (
-        input.expectedUpdatedAt &&
-        input.expectedUpdatedAt !== issue.updated_at
-      )
-        throw new GitHubError(
-          "This issue has changed. Refresh before saving.",
-          "conflict",
+    return context.once(
+      input.requestId,
+      ["issueAttributes", input],
+      async () => {
+        if (!Object.keys(input.patch).length)
+          return invalid("Select the attributes to change.");
+        const issue = await context.issueRecord(input);
+        if (
+          input.expectedUpdatedAt &&
+          input.expectedUpdatedAt !== issue.updated_at
+        )
+          throw new GitHubError(
+            "This issue has changed. Refresh before saving.",
+            "conflict",
+          );
+        const catalog = await readCatalog(
+          input,
+          issue,
+          await context.repoOwner(input.repo),
         );
-      const catalog = await readCatalog(
-        input,
-        issue,
-        await repoOwner(input.repo),
-      );
-      const { milestoneNumber, issueTypeId } = input.patch;
-      if (
-        milestoneNumber != null &&
-        !catalog.milestones.some((item) => item.number === milestoneNumber)
-      )
-        return invalid("Select an existing milestone in this repository.");
-      const issueType =
-        issueTypeId == null
-          ? null
-          : catalog.issueTypes.find((item) => item.id === issueTypeId);
-      if (issueTypeId != null && !issueType)
-        return invalid("Select an existing issue type in this organization.");
-      await api("write", issuePath(input), "PATCH", {
-        ...(milestoneNumber !== undefined
-          ? { milestone: milestoneNumber }
-          : {}),
-        ...(issueTypeId !== undefined ? { type: issueType?.name ?? null } : {}),
-      });
-      const saved = await issueRecord(input);
-      if (
-        (milestoneNumber !== undefined &&
-          (saved.milestone?.number ?? null) !== milestoneNumber) ||
-        (issueTypeId !== undefined && (saved.type?.id ?? null) !== issueTypeId)
-      )
-        throw new GitHubError(
-          "The saved attributes do not match your selection. Check your permissions and refresh.",
-          "not-applied",
-        );
-      return refresh(input);
-    });
+        const { milestoneNumber, issueTypeId } = input.patch;
+        if (
+          milestoneNumber != null &&
+          !catalog.milestones.some((item) => item.number === milestoneNumber)
+        )
+          return invalid("Select an existing milestone in this repository.");
+        const issueType =
+          issueTypeId == null
+            ? null
+            : catalog.issueTypes.find((item) => item.id === issueTypeId);
+        if (issueTypeId != null && !issueType)
+          return invalid("Select an existing issue type in this organization.");
+        await context.api("write", issuePath(input), "PATCH", {
+          ...(milestoneNumber !== undefined
+            ? { milestone: milestoneNumber }
+            : {}),
+          ...(issueTypeId !== undefined
+            ? { type: issueType?.name ?? null }
+            : {}),
+        });
+        const saved = await context.issueRecord(input);
+        if (
+          (milestoneNumber !== undefined &&
+            (saved.milestone?.number ?? null) !== milestoneNumber) ||
+          (issueTypeId !== undefined &&
+            (saved.type?.id ?? null) !== issueTypeId)
+        )
+          throw new GitHubError(
+            "The saved attributes do not match your selection. Check your permissions and refresh.",
+            "not-applied",
+          );
+        return context.refresh(input);
+      },
+    );
   }
 
   async function issueFields(
     input: Input<"arco_issue_fields">,
   ): Promise<IssueFieldList> {
-    await issueRecord(input);
-    const owner = await repoOwner(input.repo);
+    await context.issueRecord(input);
+    const owner = await context.repoOwner(input.repo);
     if (owner.type !== "Organization")
       return {
         repo: input.repo,
@@ -153,9 +159,9 @@ export function createFieldsOperations(context: GitHubOperationContext) {
             .optional(),
         }),
       ),
-      await api("read", `orgs/${owner.login}/issue-fields`),
+      await context.api("read", `orgs/${owner.login}/issue-fields`),
     );
-    const values = await pages(
+    const values = await context.pages(
       `${issuePath(input)}/issue-field-values?per_page=100`,
       z.object({
         issue_field_id: z.number(),
@@ -200,7 +206,7 @@ export function createFieldsOperations(context: GitHubOperationContext) {
   }
 
   function setIssueField(input: Input<"arco_set_issue_field">) {
-    return once(input.requestId, ["setIssueField", input], async () => {
+    return context.once(input.requestId, ["setIssueField", input], async () => {
       const field = (await issueFields(input)).fields.find(
         (item) => item.id === input.fieldId,
       );
@@ -213,18 +219,23 @@ export function createFieldsOperations(context: GitHubOperationContext) {
         input.value,
         field.options.map((option) => option.name),
       );
-      if (input.value === null) {
-        if (field.value !== null)
-          await api(
-            "write",
-            `${issuePath(input)}/issue-field-values/${field.id}`,
-            "DELETE",
-          );
-      } else
-        await api("write", `${issuePath(input)}/issue-field-values`, "POST", {
-          issue_field_values: [{ field_id: field.id, value: input.value }],
-        });
-      return refresh(input);
+      const value = input.value;
+      if (value === null && field.value !== null)
+        await context.api(
+          "write",
+          `${issuePath(input)}/issue-field-values/${field.id}`,
+          "DELETE",
+        );
+      if (value !== null)
+        await context.api(
+          "write",
+          `${issuePath(input)}/issue-field-values`,
+          "POST",
+          {
+            issue_field_values: [{ field_id: field.id, value }],
+          },
+        );
+      return context.refresh(input);
     });
   }
   return { issueCatalog, issueAttributes, issueFields, setIssueField };

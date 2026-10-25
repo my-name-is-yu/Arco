@@ -168,14 +168,12 @@ export function createGitHubService(
   }
 
   async function refreshAfterWrite(input: IssueRef): Promise<IssueDetail> {
-    try {
-      return await get(input);
-    } catch {
+    return get(input).catch(() => {
       throw new GitHubError(
         "The change was saved to GitHub, but refresh failed. Keep your draft and refresh again.",
         "refresh",
       );
-    }
+    });
   }
 
   async function metadata(rawRepo: string) {
@@ -204,16 +202,13 @@ export function createGitHubService(
   }
 
   const repositoryIssues = createRepositoryIssueReader({
-    query: async (query, variables) => {
-      try {
-        return await transport.query(query, variables);
-      } catch (error) {
+    query: (query, variables) =>
+      transport.query(query, variables).catch((error) => {
         throw new GitHubError(
           "Unable to load repository issues. Check GitHub access and refresh.",
           error instanceof GitHubError ? error.code : "unavailable",
         );
-      }
-    },
+      }),
   });
 
   return {
@@ -250,8 +245,7 @@ export function createGitHubService(
       }
     },
     async list(raw) {
-      const input = listInputSchema.parse(raw);
-      return repositoryIssues.list(input);
+      return repositoryIssues.list(listInputSchema.parse(raw));
     },
     async accountIssues(raw) {
       const input = accountIssuesInputSchema.parse(raw);

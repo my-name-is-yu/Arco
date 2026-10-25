@@ -42,7 +42,7 @@ interface MarkdownNode {
   identifier?: string;
   children?: MarkdownNode[];
 }
-function normalizedUrl(value: string): string | undefined {
+function normalizedUrl(value: string) {
   try {
     return new URL(value).href;
   } catch {
@@ -52,7 +52,6 @@ function normalizedUrl(value: string): string | undefined {
 
 /** Match parsed image targets, including reference images, never arbitrary body substrings. */
 export function markdownHasImage(markdown: string, url: string): boolean {
-  const tree = fromMarkdown(markdown);
   const definitions = new Map<string, string>();
   const images: string[] = [];
   const references: string[] = [];
@@ -61,19 +60,20 @@ export function markdownHasImage(markdown: string, url: string): boolean {
       // CommonMark uses the first definition for a normalized reference label.
       if (!definitions.has(node.identifier))
         definitions.set(node.identifier, node.url);
-    } else if (node.type === "image" && node.url) images.push(node.url);
-    else if (node.type === "imageReference" && node.identifier)
+    }
+    if (node.type === "image" && node.url) images.push(node.url);
+    if (node.type === "imageReference" && node.identifier)
       references.push(node.identifier);
     node.children?.forEach(visit);
   };
-  visit(tree);
-  for (const reference of references) {
-    const value = definitions.get(reference);
-    if (value) images.push(value);
-  }
+  visit(fromMarkdown(markdown));
   const target = normalizedUrl(url);
   return Boolean(
-    target && images.some((value) => normalizedUrl(value) === target),
+    target &&
+    [
+      ...images,
+      ...references.flatMap((reference) => definitions.get(reference) ?? []),
+    ].some((value) => normalizedUrl(value) === target),
   );
 }
 
@@ -102,7 +102,7 @@ function allowedUrl(value: string): URL {
   return url;
 }
 
-function matchesImageType(bytes: Uint8Array, mimeType: string): boolean {
+function matchesImageType(bytes: Uint8Array, mimeType: string) {
   const prefix = Buffer.from(bytes.subarray(0, 32));
   if (mimeType === "image/png")
     return prefix.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
@@ -294,11 +294,9 @@ export function registerGitHubImageTool(
           { repo: input.repo, number: input.number },
           input.commentId,
         );
-        const image = await readIssueImage(
-          { url: input.url, markdown },
-          options,
+        return imageResult(
+          await readIssueImage({ url: input.url, markdown }, options),
         );
-        return imageResult({ ...image });
       } catch (error) {
         return failureResult(error, "The image could not be loaded.");
       }
