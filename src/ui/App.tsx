@@ -9,7 +9,7 @@ import { WorkspaceSkeleton } from "./LoadingSkeleton";
 import { AsyncState } from "./AsyncState";
 import {
   sessionValue,
-  setSessionState,
+  selectPresentedIssue,
   useSessionState,
 } from "./session-state";
 import { useSettings } from "./useSettings";
@@ -78,8 +78,11 @@ function Workspace({
 }
 function LaunchWorkspace({ host }: { host: ArcoHost }) {
   const { launch, mode } = useHostView();
-  const [openedIssue, setOpenedIssue] =
-    useSessionState<NativeIssueTarget | null>(host, "issue-set:opened", null);
+  const [openedIssue] = useSessionState<NativeIssueTarget | null>(
+    host,
+    "issue-set:opened",
+    null,
+  );
   const error = host.launchError();
   if (launch?.issues) {
     const target = openedIssue ?? presentationTarget(launch.issues[0]);
@@ -91,28 +94,9 @@ function LaunchWorkspace({ host }: { host: ArcoHost }) {
         host={host}
         issues={launch.issues}
         activeTarget={target}
-        onSelect={(issue) => {
-          const target = presentationTarget(issue);
-          setOpenedIssue(target);
-          setSessionState(host, "active-source", target.source);
-          if (target.source === "github") {
-            setSessionState(host, "github:repoOverride", target.repo);
-            setSessionState(host, "github:selected", {
-              repo: target.repo,
-              number: target.number,
-            });
-            setSessionState(host, "github:showDetail", true);
-          } else {
-            setSessionState(host, "linear:teamOverride", target.teamId);
-            setSessionState(host, "linear:selected", {
-              connectionId: target.connectionId,
-              workspaceId: target.workspaceId,
-              teamId: target.teamId,
-              issueId: target.issueId,
-            });
-            setSessionState(host, "linear:showDetail", true);
-          }
-        }}
+        onSelect={(issue) =>
+          selectPresentedIssue(host, presentationTarget(issue))
+        }
       >
         {workspace}
       </InlineIssueTabs>

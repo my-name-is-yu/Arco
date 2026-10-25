@@ -269,6 +269,15 @@ test("mixed-provider tabs keep selection inline and open exact native details", 
     "aria-selected",
     "true",
   );
+  await selectIssue(page, "YU-42", titles.linear42);
+  await openDetails(page, titles.linear42);
+  expect(
+    (await events<ToolCall>(page, "tool")).filter(
+      (call) =>
+        call.name === "arco_update_settings" ||
+        /(?:update|create|delete|comment$)/.test(call.name),
+    ),
+  ).toEqual([]);
   await expectNoSharing(page);
 });
 
