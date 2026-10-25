@@ -32,6 +32,32 @@ type Memberships = {
   }[];
   errors: string[];
 };
+
+export function GitHubProperties({
+  host,
+  issue,
+}: {
+  host: ArcoHost;
+  issue: IssueDetail;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="advanced-section"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <DisclosureSummary>Edit attributes and membership</DisclosureSummary>
+      {open && (
+        <>
+          <Catalog host={host} issue={issue} />
+          <IssueFields host={host} issue={issue} />
+          <Projects host={host} issue={issue} />
+        </>
+      )}
+    </details>
+  );
+}
+
 function fieldValueLabel(
   field: IssueField | ProjectField,
   kind: "issue" | "project",
@@ -670,30 +696,5 @@ function Projects({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
         </p>
       )}
     </section>
-  );
-}
-
-export function GitHubProperties({
-  host,
-  issue,
-}: {
-  host: ArcoHost;
-  issue: IssueDetail;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <details
-      className="advanced-section"
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
-      <DisclosureSummary>Edit attributes and membership</DisclosureSummary>
-      {open && (
-        <>
-          <Catalog host={host} issue={issue} />
-          <IssueFields host={host} issue={issue} />
-          <Projects host={host} issue={issue} />
-        </>
-      )}
-    </details>
   );
 }

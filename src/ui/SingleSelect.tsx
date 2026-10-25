@@ -36,24 +36,24 @@ const sdkOption = (option: SingleSelectOption): SdkOption => ({
   nativeValue: option.value,
 });
 
-function SelectedValue({ label, leading, color }: SingleSelectOption) {
+function SelectedValue(option: SingleSelectOption) {
   return (
     <span className="source-single-value source-select-content">
-      <SelectOptionVisual leading={leading} color={color} />
-      <span className="source-select-text">{label}</span>
+      <SelectOptionVisual leading={option.leading} color={option.color} />
+      <span className="source-select-text">{option.label}</span>
     </span>
   );
 }
 
-function OptionView({ label, leading, color, nativeValue, empty }: SdkOption) {
+function OptionView(option: SdkOption) {
   return (
     <span
       className="source-select-content"
-      data-select-value={nativeValue}
-      data-empty={empty || !nativeValue ? "true" : undefined}
+      data-select-value={option.nativeValue}
+      data-empty={option.empty || !option.nativeValue ? "true" : undefined}
     >
-      <SelectOptionVisual leading={leading} color={color} />
-      <span className="source-select-text">{label}</span>
+      <SelectOptionVisual leading={option.leading} color={option.color} />
+      <span className="source-select-text">{option.label}</span>
     </span>
   );
 }

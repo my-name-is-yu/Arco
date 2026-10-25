@@ -61,9 +61,10 @@ function pathFor(root: Node, node: Node): number[] | null {
   return path;
 }
 function nodeAt(root: Node, path: number[]) {
-  let node: Node | undefined = root;
-  for (const index of path) node = node?.childNodes[index];
-  return node;
+  return path.reduce<Node | undefined>(
+    (node, index) => node?.childNodes[index],
+    root,
+  );
 }
 function signature(element: Element) {
   return JSON.stringify([

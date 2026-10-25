@@ -136,13 +136,13 @@ const markdownComponents: NonNullable<
   ComponentProps<typeof Markdown>["components"]
 > = {
   a: function MarkdownLink({ node, children }) {
-    const { onOpen } = useContext(MarkdownContext)!;
+    const context = useContext(MarkdownContext)!;
     const url = safeMarkdownUrl(property(node, "href"));
     return url ? (
       <button
         type="button"
         className="markdown-link"
-        onClick={() => onOpen(url)}
+        onClick={() => context.onOpen(url)}
       >
         {children}
       </button>
@@ -151,19 +151,25 @@ const markdownComponents: NonNullable<
     );
   },
   img: function MarkdownImage({ node }) {
-    const { image, onOpen } = useContext(MarkdownContext)!;
+    const context = useContext(MarkdownContext)!;
     const url = safeMarkdownUrl(property(node, "src"));
     const alt = property(node, "alt") || "Attached image";
     return url ? (
-      <SourceImage url={url} alt={alt} image={image} onOpen={onOpen} />
+      <SourceImage
+        url={url}
+        alt={alt}
+        image={context.image}
+        onOpen={context.onOpen}
+      />
     ) : (
       <span>{alt}</span>
     );
   },
   li: function MarkdownListItem({ node, children, className }) {
-    const { tasks, busy, onToggleTask } = useContext(MarkdownContext)!;
+    const context = useContext(MarkdownContext)!;
+    const onToggleTask = context.onToggleTask;
     const line = linePosition(node);
-    const task = line ? tasks.get(line) : null;
+    const task = line ? context.tasks.get(line) : null;
     if (!task || !line || !onToggleTask)
       return <li className={className}>{children}</li>;
     return (
@@ -171,7 +177,7 @@ const markdownComponents: NonNullable<
         <input
           type="checkbox"
           checked={task.checked}
-          disabled={busy}
+          disabled={context.busy}
           aria-label={`Completion of ${task.text}`}
           onChange={(event) => onToggleTask(line, event.target.checked)}
         />

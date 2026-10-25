@@ -173,7 +173,7 @@ export function CommentActions({
     ["comment", issue.repo, issue.number, comment.databaseId ?? comment.id],
     issue,
   );
-  const supported = typeof comment.databaseId === "number";
+  const supported = comment.databaseId !== undefined;
   return (
     <section
       className="comment-tools"

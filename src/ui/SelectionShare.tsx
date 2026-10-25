@@ -54,8 +54,11 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
         capture();
     };
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelected(null);
-      else if (
+      if (event.key === "Escape") {
+        setSelected(null);
+        return;
+      }
+      if (
         event.key === "Tab" &&
         !event.shiftKey &&
         addButton.current &&
@@ -161,13 +164,12 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     <>
       {annotations.map(({ context, target }) => {
         if (!target) return null;
-        const layout = layouts.get(context.number) ?? null;
         return (
           <SelectionAnnotation
             key={context.number}
             number={context.number}
             target={target}
-            layout={layout}
+            layout={layouts.get(context.number) ?? null}
             comment={context.selection.comment ?? ""}
             editing={editing === context.number}
             onEdit={() => {

@@ -1412,7 +1412,7 @@ export function LinearWorkspace({
             setSelected(linearRef(result));
             setShowDetail(true);
           }}
-          onNotice={setNotice}
+          onOpenLink={(url) => void hostAction(() => host.openLink(url))}
         />
       )}
     </WorkspaceLayout>

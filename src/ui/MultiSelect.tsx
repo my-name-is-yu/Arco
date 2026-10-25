@@ -65,11 +65,11 @@ function CompactSelectedValues({ values }: { values: MultiSelectOption[] }) {
   );
 }
 
-function OptionView({ label, color, leading }: MultiSelectOption) {
+function OptionView(option: MultiSelectOption) {
   return (
     <span className="source-multi-option">
-      <SelectOptionVisual leading={leading} color={color} />
-      <span className="source-select-text">{label}</span>
+      <SelectOptionVisual leading={option.leading} color={option.color} />
+      <span className="source-select-text">{option.label}</span>
     </span>
   );
 }
