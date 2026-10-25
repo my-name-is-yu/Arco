@@ -63,23 +63,20 @@ export function LinearCreateIssue({
     templateId: string;
     descriptionTouched: boolean;
   };
-  const createKey = useMemo<DraftKey | null>(
-    () =>
-      scope
-        ? {
-            source: "linear",
-            workspaceId: scope.workspaceId,
-            teamId: scope.teamId,
-            issue: "new",
-          }
-        : null,
+  const createKey = useMemo<DraftKey>(
+    () => ({
+      source: "linear",
+      workspaceId: scope.workspaceId,
+      teamId: scope.teamId,
+      issue: "new",
+    }),
     [scope],
   );
   useEffect(() => {
-    if (open && createKey) void load(createKey);
+    if (open) void load(createKey);
   }, [open, createKey, load]);
   const readCreateDraft = (): CreateDraft => {
-    const saved = createKey ? persistence.value(createKey) : undefined;
+    const saved = persistence.value(createKey);
     return {
       title: saved?.title ?? "",
       body: saved?.body ?? "",
@@ -87,20 +84,20 @@ export function LinearCreateIssue({
       descriptionTouched: saved?.linearDescriptionTouched ?? false,
     };
   };
+  const toSavedDraft = (draft: CreateDraft): Draft => ({
+    title: draft.title,
+    body: draft.body,
+    comment: "",
+    linearTemplateId: draft.templateId || undefined,
+    linearDescriptionTouched: draft.descriptionTouched,
+  });
   const createDraft = readCreateDraft();
   const setCreateDraft = (
     update: CreateDraft | ((previous: CreateDraft) => CreateDraft),
   ) => {
-    if (!createKey) return;
     const next =
       typeof update === "function" ? update(readCreateDraft()) : update;
-    persistence.schedule(createKey, {
-      title: next.title,
-      body: next.body,
-      comment: "",
-      linearTemplateId: next.templateId || undefined,
-      linearDescriptionTouched: next.descriptionTouched,
-    });
+    persistence.schedule(createKey, toSavedDraft(next));
   };
   const templates = useQuery({
     queryKey: ["linear-templates", scope],
@@ -161,30 +158,19 @@ export function LinearCreateIssue({
           submitCreate();
         }}
       >
-        {createKey && (
-          <DraftStatus
-            status={persistence.statuses[draftStorageId(createKey)]}
-            onRetry={() =>
-              persistence.retry(createKey, {
-                title: createDraft.title,
-                body: createDraft.body,
-                comment: "",
-                linearTemplateId: createDraft.templateId || undefined,
-                linearDescriptionTouched: createDraft.descriptionTouched,
-              })
-            }
-            onResolve={(choice) => {
-              const local: Draft = {
-                title: createDraft.title,
-                body: createDraft.body,
-                comment: "",
-                linearTemplateId: createDraft.templateId || undefined,
-                linearDescriptionTouched: createDraft.descriptionTouched,
-              };
-              void persistence.resolve(createKey, choice, local);
-            }}
-          />
-        )}
+        <DraftStatus
+          status={persistence.statuses[draftStorageId(createKey)]}
+          onRetry={() =>
+            persistence.retry(createKey, toSavedDraft(readCreateDraft()))
+          }
+          onResolve={(choice) => {
+            void persistence.resolve(
+              createKey,
+              choice,
+              toSavedDraft(readCreateDraft()),
+            );
+          }}
+        />
         <label>
           Template
           <SingleSelect
