@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import { repoSchema, type ArcoHost, type IssueRef } from "../shared/contracts";
@@ -30,9 +30,6 @@ export function GitHubRelations({
   const [repo, setRepo] = useState(issue.repo);
   const [number, setNumber] = useState("");
   const [replace, setReplace] = useState(false);
-  const [child, setChild] = useState({ repo: issue.repo, title: "", body: "" });
-  const childRef = useRef(child);
-  const childTouched = useRef(false);
   const childPersistence = useDraftPersistence(host);
   const { load: loadChildDraft } = childPersistence;
   const childKey = useMemo<DraftKey>(
@@ -43,45 +40,29 @@ export function GitHubRelations({
     }),
     [issue.repo, issue.number],
   );
-  const childDraft = (value = childRef.current): Draft => ({
+  const readChild = () => {
+    const saved = childPersistence.value(childKey);
+    return {
+      title: saved?.title ?? "",
+      body: saved?.body ?? "",
+      repo: saved?.githubChildRepo ?? issue.repo,
+    };
+  };
+  const child = readChild();
+  const childDraft = (value = readChild()): Draft => ({
     title: value.title,
     body: value.body,
     comment: "",
     githubChildRepo: value.repo,
   });
-  const restoreChild = (draft: Draft | null | undefined) => {
-    if (draft === undefined) return;
-    const next = {
-      title: draft?.title ?? "",
-      body: draft?.body ?? "",
-      repo: draft?.githubChildRepo ?? issue.repo,
-    };
-    childRef.current = next;
-    setChild(next);
-  };
   useEffect(() => {
-    let active = true;
-    void loadChildDraft(childKey).then((saved) => {
-      if (active && saved && !childTouched.current) {
-        const next = {
-          title: saved.title,
-          body: saved.body,
-          repo: saved.githubChildRepo ?? issue.repo,
-        };
-        childRef.current = next;
-        setChild(next);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [loadChildDraft, childKey, issue.repo]);
+    void loadChildDraft(childKey);
+  }, [loadChildDraft, childKey]);
   const editChild = (patch: Partial<typeof child>) => {
-    childTouched.current = true;
-    const next = { ...childRef.current, ...patch };
-    childRef.current = next;
-    setChild(next);
-    childPersistence.schedule(childKey, childDraft(next));
+    childPersistence.schedule(
+      childKey,
+      childDraft({ ...readChild(), ...patch }),
+    );
   };
   const [createChild, setCreateChild] = useState(false);
   const query = useQuery({
@@ -307,19 +288,9 @@ export function GitHubRelations({
       </button>
       <DraftStatus
         status={childPersistence.statuses[draftStorageId(childKey)]}
-        onRetry={() => {
-          const useSaved =
-            childPersistence.statuses[draftStorageId(childKey)]?.retryChoice ===
-            "use-saved";
-          void childPersistence.retry(childKey, childDraft()).then((saved) => {
-            if (saved !== undefined && (!childTouched.current || useSaved))
-              restoreChild(saved);
-          });
-        }}
+        onRetry={() => void childPersistence.retry(childKey, childDraft())}
         onResolve={(choice) =>
-          void childPersistence
-            .resolve(childKey, choice, childDraft())
-            .then(restoreChild)
+          void childPersistence.resolve(childKey, choice, childDraft())
         }
       />
       {createChild && (
@@ -337,8 +308,6 @@ export function GitHubRelations({
                 body: child.body,
               },
               () => {
-                childRef.current = { repo: issue.repo, title: "", body: "" };
-                setChild(childRef.current);
                 void childPersistence.remove(childKey);
                 setCreateChild(false);
               },
