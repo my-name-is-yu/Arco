@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { createInterface } from "node:readline";
-import { setTimeout, clearTimeout } from "node:timers";
+import { createAppServerClient } from "./app-server-client.mjs";
 
 // Public app-server protocol only. No model turn or desktop UI is started.
 const processHandle = spawn(
@@ -21,43 +20,17 @@ const processHandle = spawn(
     stdio: ["pipe", "pipe", "pipe"],
   },
 );
-let sequence = 0;
-const pending = new Map();
 processHandle.stderr.on("data", () => {});
-const lines = createInterface({ input: processHandle.stdout });
-lines.on("line", (line) => {
-  const message = JSON.parse(line);
-  if (message.id == null) return;
-  const complete = pending.get(message.id);
-  if (complete) {
-    pending.delete(message.id);
-    complete(message);
-  }
+const protocol = createAppServerClient(processHandle, {
+  formatError: (method, error) => `${method}: ${error.message}`,
 });
-function call(method, params) {
-  return new Promise((resolve, reject) => {
-    const id = ++sequence;
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error(`${method} timed out`));
-    }, 25_000);
-    pending.set(id, (message) => {
-      clearTimeout(timer);
-      if (message.error)
-        reject(new Error(`${method}: ${message.error.message}`));
-      else resolve(message.result);
-    });
-    processHandle.stdin.write(JSON.stringify({ id, method, params }) + "\n");
-  });
-}
+const { call } = protocol;
 try {
   await call("initialize", {
     clientInfo: { name: "arco-plugin-validation", version: "0.1.0" },
     capabilities: { experimentalApi: true },
   });
-  processHandle.stdin.write(
-    JSON.stringify({ method: "initialized", params: {} }) + "\n",
-  );
+  protocol.notify("initialized", {});
   const started = await call("thread/start", {
     cwd: process.cwd(),
     ephemeral: true,
@@ -162,6 +135,6 @@ try {
     ),
   );
 } finally {
-  lines.close();
+  protocol.close();
   processHandle.kill("SIGTERM");
 }
