@@ -408,6 +408,13 @@
   background: var(--arco-input);
   color: var(--arco-muted);
 }
+.arco .search-control:focus-within {
+  outline: 2px solid var(--arco-accent);
+  outline-offset: 2px;
+}
+.arco .search-control input:focus-visible {
+  outline: none;
+}
 .search-control > span {
   font-size: 20px;
   line-height: 1;
@@ -429,7 +436,6 @@
   padding: 0;
   width: 100%;
   background: transparent;
-  outline-offset: 5px !important;
 }
 .arco kbd {
   background: var(--arco-hover);

@@ -820,13 +820,17 @@ test("light-theme reduced motion retains immediate hover feedback and the keyboa
     exact: true,
   });
   await search.focus();
-  const focused = await search.evaluate(
+  const searchShell = ui.locator(".search-control");
+  const focused = await searchShell.evaluate(
     (element) => getComputedStyle(element).outline,
   );
   expect(focused).not.toContain("none");
+  expect(
+    await search.evaluate((element) => getComputedStyle(element).outlineStyle),
+  ).toBe("none");
   await search.hover();
   expect(
-    await search.evaluate((element) => getComputedStyle(element).outline),
+    await searchShell.evaluate((element) => getComputedStyle(element).outline),
   ).toBe(focused);
   const comment = await annotationComment(page);
   for (const name of ["Remove annotation 1", "Save comment"])
