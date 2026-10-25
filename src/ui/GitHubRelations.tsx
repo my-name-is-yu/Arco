@@ -21,9 +21,11 @@ type RelationKind = "parent" | "child" | "blocked-by";
 export function GitHubRelations({
   host,
   issue,
+  onOpenLink,
 }: {
   host: ArcoHost;
   issue: IssueRef;
+  onOpenLink: (url: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<RelationKind>("blocked-by");
@@ -112,7 +114,7 @@ export function GitHubRelations({
       <div>
         <button
           className="text-button related-title"
-          onClick={() => void host.openLink(related.url)}
+          onClick={() => onOpenLink(related.url)}
         >
           {related.repo} #{related.number} · {related.title} ↗
         </button>
