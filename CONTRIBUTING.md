@@ -55,7 +55,9 @@ Push and pull-request CI always runs `check` and the browser smoke suite, with a
 
 Before publishing a release, manually run the Quality workflow on its intended branch or tag and confirm that the full suite passes for the exact commit being released. Repeat full validation if that commit changes.
 
-Use `npm run dev` to build and start the fictional fixture host for routine development. `npm run dev:fixture` starts an existing build; rebuild after source changes. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering. Native credential tests can skip when an OS credential store is unavailable; report skipped checks.
+Use `npm run dev` to build and start the fictional fixture host for routine development. `npm run dev:fixture` starts an existing build; rebuild after source changes. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering.
+
+On supported macOS Apple Silicon with an unlocked credential store, run `npx --no-install vitest run tests/linear-native-rotation.test.ts` and require the native rotation case to pass. Store failures fail this check. Other OS/architecture combinations skip that case before accessing credential storage; report those skips without claiming native verification.
 
 ## Publishing the plugin
 
