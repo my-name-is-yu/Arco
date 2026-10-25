@@ -26,18 +26,6 @@ const draft = (comment: string): Draft => ({
   body: "Body",
   comment,
 });
-function fixture() {
-  const saved = new Map<string, Draft>();
-  const call = vi.fn(async (name: string, args: Record<string, unknown>) => {
-    const id = JSON.stringify(args.key);
-    if (name === "arco_write_draft") saved.set(id, args.draft as Draft);
-    return {
-      revision: name === "arco_write_draft" ? 1 : 0,
-      draft: saved.get(id) ?? null,
-    };
-  });
-  return { host: { call } as unknown as ArcoHost, call };
-}
 function recoveringSource(initial: DraftRecord) {
   let record = structuredClone(initial);
   const controls = { readFails: false, writeFails: false, deleteFails: false };
@@ -309,7 +297,16 @@ describe("host-lifetime draft controller", () => {
     }
   });
   it("keeps one live value and write queue across provider view subscriptions", async () => {
-    const { host, call } = fixture();
+    const saved = new Map<string, Draft>();
+    const call = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      const id = JSON.stringify(args.key);
+      if (name === "arco_write_draft") saved.set(id, args.draft as Draft);
+      return {
+        revision: name === "arco_write_draft" ? 1 : 0,
+        draft: saved.get(id) ?? null,
+      };
+    });
+    const host = { call } as unknown as ArcoHost;
     const first = draftController(host);
     first.schedule(github, draft("Unsent GitHub comment"));
     const nextView = draftController(host);

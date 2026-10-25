@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { runInNewContext } from "node:vm";
 import {
   persistSelectionAnchor,
   type SelectionAnchor,
@@ -12,8 +13,6 @@ const base = {
   issueKey: JSON.stringify(["github", "yu/Arco", 42, "issue-42"]),
   rootKind: ".detail-pane" as const,
 };
-afterEach(() => vi.unstubAllGlobals());
-
 describe("persisting selection anchors", () => {
   it("stores input positions and hashes without the selected text or unselected draft", async () => {
     const selected = "Selected passage 🧭";
@@ -83,8 +82,30 @@ describe("persisting selection anchors", () => {
     expect(await persistSelectionAnchor(anchor, "selected")).toBeNull();
   });
 
-  it("rejects persistence when the required WebCrypto API is unavailable", async () => {
-    vi.stubGlobal("crypto", {});
+  it("rejects persistence in an isolated realm when the required WebCrypto API is unavailable", async () => {
+    const { build } = await import("esbuild");
+    const bundle = await build({
+      stdin: {
+        contents:
+          "export { persistSelectionAnchor } from './src/ui/selection-anchor';",
+        resolveDir: process.cwd(),
+        loader: "ts",
+      },
+      bundle: true,
+      platform: "node",
+      format: "cjs",
+      write: false,
+    });
+    const runtime = {
+      module: {
+        exports: {} as {
+          persistSelectionAnchor: typeof persistSelectionAnchor;
+        },
+      },
+      crypto: {},
+      TextEncoder,
+    };
+    runInNewContext(bundle.outputFiles[0].text, runtime);
     const anchor: SelectionAnchor = {
       ...base,
       sourceText: "selected",
@@ -95,7 +116,7 @@ describe("persisting selection anchors", () => {
       },
     };
     await expect(
-      persistSelectionAnchor(anchor, "selected"),
-    ).rejects.toBeInstanceOf(TypeError);
+      runtime.module.exports.persistSelectionAnchor(anchor, "selected"),
+    ).rejects.toMatchObject({ name: "TypeError" });
   });
 });

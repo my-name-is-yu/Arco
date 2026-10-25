@@ -1,9 +1,11 @@
 import { createServer } from "node:http";
+import { text } from "node:stream/consumers";
 import { LinearClient } from "@linear/sdk";
 import { afterEach, describe, expect, it } from "vitest";
 import { createIssuesHandlers } from "../src/server/linear/issues";
 import { createLinearOperation } from "../src/server/linear/operation";
 import type { LinearAuth } from "../src/server/linear/auth";
+import { postFragmentedJson } from "./fragmented-json";
 
 const scope = {
   connectionId: "test",
@@ -41,14 +43,13 @@ async function source(
   });
   const server = createServer(async (request, response) => {
     try {
-      let body = "";
-      for await (const chunk of request) body += chunk;
-      const { query, variables } = JSON.parse(body) as {
+      const input = JSON.parse(await text(request)) as {
         query: string;
         variables: Record<string, unknown>;
       };
-      const operation = /(?:query|mutation)\s+(\w+)/.exec(query)?.[1] ?? "";
-      calls.push({ operation, variables });
+      const operation =
+        /(?:query|mutation)\s+(\w+)/.exec(input.query)?.[1] ?? "";
+      calls.push({ operation, variables: input.variables });
       let data: object;
       switch (operation) {
         case "organization":
@@ -83,9 +84,11 @@ async function source(
         case "issueLabel":
           data = {
             issueLabel: {
-              id: variables.id,
+              id: input.variables.id,
               groupType:
-                variables.id === "multi" ? "multiSelect" : singleGroupType,
+                input.variables.id === "multi"
+                  ? "multiSelect"
+                  : singleGroupType,
             },
           };
           break;
@@ -123,6 +126,7 @@ async function source(
   });
   const { applyLabels } = createIssuesHandlers(operation);
   return {
+    server,
     calls,
     change: (add: string[], remove: string[] = []) =>
       applyLabels({ ...scope, requestId: "test-change", add, remove }),
@@ -135,6 +139,18 @@ async function source(
 }
 
 describe("Linear label groups through the official SDK HTTP transport", () => {
+  it("preserves Unicode split across request chunks in the actual HTTP fixture", async () => {
+    const fixture = await source();
+    const id = "日本語🧭";
+    await expect(
+      postFragmentedJson(fixture.server, {
+        query: "query issueLabel { issueLabel { id } }",
+        variables: { id },
+      }),
+    ).resolves.toMatchObject({ data: { issueLabel: { id } } });
+    expect(fixture.calls[0].variables).toEqual({ id });
+  });
+
   it("reads a shared group once and preserves the exact additions", async () => {
     const service = await source();
     const add = ["multi-a", "multi-b", "multi-a"];
