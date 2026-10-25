@@ -13,7 +13,6 @@ import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const artifact = resolve("dist/plugin");
 const output = resolve("dist/npm");
 const temporary = await mkdtemp(join(tmpdir(), "arco-package-"));
 try {
@@ -32,7 +31,7 @@ try {
         "--pack-destination",
         temporary,
       ],
-      { cwd: artifact, encoding: "utf8" },
+      { cwd: resolve("dist/plugin"), encoding: "utf8" },
     ),
   );
   const archive = join(temporary, packed.filename);
@@ -42,12 +41,9 @@ try {
     await readFile(join(directory, "package.json"), "utf8"),
   );
   const project = JSON.parse(await readFile("package.json", "utf8"));
-  const marketplace = JSON.parse(
+  const source = JSON.parse(
     await readFile(".agents/plugins/marketplace.json", "utf8"),
-  );
-  const source = marketplace.plugins.find(
-    (plugin) => plugin.name === "arco",
-  ).source;
+  ).plugins.find((plugin) => plugin.name === "arco").source;
   assert.equal(metadata.name, source.package);
   assert.equal(metadata.version, project.version);
   assert.equal(source.version, metadata.version);
@@ -88,7 +84,7 @@ try {
     metadata.bundleDependencies.length > 1,
     "native keyring package missing",
   );
-  for (const file of [
+  [
     "plugin.json",
     ".codex-plugin/plugin.json",
     "mcp.json",
@@ -98,11 +94,12 @@ try {
     "THIRD_PARTY_NOTICES.txt",
     "skills/arco-setup/SKILL.md",
     "skills/arco-issue-workflow/SKILL.md",
-  ])
+  ].forEach((file) =>
     assert(
       packed.files.some((entry) => entry.path === file),
       `${file} missing from tarball`,
-    );
+    ),
+  );
   const manifest = JSON.parse(
     await readFile(join(directory, "plugin.json"), "utf8"),
   );
@@ -136,6 +133,23 @@ try {
   const env = { ...process.env, ARCO_DATA_DIR: join(temporary, "state") };
   delete env.NODE_PATH;
   delete env.NODE_OPTIONS;
+  // Lazy credential loading must not weaken native verification of the tarball.
+  // Resolve and load the extracted binding explicitly, without constructing entries.
+  execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `import assert from "node:assert/strict";
+       import { fileURLToPath } from "node:url";
+       import { join, sep } from "node:path";
+       assert(fileURLToPath(import.meta.resolve("@napi-rs/keyring"))
+         .startsWith(join(process.cwd(), "node_modules") + sep));
+       const { AsyncEntry } = await import("@napi-rs/keyring");
+       assert.equal(typeof AsyncEntry, "function");`,
+    ],
+    { cwd: directory, env, stdio: "pipe" },
+  );
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: server.args.map((argument) =>
@@ -152,12 +166,13 @@ try {
   const client = new Client({ name: "Arco packed-plugin check", version: "1" });
   try {
     await client.connect(transport);
-    const { tools } = await client.listTools();
-    for (const name of ["arco_open", "arco_show_issue", "arco_update_issue"])
+    const listing = await client.listTools();
+    ["arco_open", "arco_show_issue", "arco_update_issue"].forEach((name) =>
       assert(
-        tools.some((tool) => tool.name === name),
+        listing.tools.some((tool) => tool.name === name),
         `${name} missing from packaged server`,
-      );
+      ),
+    );
     const html = await client.readResource({ uri: "ui://arco/issues" });
     assert.equal(
       html.contents[0].text,
