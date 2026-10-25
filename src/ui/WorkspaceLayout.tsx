@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref, UIEventHandler } from "react";
 import { Plus } from "@openai/apps-sdk-ui/components/Icon";
 import { SingleSelect } from "./SingleSelect";
 export function WorkspaceLayout({
@@ -21,6 +21,36 @@ export function WorkspaceLayout({
     </main>
   );
 }
+export function WorkspaceIssueList({
+  children,
+  bulkActions,
+  busy,
+  refreshing = false,
+  onScroll,
+  ref,
+}: {
+  children: ReactNode;
+  bulkActions?: ReactNode;
+  busy: boolean;
+  refreshing?: boolean;
+  onScroll: UIEventHandler<HTMLDivElement>;
+  ref: Ref<HTMLDivElement>;
+}) {
+  return (
+    <>
+      <div
+        className={`issue-list${refreshing ? " refreshing" : ""}`}
+        ref={ref}
+        aria-busy={busy}
+        onScroll={onScroll}
+      >
+        {children}
+      </div>
+      {bulkActions}
+    </>
+  );
+}
+
 export function WorkspaceHeader({
   source,
   onSourceChange,
@@ -28,6 +58,7 @@ export function WorkspaceHeader({
   createDisabled,
   createLabel,
   createTitle,
+  actions,
 }: {
   source: "github" | "linear";
   onSourceChange: (source: "github" | "linear") => void;
@@ -35,6 +66,7 @@ export function WorkspaceHeader({
   createDisabled: boolean;
   createLabel: string;
   createTitle?: string;
+  actions?: ReactNode;
 }) {
   return (
     <div className="sidebar-heading">
@@ -53,16 +85,19 @@ export function WorkspaceHeader({
           }}
         />
       </div>
-      <button
-        type="button"
-        className="icon-button"
-        aria-label={createLabel}
-        title={createTitle ?? createLabel}
-        disabled={createDisabled}
-        onClick={onCreate}
-      >
-        <Plus aria-hidden="true" />
-      </button>
+      <div>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={createLabel}
+          title={createTitle ?? createLabel}
+          disabled={createDisabled}
+          onClick={onCreate}
+        >
+          <Plus aria-hidden="true" />
+        </button>
+        {actions}
+      </div>
     </div>
   );
 }

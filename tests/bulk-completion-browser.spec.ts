@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { choose } from "./select-helpers";
+import { choose, selectControl } from "./select-helpers";
 
 for (const source of ["github", "linear"] as const) {
   test(`${source} bulk completion clears selection after switching sources during apply`, async ({
@@ -46,12 +46,33 @@ for (const source of ["github", "linear"] as const) {
         name: "Apply to 2 issues",
         exact: true,
       });
+      const listBox = await ui.locator(".issue-list").boundingBox();
+      const panelBox = await bulk.boundingBox();
+      const sidebarBox = await ui.locator(".issue-sidebar").boundingBox();
+      const pickerBox = await selectControl(
+        bulk,
+        source === "github" ? "Bulk action" : "Bulk Linear action",
+      )
+        .getByRole("button")
+        .boundingBox();
+      const applyBox = await apply.boundingBox();
+      expect(
+        listBox && panelBox && sidebarBox && pickerBox && applyBox,
+      ).toBeTruthy();
+      expect(listBox!.y + listBox!.height).toBeLessThanOrEqual(panelBox!.y + 1);
+      expect(panelBox!.y + panelBox!.height).toBeCloseTo(
+        sidebarBox!.y + sidebarBox!.height,
+        0,
+      );
+      expect(pickerBox!.x).toBeCloseTo(applyBox!.x, 0);
+      expect(pickerBox!.width).toBeCloseTo(applyBox!.width, 0);
+      await expect(bulk).not.toContainText(/Review targets|Review target IDs/);
       await apply.click();
       await expect.poll(() => calls).toBe(1);
       await expect(bulk).toBeVisible();
       await expect(
         bulk.getByRole("button", {
-          name: source === "github" ? /Applying/ : "Apply to 2 issues",
+          name: /Applying/,
         }),
       ).toBeDisabled();
       await choose(

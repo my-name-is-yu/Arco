@@ -1,5 +1,9 @@
 import { AsyncState } from "./AsyncState";
-import { WorkspaceLayout, WorkspaceHeader } from "./WorkspaceLayout";
+import {
+  WorkspaceLayout,
+  WorkspaceHeader,
+  WorkspaceIssueList,
+} from "./WorkspaceLayout";
 import { RefreshFailure } from "./RefreshFailure";
 import { useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -813,6 +817,43 @@ export function LinearWorkspace({
           onCreate={() => setCreateOpen(true)}
           createDisabled={!scope || busy}
           createLabel="Create Linear Issue"
+          actions={
+            connection.data?.mode !== "fixture" && (
+              <details
+                className="detail-utilities"
+                ref={accountMenu}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.stopPropagation();
+                  event.preventDefault();
+                  event.currentTarget.open = false;
+                  event.currentTarget.querySelector("summary")?.focus();
+                }}
+              >
+                <summary
+                  aria-label="Linear connection actions"
+                  title="Linear connection actions"
+                >
+                  <DotsHorizontalMoreMenu aria-hidden="true" />
+                </summary>
+                <div className="detail-utility-menu">
+                  <button
+                    className="utility-item"
+                    disabled={
+                      busy ||
+                      (!connected && !authPending && !connection.isError)
+                    }
+                    onClick={() => {
+                      if (accountMenu.current) accountMenu.current.open = false;
+                      void disconnect();
+                    }}
+                  >
+                    Disconnect Linear
+                  </button>
+                </div>
+              </details>
+            )
+          }
         />
         {!connection.data?.connected ? (
           <div className="list-message">
@@ -1155,31 +1196,33 @@ export function LinearWorkspace({
                       : `${rows.length}${issues.hasNextPage ? "+" : ""} Issues`}
                   </span>
                 </div>
-                {bulk.length > 0 && scope && (
-                  <LinearBulkActions
-                    host={host}
-                    key={JSON.stringify(scope)}
-                    scope={scope}
-                    ids={bulk}
-                    metadata={metadata.data}
-                    hasDuplicate={bulk.some(
-                      (id) =>
-                        (rows.find((issue) => issue.issueId === id)?.state
-                          .type ?? selectedStateTypes.current.get(id)) ===
-                        "duplicate",
-                    )}
-                    busy={busy}
-                    run={run}
-                    onClear={() => setBulk([])}
-                  />
-                )}
-                <div
-                  className="issue-list"
+                <WorkspaceIssueList
                   ref={list}
-                  aria-busy={issues.isFetching}
+                  busy={issues.isFetching}
                   onScroll={() => {
                     if (issues.isSuccess) capturePosition();
                   }}
+                  bulkActions={
+                    bulk.length > 0 &&
+                    scope && (
+                      <LinearBulkActions
+                        host={host}
+                        key={JSON.stringify(scope)}
+                        scope={scope}
+                        ids={bulk}
+                        metadata={metadata.data}
+                        hasDuplicate={bulk.some(
+                          (id) =>
+                            (rows.find((issue) => issue.issueId === id)?.state
+                              .type ?? selectedStateTypes.current.get(id)) ===
+                            "duplicate",
+                        )}
+                        busy={busy}
+                        run={run}
+                        onClear={() => setBulk([])}
+                      />
+                    )
+                  }
                 >
                   {issues.isPending && <IssueListSkeleton />}
                   {rows.map((issue) => (
@@ -1255,7 +1298,7 @@ export function LinearWorkspace({
                       {issues.isFetchingNextPage ? "Loading…" : "Load more"}
                     </button>
                   )}
-                </div>
+                </WorkspaceIssueList>
               </>
             )}
           </>
@@ -1273,56 +1316,6 @@ export function LinearWorkspace({
             </button>
           </p>
         )}
-        <footer className="sidebar-footer sidebar-account">
-          {connection.data?.mode === "fixture" ? (
-            <span className="connection-line">
-              <span className="connection-dot connected" />
-              {connection.data.account} · Linear fixture
-            </span>
-          ) : (
-            <details
-              className="linear-account-menu"
-              ref={accountMenu}
-              onKeyDown={(event) => {
-                if (event.key !== "Escape") return;
-                event.stopPropagation();
-                event.preventDefault();
-                event.currentTarget.open = false;
-                event.currentTarget.querySelector("summary")?.focus();
-              }}
-            >
-              <summary
-                className="connection-line"
-                aria-label="Linear connection actions"
-              >
-                <span
-                  className={`connection-dot ${connected ? "connected" : ""}`}
-                />
-                <span className="disclosure-label">
-                  {connection.data?.account ||
-                    (connection.isError
-                      ? "Connection unavailable"
-                      : "Disconnected")}
-                </span>
-                <DotsHorizontalMoreMenu aria-hidden="true" />
-              </summary>
-              <div className="detail-utility-menu">
-                <button
-                  className="utility-item"
-                  disabled={
-                    busy || (!connected && !authPending && !connection.isError)
-                  }
-                  onClick={() => {
-                    if (accountMenu.current) accountMenu.current.open = false;
-                    void disconnect();
-                  }}
-                >
-                  Disconnect Linear
-                </button>
-              </div>
-            </details>
-          )}
-        </footer>
       </aside>
       <section
         className="detail-pane"

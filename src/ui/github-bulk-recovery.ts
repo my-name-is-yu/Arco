@@ -35,6 +35,27 @@ export type UnconfirmedBulkAttempt = {
 export const bulkIssueId = (issue: IssueRef) =>
   `${issue.repo.toLowerCase()}#${issue.number}`;
 
+export function matchesBulkOperation(
+  identity: string,
+  sessionKey: string,
+  action: string,
+  value: string,
+) {
+  try {
+    const parts: unknown = JSON.parse(identity);
+    // The previous format also contained four custom-field draft values.
+    return (
+      Array.isArray(parts) &&
+      (parts.length === 3 || parts.length === 7) &&
+      parts[0] === sessionKey &&
+      parts[1] === action &&
+      parts[2] === value
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isRejectedBulkCall(error: unknown) {
   return (
     error instanceof OperationError &&

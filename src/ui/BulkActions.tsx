@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@openai/apps-sdk-ui/components/Button";
 import type {
   ArcoHost,
   Connection,
@@ -10,20 +9,16 @@ import type {
 } from "../shared/contracts";
 import type {
   BulkUpdateResult,
-  FieldValue,
   IssueCatalog,
-  IssueFieldList,
-  ProjectFieldList,
-  IssueProjectMemberships,
 } from "../shared/github-operations";
-import { FieldEditor } from "./GitHubProperties";
 import { SingleSelect } from "./SingleSelect";
-import { DisclosureSummary } from "./DisclosureSummary";
+import { BulkActionPanel } from "./BulkActionPanel";
 import { useCommandSession, useSessionState } from "./session-state";
 import {
   bulkIssueId,
   checkBulkChange,
   isRejectedBulkCall,
+  matchesBulkOperation,
   type BulkAttempt,
   type UnconfirmedBulkAttempt,
 } from "./github-bulk-recovery";
@@ -39,9 +34,7 @@ type Action =
   | "assignee-add"
   | "assignee-remove"
   | "milestone"
-  | "issue-type"
-  | "issue-field"
-  | "project-field";
+  | "issue-type";
 type Result = IssueRef & { ok: boolean; error?: string; retryable?: boolean };
 const id = bulkIssueId;
 
@@ -63,32 +56,14 @@ export function BulkActions({
     UnconfirmedBulkAttempt[]
   >(host, `github:bulk:unconfirmed:${identity}`, []);
   const sessionKey = `github:bulk:${JSON.stringify([identity, issues.map(id).sort()])}`;
-  const [action, setAction] = useSessionState<Action>(
-    host,
-    `${sessionKey}:action`,
-    "close",
-  );
+  const [storedAction, setAction] = useSessionState<
+    Action | "issue-field" | "project-field"
+  >(host, `${sessionKey}:action`, "close");
+  const action =
+    storedAction === "issue-field" || storedAction === "project-field"
+      ? ""
+      : storedAction;
   const [value, setValue] = useSessionState(host, `${sessionKey}:value`, "");
-  const [fieldId, setFieldId] = useSessionState(
-    host,
-    `${sessionKey}:fieldId`,
-    "",
-  );
-  const [projectId, setProjectId] = useSessionState(
-    host,
-    `${sessionKey}:projectId`,
-    "",
-  );
-  const [fieldValue, setFieldValue] = useSessionState<FieldValue>(
-    host,
-    `${sessionKey}:fieldValue`,
-    null,
-  );
-  const [fieldReady, setFieldReady] = useSessionState(
-    host,
-    `${sessionKey}:fieldReady`,
-    false,
-  );
   const [results, setResults] = useSessionState<Result[]>(
     host,
     `${sessionKey}:results`,
@@ -144,81 +119,20 @@ export function BulkActions({
     enabled:
       Boolean(repo && first) && ["milestone", "issue-type"].includes(action),
   });
-  const issueFields = useQuery({
-    queryKey: ["github", "issue-fields", repo, first?.number],
-    queryFn: () =>
-      host.call<IssueFieldList>("arco_issue_fields", {
-        repo,
-        number: first?.number,
-      }),
-    enabled: Boolean(repo && first) && action === "issue-field",
-  });
-  const memberships = useQuery({
-    queryKey: ["github", "memberships", repo, first?.number],
-    queryFn: () =>
-      host.call<IssueProjectMemberships>("arco_issue_projects", {
-        repo,
-        number: first?.number,
-      }),
-    enabled: Boolean(repo && first) && action === "project-field",
-  });
-  const member = memberships.data?.memberships.find(
-    (member) => member.projectId === projectId,
-  );
-  const projectFields = useQuery({
-    queryKey: [
-      "github",
-      "project-fields",
-      repo,
-      first?.number,
-      projectId,
-      member?.itemId,
-    ],
-    queryFn: () =>
-      host.call<ProjectFieldList>("arco_project_fields", {
-        repo,
-        number: first?.number,
-        projectId,
-        itemId: member?.itemId,
-      }),
-    enabled: Boolean(repo && first && member) && action === "project-field",
-  });
-  const requiresValue = action !== "close" && action !== "reopen";
-  const advanced = [
-    "milestone",
-    "issue-type",
-    "issue-field",
-    "project-field",
-  ].includes(action);
-  const fieldAction = action === "issue-field" || action === "project-field";
+  const requiresValue =
+    action !== "" && action !== "close" && action !== "reopen";
+  const catalogAction = action === "milestone" || action === "issue-type";
   const compatible = (!requiresValue || Boolean(repo)) && issues.length <= 100;
   const values = action.startsWith("label")
     ? (metadata.data?.labels.map((label) => label.name) ?? [])
     : (metadata.data?.assignees ?? []);
-  const fields =
-    action === "issue-field"
-      ? (issueFields.data?.fields ?? [])
-      : (projectFields.data?.fields ?? []);
-  const field = fields.find(
-    (field) => String(field.id) === fieldId && field.supported,
-  );
   const ready =
+    action !== "" &&
     compatible &&
-    (!requiresValue ||
-      (fieldAction
-        ? Boolean(field && fieldReady)
-        : advanced
-          ? value !== ""
-          : values.includes(value)));
-  const operation = JSON.stringify([
-    sessionKey,
-    action,
-    value,
-    fieldId,
-    projectId,
-    fieldValue,
-    fieldReady,
-  ]);
+    (!requiresValue || (catalogAction ? value !== "" : values.includes(value)));
+  const operation = JSON.stringify([sessionKey, action, value]);
+  const matchesOperation = (attempt: BulkAttempt) =>
+    matchesBulkOperation(attempt.operation, sessionKey, action, value);
   const changeDraft = () => {
     setResults([]);
     setError("");
@@ -305,7 +219,7 @@ export function BulkActions({
           error:
             "Some update results need confirmation. Check the current issues before another update.",
         });
-      if (attempt.operation === operation) mergeResults(next);
+      if (matchesOperation(attempt)) mergeResults(next);
     } catch (failure) {
       const message =
         failure instanceof Error ? failure.message : String(failure);
@@ -317,7 +231,7 @@ export function BulkActions({
           replay: true,
           error: message,
         });
-      if (attempt.operation === operation)
+      if (matchesOperation(attempt))
         mergeResults(
           attempt.targets.map((target) => ({
             ...target,
@@ -330,26 +244,18 @@ export function BulkActions({
   };
   const buildAttempt = async (targets: IssueRef[]): Promise<BulkAttempt> => {
     const requestId = crypto.randomUUID();
-    if (advanced) {
-      const change =
+    if (catalogAction) {
+      const patch =
         action === "milestone"
           ? {
-              patch: {
-                milestoneNumber: value === "none" ? null : Number(value),
-              },
+              milestoneNumber: value === "none" ? null : Number(value),
             }
-          : action === "issue-type"
-            ? {
-                patch: { issueTypeId: value === "none" ? null : Number(value) },
-              }
-            : action === "issue-field"
-              ? { issueField: { fieldId: Number(fieldId), value: fieldValue } }
-              : { projectField: { projectId, fieldId, value: fieldValue } };
+          : { issueTypeId: value === "none" ? null : Number(value) };
       return {
         operation,
         targets,
         name: "arco_bulk_update",
-        args: { issues: targets, requestId, ...change },
+        args: { issues: targets, requestId, patch },
       };
     }
     const issue = targets[0];
@@ -400,7 +306,7 @@ export function BulkActions({
     )
       return;
     const pending = relevantUnconfirmed.filter(
-      (pending) => pending.replay && pending.attempt.operation === operation,
+      (pending) => pending.replay && matchesOperation(pending.attempt),
     );
     const pendingIds = new Set(
       relevantUnconfirmed.flatMap((pending) => pending.targets.map(id)),
@@ -422,7 +328,7 @@ export function BulkActions({
     setError("");
     try {
       for (const recovery of pending) await applyAttempt(recovery.attempt);
-      for (const group of advanced
+      for (const group of catalogAction
         ? targets.length
           ? [targets]
           : []
@@ -472,7 +378,7 @@ export function BulkActions({
             });
             client.setQueryData(["issue", issue.repo, issue.number], issue);
             const applied = await checkBulkChange(host, pending.attempt, issue);
-            if (pending.attempt.operation === operation)
+            if (matchesOperation(pending.attempt))
               mergeResults([
                 {
                   ...target,
@@ -511,51 +417,101 @@ export function BulkActions({
     }
   };
   return (
-    <section className="bulk-actions" aria-label="Bulk issue actions">
-      <div className="bulk-heading">
-        <strong>{issues.length} selected</strong>
-        <button className="text-button" disabled={busy} onClick={onClear}>
-          Clear selection
-        </button>
-      </div>
-      <details>
-        <DisclosureSummary>Review targets</DisclosureSummary>
-        <ul>
-          {issues.map((issue) => (
-            <li key={id(issue)}>
-              {issue.repo} #{issue.number} · {issue.title}
-            </li>
-          ))}
-        </ul>
-      </details>
-      <label>
-        Bulk action
+    <BulkActionPanel
+      label="Bulk issue actions"
+      count={issues.length}
+      busy={busy}
+      disabled={busy || !ready || hasUnconfirmed || failures.length > 0}
+      onClear={onClear}
+      onApply={() => void execute()}
+      feedback={
+        <>
+          {failures.length > 0 && (
+            <ul
+              className="bulk-results"
+              aria-label="Failed issues"
+              aria-live="polite"
+            >
+              {failures.map((result) => (
+                <li className="inline-error" key={id(result)}>
+                  <strong>
+                    {result.repo} #{result.number}
+                  </strong>{" "}
+                  {result.error}
+                </li>
+              ))}
+            </ul>
+          )}
+          {retryableFailures.length > 0 && (
+            <button
+              className="text-button"
+              disabled={busy || !ready}
+              onClick={() => void execute(true)}
+            >
+              Retry failed issues only
+            </button>
+          )}
+          {hasUnconfirmed && (
+            <div className="bulk-unconfirmed" role="status">
+              <p>Previous changes need confirmation before another update.</p>
+              <ul aria-label="Unconfirmed changes">
+                {relevantUnconfirmed.map((pending) => (
+                  <li key={pending.attempt.args.requestId}>
+                    {pending.targets
+                      .map((target) => `${target.repo} #${target.number}`)
+                      .join(", ")}
+                    : {pending.error}
+                  </li>
+                ))}
+              </ul>
+              {relevantUnconfirmed.some(
+                (pending) =>
+                  pending.replay && !matchesOperation(pending.attempt),
+              ) && (
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() => void recover(false)}
+                >
+                  Retry unconfirmed changes
+                </button>
+              )}
+              <button
+                className="text-button"
+                disabled={busy}
+                onClick={() => void recover(true)}
+              >
+                Check current state
+              </button>
+            </div>
+          )}
+        </>
+      }
+    >
+      <div className="bulk-action-picker">
         <SingleSelect
+          block
           label="Bulk action"
+          placeholder="Choose an action…"
           disabled={busy}
           value={action}
           onChange={(value) => {
             changeDraft();
             setAction(value as Action);
             setValue("");
-            setFieldId("");
-            setProjectId("");
-            setFieldReady(false);
           }}
           options={[
-            { value: "close", label: "Close · Completed" },
-            { value: "reopen", label: "Reopen" },
             { value: "label-add", label: "Add label" },
             { value: "label-remove", label: "Remove label" },
             { value: "assignee-add", label: "Add assignee" },
             { value: "assignee-remove", label: "Remove assignee" },
             { value: "milestone", label: "Set milestone" },
             { value: "issue-type", label: "Set issue type" },
-            { value: "issue-field", label: "Set Issue field" },
-            { value: "project-field", label: "Set Project field" },
+            { value: "close", label: "Close as completed" },
+            { value: "reopen", label: "Reopen" },
           ]}
         />
-      </label>
+      </div>
       {!compatible && (
         <p className="inline-error">
           {issues.length > 100
@@ -563,10 +519,11 @@ export function BulkActions({
             : "Select issues from the same repository for this attribute."}
         </p>
       )}
-      {requiresValue && compatible && !advanced && (
+      {requiresValue && compatible && !catalogAction && (
         <label>
           {action.startsWith("label") ? "Labels" : "Assignees"}
           <SingleSelect
+            block
             label="Bulk value"
             value={value}
             disabled={busy || metadata.isPending}
@@ -585,6 +542,7 @@ export function BulkActions({
         <label>
           {action === "milestone" ? "Milestone" : "Issue type"}
           <SingleSelect
+            block
             label="Bulk attribute value"
             value={value}
             disabled={busy || catalog.isPending}
@@ -608,189 +566,16 @@ export function BulkActions({
           />
         </label>
       )}
-      {compatible && action === "project-field" && (
-        <>
-          <label>
-            Shared Project
-            <SingleSelect
-              label="Bulk Project"
-              value={projectId}
-              disabled={busy || memberships.isPending}
-              onChange={(value) => {
-                changeDraft();
-                setProjectId(value);
-                setFieldId("");
-                setFieldReady(false);
-              }}
-              options={[
-                { value: "", label: "Choose a Project…" },
-                ...(memberships.data?.memberships.map((member) => ({
-                  value: member.projectId,
-                  label: member.title,
-                })) ?? []),
-              ]}
-            />
-          </label>
-          <p className="property-note">
-            Select a Project containing every target. Issues outside it remain
-            unchanged and report a failure.
-          </p>
-        </>
-      )}
-      {compatible && fieldAction && (
-        <>
-          <label>
-            Existing field
-            <SingleSelect
-              label="Bulk field"
-              value={fieldId}
-              disabled={busy}
-              onChange={(value) => {
-                changeDraft();
-                setFieldId(value);
-                setFieldReady(false);
-                setFieldValue(null);
-              }}
-              options={[
-                { value: "", label: "Choose a field…" },
-                ...fields
-                  .filter((field) => field.supported)
-                  .map((field) => ({
-                    value: String(field.id),
-                    label: `${field.name} · ${field.type}`,
-                  })),
-              ]}
-            />
-          </label>
-          {field && (
-            <FieldEditor
-              key={`${action}:${field.id}`}
-              host={host}
-              draftScope={[sessionKey, action, projectId, field.id]}
-              field={{ ...field, value: fieldValue }}
-              kind={action === "issue-field" ? "issue" : "project"}
-              busy={busy}
-              saveLabel="Prepare value"
-              onSave={async (value) => {
-                changeDraft();
-                setFieldValue(value);
-                setFieldReady(true);
-                return true;
-              }}
-            />
-          )}
-          {field && (
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() => {
-                changeDraft();
-                setFieldValue(null);
-                setFieldReady(true);
-              }}
-            >
-              Clear the field value
-            </button>
-          )}
-          {fieldReady && (
-            <p className="property-note">
-              Value to apply:{" "}
-              {fieldValue === null
-                ? "Clear value"
-                : Array.isArray(fieldValue)
-                  ? fieldValue.join(", ")
-                  : String(fieldValue)}
-            </p>
-          )}
-        </>
-      )}
-      {[
-        metadata.error,
-        catalog.error,
-        issueFields.error,
-        memberships.error,
-        projectFields.error,
-      ]
-        .filter(Boolean)
-        .map((failure, index) => (
-          <p key={index} className="inline-error" role="alert">
-            {failure?.message}
-          </p>
-        ))}
+      {[metadata.error, catalog.error].filter(Boolean).map((failure, index) => (
+        <p key={index} className="inline-error" role="alert">
+          {failure?.message}
+        </p>
+      ))}
       {error && (
         <p className="inline-error" role="alert">
           {error}
         </p>
       )}
-      <Button
-        color="primary"
-        size="sm"
-        block
-        disabled={busy || !ready || hasUnconfirmed || failures.length > 0}
-        loading={busy}
-        onClick={() => void execute()}
-      >
-        {busy ? "Applying…" : `Apply to ${issues.length} issues`}
-      </Button>
-      {failures.length > 0 && (
-        <ul
-          className="bulk-results"
-          aria-label="Failed issues"
-          aria-live="polite"
-        >
-          {failures.map((result) => (
-            <li className="inline-error" key={id(result)}>
-              <strong>
-                {result.repo} #{result.number}
-              </strong>{" "}
-              {result.error}
-            </li>
-          ))}
-        </ul>
-      )}
-      {retryableFailures.length > 0 && (
-        <button
-          className="text-button"
-          disabled={busy}
-          onClick={() => void execute(true)}
-        >
-          Retry failed issues only
-        </button>
-      )}
-      {hasUnconfirmed && (
-        <div className="bulk-unconfirmed" role="status">
-          <p>Previous changes need confirmation before another update.</p>
-          <ul aria-label="Unconfirmed changes">
-            {relevantUnconfirmed.map((pending) => (
-              <li key={pending.attempt.args.requestId}>
-                {pending.targets
-                  .map((target) => `${target.repo} #${target.number}`)
-                  .join(", ")}
-                : {pending.error}
-              </li>
-            ))}
-          </ul>
-          {relevantUnconfirmed.some(
-            (pending) =>
-              pending.replay && pending.attempt.operation !== operation,
-          ) && (
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() => void recover(false)}
-            >
-              Retry unconfirmed changes
-            </button>
-          )}
-          <button
-            className="text-button"
-            disabled={busy}
-            onClick={() => void recover(true)}
-          >
-            Check current state
-          </button>
-        </div>
-      )}
-    </section>
+    </BulkActionPanel>
   );
 }

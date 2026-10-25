@@ -134,7 +134,7 @@ test("Linear title-only conflict compares the latest title and unchanged Markdow
     ui.getByRole("img", { name: "Fixture illustration", exact: true }),
   ).toBeVisible();
   const body = await ui.locator(".body-content .issue-markdown").innerText();
-  await ui.locator(".detail-utilities > summary").click();
+  await ui.getByLabel("Issue actions", { exact: true }).click();
   await ui
     .getByRole("button", { name: "Edit Linear description", exact: true })
     .click();

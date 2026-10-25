@@ -1,5 +1,9 @@
 import { AsyncState } from "./AsyncState";
-import { WorkspaceLayout, WorkspaceHeader } from "./WorkspaceLayout";
+import {
+  WorkspaceLayout,
+  WorkspaceHeader,
+  WorkspaceIssueList,
+} from "./WorkspaceLayout";
 import { RefreshFailure } from "./RefreshFailure";
 import { GitHubDetail } from "./GitHubDetail";
 import { StateIcon, ShortDate } from "./GitHubIssueMeta";
@@ -1208,11 +1212,21 @@ export function GitHubWorkspace({
             {issues.hasNextPage ? " loaded" : ""}
           </span>
         </div>
-        <div
-          className={`issue-list${issues.isFetching && !issues.isPending ? " refreshing" : ""}`}
+        <WorkspaceIssueList
           ref={listRef}
           onScroll={rememberListScroll}
-          aria-busy={issues.isFetching}
+          busy={issues.isFetching}
+          refreshing={issues.isFetching && !issues.isPending}
+          bulkActions={
+            bulkIssues.length > 0 && (
+              <BulkActions
+                host={host}
+                issues={bulkIssues}
+                onClear={() => setBulkIssues([])}
+                onBusy={setBulkBusy}
+              />
+            )
+          }
         >
           {projectView && !repo && connection.data?.connected && (
             <div className="list-message project-repository-empty">
@@ -1348,28 +1362,7 @@ export function GitHubWorkspace({
               </button>
             </>
           )}
-        </div>
-        {bulkIssues.length > 0 && (
-          <BulkActions
-            host={host}
-            issues={bulkIssues}
-            onClear={() => setBulkIssues([])}
-            onBusy={setBulkBusy}
-          />
-        )}
-        <div className="sidebar-footer sidebar-account">
-          <div className="connection-line">
-            <span
-              className={`connection-dot ${connection.data?.connected ? "connected" : ""}`}
-            />
-            {connection.data?.mode === "fixture"
-              ? "Local fixture"
-              : connection.data?.account || "Disconnected"}
-            {connection.data?.mode === "fixture" && (
-              <span className="muted">· Local verification</span>
-            )}
-          </div>
-        </div>
+        </WorkspaceIssueList>
       </aside>
       <section
         className={`detail-pane${detail.isFetching && !detail.isPending ? " refreshing" : ""}`}

@@ -581,20 +581,6 @@
   border-radius: 7px;
   margin-top: 8px;
 }
-.sidebar-footer {
-  padding: 10px 15px;
-  border-top: 1px solid var(--arco-border);
-  font-size: 12px;
-}
-.connection-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.sidebar-account .connection-line {
-  flex-wrap: wrap;
-  overflow-wrap: anywhere;
-}
 .empty-scope-actions {
   display: flex;
   flex-wrap: wrap;
@@ -603,15 +589,6 @@
 }
 .empty-scope-actions > button {
   max-width: 100%;
-}
-.connection-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--arco-muted);
-}
-.connection-dot.connected {
-  background: #69b787;
 }
 .detail-pane {
   min-width: 0;
@@ -1659,6 +1636,7 @@
 .bulk-actions {
   border-top: 1px solid var(--arco-border);
   padding: 11px 14px;
+  margin: 0;
   font-size: 10px;
   max-height: 45%;
   overflow: auto;
@@ -1669,10 +1647,8 @@
   align-items: center;
   margin-bottom: 7px;
 }
-.bulk-actions summary {
-  cursor: pointer;
-  color: var(--arco-muted);
-  margin-bottom: 5px;
+.bulk-action-picker {
+  margin: 8px 0;
 }
 .bulk-actions > label {
   display: flex;
@@ -1680,13 +1656,25 @@
   gap: 4px;
   margin: 8px 0;
   color: var(--arco-muted);
+  font-size: 11px;
+}
+.bulk-actions input {
+  width: 100%;
+  font-size: 11px;
 }
 .bulk-actions ul {
   padding-left: 15px;
   margin: 7px 0;
-}
-.bulk-results {
   overflow-wrap: anywhere;
+}
+.bulk-actions .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+.bulk-actions .checkbox-label input {
+  width: 13px;
 }
 
 .advanced-section {

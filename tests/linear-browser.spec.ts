@@ -131,7 +131,13 @@ test("Linear comment pages load explicitly and retain drafts and an acknowledged
   expect(requestedCursors).not.toContain("page-3");
 });
 async function openIssueActions(ui: ReturnType<typeof app>) {
-  if ((await ui.locator(".detail-utilities").getAttribute("open")) === null)
+  const details = ui.getByRole("region", {
+    name: "Linear Issue details",
+    exact: true,
+  });
+  if (
+    (await details.locator(".detail-utilities").getAttribute("open")) === null
+  )
     await ui.getByLabel("Issue actions", { exact: true }).click();
 }
 async function moreProperties(ui: ReturnType<typeof app>) {

@@ -23,6 +23,10 @@ Opening a card does not rewrite saved source/repository/team preferences or auto
 
 The workspace contains a list and the selected issue's details. The list header groups provider, visible scope, search, state, and secondary filters. Rows preserve native identity and support compatible bulk selection. The personal GitHub view starts with **Assigned to me**; other account filters are explicit. Project browsing uses a chat-specific repository choice. Linear uses its own workspace/team scope.
 
+Both providers use the same bulk panel below the scrollable issue list, at the bottom of the sidebar. It shows the selected count, a clear-selection action, full-width action and value pickers, and a full-width **Apply** button. Do not repeat the selected rows in a target-review disclosure or label the action picker with a separate heading. GitHub's list bulk actions cover issue state, labels, assignees, milestone, and issue type; custom Issue and Project fields stay in individual issue details. Linear's bulk actions cover status, assignee, priority, labels, estimate, and due date. Retain actionable per-issue failures and recovery controls when needed.
+
+Do not reserve a sidebar footer for the connected account. Linear connection actions remain reachable from the workspace header, including when no issues are available.
+
 The details toolbar holds **Add to chat** and an issue-actions menu. Body and comments form a continuous reading area. Properties sit alongside the content when width permits and return to a single-column layout when narrow. Narrow views switch between list and detail while retaining filters, selection, and list position.
 
 Keep body reading prominent; avoid stacking secondary controls ahead of the content. Free-form body editing, comments/replies, project and relationship management, custom fields, and bulk work belong here. Unsupported operations link to the source service.

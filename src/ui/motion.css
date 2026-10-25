@@ -213,13 +213,11 @@
   animation: arco-reveal var(--arco-motion-medium) ease-out;
 }
 
-.bulk-actions,
-.linear-bulk {
+.bulk-actions {
   animation: arco-rise var(--arco-motion-medium) var(--arco-motion-ease);
 }
 
 .detail-utilities[open] > .detail-utility-menu,
-.linear-account-menu[open] > .detail-utility-menu,
 .linear-reaction-picker[open] > .linear-reaction-options {
   animation: arco-rise 150ms var(--arco-motion-ease);
 }

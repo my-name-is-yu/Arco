@@ -24,9 +24,9 @@ test.beforeEach(async ({ page }) => {
       exact: true,
     }),
   ).toBeVisible();
-  await expect(frame(page).locator(".sidebar-footer")).toContainText(
-    "Local fixture",
-  );
+  await expect(
+    frame(page).getByText("LOCAL FIXTURE", { exact: true }),
+  ).toBeVisible();
 });
 
 test("GitHub URL opens a different repository from account mode, and the optional repository entry opens Issue URLs", async ({

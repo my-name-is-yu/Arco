@@ -65,6 +65,7 @@ export function SingleSelect({
   onChange,
   disabled = false,
   loading = false,
+  block = false,
   placeholder = "Not set",
   id,
   className,
@@ -76,6 +77,7 @@ export function SingleSelect({
   onChange: (value: string) => void;
   disabled?: boolean;
   loading?: boolean;
+  block?: boolean;
   placeholder?: string;
   id?: string;
   className?: string;
@@ -168,7 +170,7 @@ export function SingleSelect({
         variant="soft"
         pill
         size="sm"
-        block={false}
+        block={block}
         align="start"
         dropdownIconType="chevronDown"
         listMinWidth={220}

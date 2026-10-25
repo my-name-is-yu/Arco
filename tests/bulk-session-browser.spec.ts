@@ -89,7 +89,7 @@ for (const source of ["github", "linear"] as const) {
       );
       await expect(
         bulk.getByRole("button", {
-          name: source === "github" ? /Applying/ : "Apply to 1 issues",
+          name: /Applying/,
         }),
       ).toBeDisabled();
       expect(calls).toHaveLength(1);
