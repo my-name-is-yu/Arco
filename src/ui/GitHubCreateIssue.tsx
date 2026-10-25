@@ -56,20 +56,21 @@ export function GitHubCreateIssue({
       issueTypeName: saved?.githubIssueTypeName ?? "",
     };
   };
+  const toSavedDraft = (draft: TemplateDraft): SavedDraft => ({
+    title: draft.title,
+    body: draft.body,
+    comment: "",
+    githubLabels: draft.labels,
+    githubAssignees: draft.assignees,
+    githubIssueTypeName: draft.issueTypeName || undefined,
+  });
   const createDraft = readCreateDraft();
   const setCreateDraft = (
     value: TemplateDraft | ((previous: TemplateDraft) => TemplateDraft),
   ) => {
     if (!createDraftKey) return;
     const next = typeof value === "function" ? value(readCreateDraft()) : value;
-    scheduleDraft(createDraftKey, {
-      title: next.title,
-      body: next.body,
-      comment: "",
-      githubLabels: next.labels,
-      githubAssignees: next.assignees,
-      githubIssueTypeName: next.issueTypeName || undefined,
-    });
+    scheduleDraft(createDraftKey, toSavedDraft(next));
   };
 
   return (
@@ -119,25 +120,14 @@ export function GitHubCreateIssue({
           <DraftStatus
             status={persistence.statuses[draftStorageId(createDraftKey)]}
             onRetry={() =>
-              persistence.retry(createDraftKey, {
-                title: createDraft.title,
-                body: createDraft.body,
-                comment: "",
-                githubLabels: createDraft.labels,
-                githubAssignees: createDraft.assignees,
-                githubIssueTypeName: createDraft.issueTypeName || undefined,
-              })
+              persistence.retry(createDraftKey, toSavedDraft(readCreateDraft()))
             }
             onResolve={(choice) => {
-              const local: SavedDraft = {
-                title: createDraft.title,
-                body: createDraft.body,
-                comment: "",
-                githubLabels: createDraft.labels,
-                githubAssignees: createDraft.assignees,
-                githubIssueTypeName: createDraft.issueTypeName || undefined,
-              };
-              void persistence.resolve(createDraftKey, choice, local);
+              void persistence.resolve(
+                createDraftKey,
+                choice,
+                toSavedDraft(readCreateDraft()),
+              );
             }}
           />
         )}

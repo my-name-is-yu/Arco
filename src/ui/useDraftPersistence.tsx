@@ -277,7 +277,7 @@ export function DraftStatus({
           </div>
         </details>
       ) : (
-        <button className="text-button" onClick={onRetry}>
+        <button type="button" className="text-button" onClick={onRetry}>
           {status.operation === "load"
             ? "Retry loading draft"
             : status.operation === "delete"
