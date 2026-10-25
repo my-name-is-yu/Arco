@@ -22,6 +22,7 @@ const transport = new StdioClientTransport({
 const run = randomUUID();
 let created;
 const checks = [];
+const errors = [];
 async function call(name, args = {}) {
   const result = await client.callTool({ name, arguments: args });
   if (result.isError)
@@ -175,19 +176,31 @@ try {
       2,
     ),
   );
+} catch (error) {
+  errors.push(error);
 } finally {
-  if (created) {
-    const final = await write(
-      "arco_update_issue",
-      {
-        repo,
-        number: created.number,
-        patch: { state: "closed", stateReason: "not_planned" },
-      },
-      "finish",
-    );
-    assert.equal(final.state, "closed");
-    console.log(`Validation Issue left closed: ${created.url}`);
+  try {
+    if (created) {
+      const final = await write(
+        "arco_update_issue",
+        {
+          repo,
+          number: created.number,
+          patch: { state: "closed", stateReason: "not_planned" },
+        },
+        "finish",
+      );
+      assert.equal(final.state, "closed");
+      console.log(`Validation Issue left closed: ${created.url}`);
+    }
+  } catch (error) {
+    errors.push(error);
   }
-  await client.close();
+  try {
+    await client.close();
+  } catch (error) {
+    errors.push(error);
+  }
 }
+if (errors.length === 1) throw errors[0];
+if (errors.length) throw new AggregateError(errors, "Live validation failed.");

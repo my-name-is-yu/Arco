@@ -89,6 +89,21 @@ async function call(name, args) {
   );
   return response.structuredContent;
 }
+async function readComments() {
+  const issue = await call("arco_get_issue", ref);
+  const comments = [...issue.comments];
+  let page = issue.commentsNextPage;
+  while (page) {
+    const result = await call("arco_comments", { ...ref, page });
+    comments.push(...result.comments);
+    assert(
+      !result.hasMore || result.nextPage > page,
+      "Comment pagination did not advance",
+    );
+    page = result.hasMore ? result.nextPage : undefined;
+  }
+  return comments;
+}
 async function check(name, action) {
   try {
     await action();
@@ -177,14 +192,16 @@ try {
   await check("own comment create / edit / reaction / delete", async () => {
     const body = `Arco advanced validation ${runId}`;
     const input = { ...ref, requestId: id("comment-create"), body };
-    await call("arco_comment", input);
-    await call("arco_comment", input);
-    const issue = await call("arco_get_issue", ref);
-    const comments = issue.comments.filter((comment) => comment.body === body);
-    assert.equal(comments.length, 1, "Concurrent/duplicate comment guard");
-    assert(Number.isSafeInteger(comments[0].databaseId));
-    report.artifacts.commentId = comments[0].databaseId;
+    const posted = await call("arco_comment", input);
+    assert(Number.isSafeInteger(posted.postedComment?.databaseId));
+    report.artifacts.commentId = posted.postedComment.databaseId;
     await persist();
+    await call("arco_comment", input);
+    const comments = (await readComments()).filter(
+      (comment) => comment.body === body,
+    );
+    assert.equal(comments.length, 1, "Concurrent/duplicate comment guard");
+    assert.equal(comments[0].databaseId, report.artifacts.commentId);
     await call("arco_edit_comment", {
       ...ref,
       requestId: id("comment-edit"),
@@ -192,9 +209,9 @@ try {
       expectedUpdatedAt: comments[0].updatedAt,
       body: `${body}\n\nEdited through the packaged MCP tool.`,
     });
-    const updated = await call("arco_get_issue", ref);
+    const updated = await readComments();
     assert(
-      updated.comments
+      updated
         .find((comment) => comment.databaseId === report.artifacts.commentId)
         ?.body.includes("Edited through the packaged MCP tool."),
     );
@@ -226,7 +243,7 @@ try {
       commentId: report.artifacts.commentId,
     });
     assert(
-      !(await call("arco_get_issue", ref)).comments.some(
+      !(await readComments()).some(
         (comment) => comment.databaseId === report.artifacts.commentId,
       ),
     );
@@ -392,9 +409,9 @@ try {
   if (originalIssue) {
     if (report.artifacts.commentId)
       await cleanup("remove own temporary comment if present", async () => {
-        const current = await call("arco_get_issue", ref);
+        const current = await readComments();
         if (
-          current.comments.some(
+          current.some(
             (comment) => comment.databaseId === report.artifacts.commentId,
           )
         )
