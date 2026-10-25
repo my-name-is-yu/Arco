@@ -4,7 +4,6 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { build } from "esbuild";
 import {
   createCredentialStore,
   type CredentialStore,
@@ -26,6 +25,7 @@ async function rotateNativeCredential(store: CredentialStore) {
       scopes: ["read", "write"],
     });
     stored = true;
+    const { build } = await import("esbuild");
     const worker = join(directory, "worker.mjs");
     await build({
       stdin: {

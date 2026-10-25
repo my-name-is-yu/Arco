@@ -4,6 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { text } from "node:stream/consumers";
+import { postFragmentedJson } from "./fragmented-json";
 import { LinearClient } from "@linear/sdk";
 import { createLinearAuth } from "../src/server/linear/auth";
 import { createLinearService } from "../src/server/linear/service";
@@ -106,9 +108,7 @@ async function source() {
   });
   const server: Server = createServer(async (request, response) => {
     try {
-      let body = "";
-      for await (const chunk of request) body += chunk;
-      const input = JSON.parse(body) as {
+      const input = JSON.parse(await text(request)) as {
         query: string;
         variables: Record<string, unknown>;
       };
@@ -401,7 +401,7 @@ async function source() {
               "relations",
               "inverseRelations",
             ].includes(field)
-          )
+          ) {
             data = {
               issue: {
                 [field]: connection(
@@ -423,7 +423,9 @@ async function source() {
                 ),
               },
             };
-          else throw new Error(`Unexpected SDK operation: ${operation}`);
+            break;
+          }
+          throw new Error(`Unexpected SDK operation: ${operation}`);
         }
       }
       response.setHeader("Content-Type", "application/json");
@@ -484,10 +486,22 @@ async function source() {
     );
     await rm(directory, { recursive: true, force: true });
   });
-  return { service, calls, issue, controls };
+  return { service, calls, issue, controls, server };
 }
 
 describe("Linear adapter through the official SDK HTTP transport", () => {
+  it("preserves Unicode split across request chunks in the actual HTTP fixture", async () => {
+    const fixture = await source();
+    const id = "日本語🧭";
+    await expect(
+      postFragmentedJson(fixture.server, {
+        query: "query issue { issue { id } }",
+        variables: { id },
+      }),
+    ).resolves.toMatchObject({ data: { issue: { id } } });
+    expect(fixture.calls[0].variables).toEqual({ id });
+  });
+
   it("reads one comment page at a time and keeps a reply's unloaded parent identity", async () => {
     const { service, calls, controls } = await source();
     controls.commentCount = 65;

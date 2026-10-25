@@ -79,15 +79,17 @@ describe("documentation CI checks", () => {
   });
 
   it("rejects a missing target", async () => {
-    const root = await repository({ "README.md": "[Missing](missing.md)\n" });
-    const result = run(root);
+    const result = run(
+      await repository({ "README.md": "[Missing](missing.md)\n" }),
+    );
     expect(result.status).toBe(1);
     expect(result.output).toContain("missing local target");
   });
 
   it("rejects malformed local URL encoding", async () => {
-    const root = await repository({ "README.md": "[Invalid](%zz.md)\n" });
-    const result = run(root);
+    const result = run(
+      await repository({ "README.md": "[Invalid](%zz.md)\n" }),
+    );
     expect(result.status).toBe(1);
     expect(result.output).toContain("invalid link encoding");
   });
@@ -95,8 +97,9 @@ describe("documentation CI checks", () => {
   it.each(["../outside.md", "/outside.md", "%2e%2e/outside.md"])(
     "rejects a repository-escaping target: %s",
     async (url) => {
-      const root = await repository({ "README.md": `[Outside](${url})\n` });
-      const result = run(root);
+      const result = run(
+        await repository({ "README.md": `[Outside](${url})\n` }),
+      );
       expect(result.status).toBe(1);
       expect(result.output).toContain("outside the repository");
     },

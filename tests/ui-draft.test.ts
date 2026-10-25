@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  contentConflict as draftConflict,
-  resolveContentDraft as resolveDraft,
-} from "../src/ui/content-drafts";
+import { contentConflict, resolveContentDraft } from "../src/ui/content-drafts";
 import { mergeCommentPages } from "../src/ui/github-comments";
 import type { Comment, IssueDetail } from "../src/shared/contracts";
 
@@ -96,7 +93,7 @@ describe("GitHub comment page revisions", () => {
 describe("Issue draft concurrency", () => {
   it("comment drafts do not freeze an old title or body", () => {
     const latest = source({ title: "Changed elsewhere", body: "New body" });
-    const draft = resolveDraft(latest, {
+    const draft = resolveContentDraft(latest, {
       title: "Old title",
       body: "Old body",
       comment: "Keep comment",
@@ -106,7 +103,7 @@ describe("Issue draft concurrency", () => {
       body: latest.body,
       comment: "Keep comment",
     });
-    expect(draftConflict(latest, draft)).toBe(false);
+    expect(contentConflict(latest, draft)).toBe(false);
   });
 
   it("retains unsaved edits across own metadata or comment updates without a content conflict", () => {
@@ -115,10 +112,10 @@ describe("Issue draft concurrency", () => {
       state: "closed",
       assignees: ["yu"],
     });
-    const draft = resolveDraft(latest, edited());
+    const draft = resolveContentDraft(latest, edited());
     expect(draft.body).toBe("My unsaved edit");
     expect(draft.comment).toBe("Comment draft");
-    expect(draftConflict(latest, draft)).toBe(false);
+    expect(contentConflict(latest, draft)).toBe(false);
   });
 
   it("preserves an external title update while a different body edit is pending", () => {
@@ -126,10 +123,10 @@ describe("Issue draft concurrency", () => {
       title: "New remote title",
       updatedAt: "2026-10-22T01:00:00Z",
     });
-    const draft = resolveDraft(latest, edited());
+    const draft = resolveContentDraft(latest, edited());
     expect(draft.title).toBe("New remote title");
     expect(draft.body).toBe("My unsaved edit");
-    expect(draftConflict(latest, draft)).toBe(false);
+    expect(contentConflict(latest, draft)).toBe(false);
   });
 
   it("detects external content edits and preserves the draft until the user rebases", () => {
@@ -137,8 +134,8 @@ describe("Issue draft concurrency", () => {
       body: "Their new body",
       updatedAt: "2026-10-22T01:00:00Z",
     });
-    const draft = resolveDraft(latest, edited());
-    expect(draftConflict(latest, draft)).toBe(true);
+    const draft = resolveContentDraft(latest, edited());
+    expect(contentConflict(latest, draft)).toBe(true);
     expect(draft.body).toBe("My unsaved edit");
     const rebased = {
       ...draft,
@@ -146,7 +143,7 @@ describe("Issue draft concurrency", () => {
       baseBody: latest.body,
       baseUpdatedAt: latest.updatedAt,
     };
-    expect(draftConflict(latest, rebased)).toBe(false);
+    expect(contentConflict(latest, rebased)).toBe(false);
     expect(rebased.body).toBe("My unsaved edit");
     expect(rebased.comment).toBe("Comment draft");
   });
@@ -157,7 +154,7 @@ describe("Issue draft concurrency", () => {
       ...edited(),
       body: "Original body",
     };
-    const resolved = resolveDraft(latest, clean);
+    const resolved = resolveContentDraft(latest, clean);
     expect(resolved.body).toBe("New remote body");
     expect(resolved.baseUpdatedAt).toBeUndefined();
     expect(resolved.comment).toBe("Comment draft");

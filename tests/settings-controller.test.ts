@@ -73,52 +73,56 @@ describe("settings recovery", () => {
   });
 
   it("retries the failed filter after an unrelated successful scope change", async () => {
-    const { controller, recover, saved } = fixture();
-    controller.update("github:yu/Arco", (latest) => ({
+    const source = fixture();
+    source.controller.update("github:yu/Arco", (latest) => ({
       githubFilters: { ...latest.githubFilters, "yu/Arco": filter },
     }));
     await vi.waitFor(() =>
-      expect(controller.get().error).toBe("Disk unavailable"),
+      expect(source.controller.get().error).toBe("Disk unavailable"),
     );
-    recover();
-    controller.update("github:scope", () => ({ activeGithubRepo: "yu/Arco" }));
-    await vi.waitFor(() => expect(controller.get().pending).toBe(false));
-    expect(controller.get().error).toBe("Disk unavailable");
-    controller.retry();
+    source.recover();
+    source.controller.update("github:scope", () => ({
+      activeGithubRepo: "yu/Arco",
+    }));
+    await vi.waitFor(() => expect(source.controller.get().pending).toBe(false));
+    expect(source.controller.get().error).toBe("Disk unavailable");
+    source.controller.retry();
     await vi.waitFor(() =>
-      expect(controller.get()).toEqual({ pending: false, error: null }),
+      expect(source.controller.get()).toEqual({ pending: false, error: null }),
     );
-    expect(saved().settings.githubFilters["yu/Arco"]).toEqual(filter);
-    expect(saved().settings.activeGithubRepo).toBe("yu/Arco");
+    expect(source.saved().settings.githubFilters["yu/Arco"]).toEqual(filter);
+    expect(source.saved().settings.activeGithubRepo).toBe("yu/Arco");
   });
 
   it("does not replay a failed preference after the user replaces that intent", async () => {
-    const { controller, recover, saved } = fixture();
-    controller.update("source", () => ({ activeSource: "linear" }));
-    await vi.waitFor(() => expect(controller.get().error).toBeTruthy());
-    recover();
-    controller.update("source", () => ({ activeSource: "github" }));
-    await vi.waitFor(() => expect(controller.get().pending).toBe(false));
-    controller.retry();
-    expect(saved().settings.activeSource).toBe("github");
-    expect(controller.get().error).toBeNull();
+    const source = fixture();
+    source.controller.update("source", () => ({ activeSource: "linear" }));
+    await vi.waitFor(() => expect(source.controller.get().error).toBeTruthy());
+    source.recover();
+    source.controller.update("source", () => ({ activeSource: "github" }));
+    await vi.waitFor(() => expect(source.controller.get().pending).toBe(false));
+    source.controller.retry();
+    expect(source.saved().settings.activeSource).toBe("github");
+    expect(source.controller.get().error).toBeNull();
   });
 
   it("keeps the newest edit when a failed debounced filter is replaced", async () => {
-    const { controller, recover, saved } = fixture();
-    controller.schedule("github:yu/Arco", () => ({
+    const source = fixture();
+    source.controller.schedule("github:yu/Arco", () => ({
       githubFilters: { "yu/Arco": filter },
     }));
-    controller.flush();
-    await vi.waitFor(() => expect(controller.get().error).toBeTruthy());
-    recover();
-    controller.schedule("github:yu/Arco", () => ({
+    source.controller.flush();
+    await vi.waitFor(() => expect(source.controller.get().error).toBeTruthy());
+    source.recover();
+    source.controller.schedule("github:yu/Arco", () => ({
       githubFilters: { "yu/Arco": { ...filter, query: "latest" } },
     }));
-    controller.retry();
-    controller.flush();
-    await vi.waitFor(() => expect(controller.get().pending).toBe(false));
-    expect(saved().settings.githubFilters["yu/Arco"].query).toBe("latest");
+    source.controller.retry();
+    source.controller.flush();
+    await vi.waitFor(() => expect(source.controller.get().pending).toBe(false));
+    expect(source.saved().settings.githubFilters["yu/Arco"].query).toBe(
+      "latest",
+    );
   });
 });
 

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
-import { build } from "esbuild";
 import {
   createStateStore,
   StateConflict,
@@ -329,6 +328,7 @@ describe("local settings and drafts", () => {
     expect(await store.readDraft(key)).toEqual({ revision: 1, draft });
   });
   it("serializes two independent processes: exactly one write can use revision zero", async () => {
+    const { build } = await import("esbuild");
     const dir = await temporary();
     const output = join(dir, "worker.mjs");
     await build({

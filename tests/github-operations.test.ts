@@ -1143,20 +1143,21 @@ describe("explicit additional GitHub operations", () => {
   it("reuses the last bulk mutation's detail result without fetching it again", async () => {
     const service = createFixtureService();
     const original = await service.get(ref);
-    const afterState = { ...original, state: "closed" as const };
-    const afterLabels = { ...afterState, labels: [] };
     const get = vi.spyOn(service, "get");
-    vi.spyOn(service, "update").mockResolvedValue(afterState);
-    vi.spyOn(service, "labels").mockResolvedValue(afterLabels);
+    const labels = vi.spyOn(service, "labels");
+    expect(original.labels.length).toBeGreaterThan(0);
     const { operations } = setup({ service });
     const result = await operations.bulkUpdate({
       requestId: "bulk-reuse-latest-detail",
       issues: [ref],
       patch: { state: "closed" },
-      labels: { add: [], remove: ["bug"] },
+      labels: { add: [], remove: original.labels.map((label) => label.name) },
     });
+    expect(labels).toHaveBeenCalledOnce();
+    const issue = await labels.mock.results[0].value;
+    expect(issue).toMatchObject({ state: "closed", labels: [] });
     expect(result).toEqual({
-      results: [{ ...ref, ok: true, issue: afterLabels }],
+      results: [{ ...ref, ok: true, issue }],
     });
     expect(get).not.toHaveBeenCalled();
   });

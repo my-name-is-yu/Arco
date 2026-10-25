@@ -2,6 +2,7 @@ import { OperationError, toolFailureSchema } from "../src/shared/errors";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { readFile } from "node:fs/promises";
 import {
   createFixtureBackend,
   type ArcoBackend,
@@ -18,7 +19,7 @@ import {
 } from "../src/shared/launch";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
-  const original = await importOriginal<typeof import("node:fs/promises")>();
+  const original = await importOriginal<{ readFile: typeof readFile }>();
   return {
     ...original,
     readFile: vi.fn((...args: Parameters<typeof original.readFile>) => {

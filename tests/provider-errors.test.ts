@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LinearError as SdkLinearError, LinearErrorType } from "@linear/sdk";
+import { LinearError, LinearErrorType } from "@linear/sdk";
 import type { LinearClient } from "@linear/sdk";
 import { LinearServiceError, linearFailure } from "../src/server/linear/errors";
 import { createLinearService } from "../src/server/linear/service";
@@ -17,7 +17,7 @@ const sdkError = (
   data?: object | null,
   query = "query Read { viewer { id } }",
 ) =>
-  new SdkLinearError(
+  new LinearError(
     {
       message: privateText,
       request: { query, variables: { body: privateText } },

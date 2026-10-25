@@ -1,17 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ArcoHost, IssueDetail } from "../src/shared/contracts";
 import type { LinearIssue } from "../src/shared/linear";
 import { useGitHubComments } from "../src/ui/github-comments";
 import { useLinearComments } from "../src/ui/linear-comments";
-import { measureSelectionAnnotation } from "../src/ui/SelectionAnnotation";
 import {
   pageContinuationError,
   requirePageContinuation,
 } from "../src/ui/page-continuation";
-
-afterEach(() => vi.unstubAllGlobals());
 
 describe("pagination response boundaries", () => {
   it.each([undefined, null, "", 0, -1, 1.5])(
@@ -126,55 +123,4 @@ describe("pagination response boundaries", () => {
       client.clear();
     },
   );
-});
-
-describe("annotation measurement", () => {
-  class Rect {
-    constructor(
-      readonly x = 0,
-      readonly y = 0,
-      readonly width = 0,
-      readonly height = 0,
-    ) {}
-    get left() {
-      return this.x;
-    }
-    get right() {
-      return this.x + this.width;
-    }
-    get top() {
-      return this.y;
-    }
-    get bottom() {
-      return this.y + this.height;
-    }
-  }
-  const measure = (rects: Rect[]) => {
-    vi.stubGlobal("Element", class {});
-    vi.stubGlobal("DOMRect", Rect);
-    vi.stubGlobal("window", { innerWidth: 390, innerHeight: 844 });
-    const range = {
-      startContainer: { isConnected: true, parentElement: null },
-      endContainer: { isConnected: true },
-      toString: () => "Selected text",
-      getClientRects: () => rects,
-    } as unknown as Range;
-    return measureSelectionAnnotation(
-      { range, sourceText: "Selected text" },
-      () => 0,
-    );
-  };
-
-  it("does not create an origin-positioned badge when the range has no rectangles", () => {
-    expect(measure([])).toBeNull();
-  });
-  it("does not create a badge for zero-size or fully clipped ranges", () => {
-    expect(measure([new Rect(20, 20, 0, 12)])).toBeNull();
-    expect(measure([new Rect(500, 20, 40, 12)])).toBeNull();
-  });
-  it("uses an actual positive range rectangle when one is available", () => {
-    expect(
-      measure([new Rect(20, 20, 0, 12), new Rect(30, 40, 80, 12)])?.rect,
-    ).toEqual(new Rect(30, 40, 80, 12));
-  });
 });

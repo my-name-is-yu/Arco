@@ -1,5 +1,5 @@
 import { toolFailure } from "./tool-failure";
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { choose } from "./select-helpers";
 
 const githubTitle = "Preserve issue selection and scroll position";
@@ -35,12 +35,6 @@ async function openGithub(page: Page) {
   await expect(
     app(page).getByRole("heading", { name: githubTitle, exact: true }),
   ).toBeVisible();
-}
-
-async function failTool(route: Route, message: string) {
-  await route.fulfill({
-    json: toolFailure(message),
-  });
 }
 
 const errors = new WeakMap<Page, string[]>();
@@ -237,10 +231,9 @@ test("a Linear scopes error ends loading and retries instead of leaving a perman
   await page.route("**/tool", async (route) => {
     const input = route.request().postDataJSON() as { name: string };
     if (input.name === "linear_scopes" && fail)
-      return failTool(
-        route,
-        "Fixture team discovery is temporarily unavailable.",
-      );
+      return route.fulfill({
+        json: toolFailure("Fixture team discovery is temporarily unavailable."),
+      });
     return route.continue();
   });
   await choose(app(page), "Issue source", "linear");

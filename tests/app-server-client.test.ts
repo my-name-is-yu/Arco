@@ -18,10 +18,14 @@ type Options = {
   timeoutMs?: number;
   formatError?: (method: string, error: { message: string }) => string;
 };
-const createAppServerClient: (
-  child: ChildProcessWithoutNullStreams,
-  options?: Options,
-) => Protocol = (await import(script)).createAppServerClient;
+const {
+  createAppServerClient,
+}: {
+  createAppServerClient: (
+    child: ChildProcessWithoutNullStreams,
+    options?: Options,
+  ) => Protocol;
+} = await import(script);
 
 const fixture = `
   import { createInterface } from 'node:readline';
