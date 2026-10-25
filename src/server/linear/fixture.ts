@@ -283,9 +283,10 @@ export function createLinearFixtureService(): LinearService {
         "invalid-input",
       );
     issue.labels = issue.labels.filter((value) => !remove.includes(value.id));
-    for (const value of additions)
+    additions.forEach((value) => {
       if (value && !issue.labels.some((item) => item.id === value.id))
         issue.labels.push(structuredClone(value));
+    });
   }
   async function execute(name: LinearToolName, raw: unknown): Promise<object> {
     if (name === "linear_auth_status")
@@ -503,35 +504,35 @@ export function createLinearFixtureService(): LinearService {
           isGroup: false,
           parentId: null,
         });
-      } else {
-        const label = meta.labels.find((item) => item.id === input.labelId);
-        if (
-          !label ||
-          label.teamId !== (input.scope === "team" ? input.teamId : null)
-        )
-          throw new OperationError(
-            "The label scope does not match.",
-            "invalid-input",
-          );
-        if (input.action === "delete") {
-          meta.labels = meta.labels.filter((item) => item.id !== input.labelId);
-          for (const issue of issues.values())
-            issue.labels = issue.labels.filter(
-              (item) => item.id !== input.labelId,
-            );
-        } else {
-          if (input.name !== undefined) label.name = input.name;
-          if (input.color !== undefined) label.color = input.color;
-          if (input.description !== undefined)
-            label.description = input.description;
-        }
+        return structuredClone(meta);
       }
+      const label = meta.labels.find((item) => item.id === input.labelId);
+      if (
+        !label ||
+        label.teamId !== (input.scope === "team" ? input.teamId : null)
+      )
+        throw new OperationError(
+          "The label scope does not match.",
+          "invalid-input",
+        );
+      if (input.action === "delete") {
+        meta.labels = meta.labels.filter((item) => item.id !== input.labelId);
+        issues.forEach((issue) => {
+          issue.labels = issue.labels.filter(
+            (item) => item.id !== input.labelId,
+          );
+        });
+        return structuredClone(meta);
+      }
+      if (input.name !== undefined) label.name = input.name;
+      if (input.color !== undefined) label.color = input.color;
+      if (input.description !== undefined)
+        label.description = input.description;
       return structuredClone(meta);
     }
     if (name === "linear_comment") {
       const input = linearSchemas[name].parse(raw);
       const issue = find(input);
-      let changedComment: LinearComment | undefined;
       if (input.action === "create") {
         if (
           !input.body ||
@@ -542,7 +543,7 @@ export function createLinearFixtureService(): LinearService {
             "Check the comment body and reply target.",
             "invalid-input",
           );
-        issue.comments.push({
+        const comment = {
           id: randomUUID(),
           body: input.body,
           author: "Fixture user",
@@ -551,47 +552,47 @@ export function createLinearFixtureService(): LinearService {
           url: issue.url,
           updatedAt: new Date().toISOString(),
           reactions: [],
-        });
-        changedComment = issue.comments.at(-1);
-      } else {
-        const comment = issue.comments.find(
-          (item) => item.id === input.commentId,
-        );
-        if (!comment || comment.authorId !== userId)
-          throw new OperationError(
-            "You can only change your own comment.",
-            "forbidden",
-          );
-        if (
-          input.expectedUpdatedAt &&
-          comment.updatedAt !== input.expectedUpdatedAt
-        )
-          throw new OperationError(
-            "This Linear comment changed elsewhere. Keep your draft and refresh.",
-            "conflict",
-          );
-        if (input.action === "delete")
-          issue.comments = issue.comments.filter(
-            (item) => item.id !== input.commentId,
-          );
-        else {
-          if (!input.body)
-            throw new OperationError("A body is required.", "invalid-input");
-          comment.body = input.body;
-          comment.updatedAt = new Date(
-            Math.max(Date.now(), Date.parse(comment.updatedAt) + 1),
-          ).toISOString();
-          changedComment = comment;
-        }
+        };
+        issue.comments.push(comment);
+        return {
+          ...touch(issue),
+          changedComment: structuredClone(comment),
+        };
       }
+      const comment = issue.comments.find(
+        (item) => item.id === input.commentId,
+      );
+      if (!comment || comment.authorId !== userId)
+        throw new OperationError(
+          "You can only change your own comment.",
+          "forbidden",
+        );
+      if (
+        input.expectedUpdatedAt &&
+        comment.updatedAt !== input.expectedUpdatedAt
+      )
+        throw new OperationError(
+          "This Linear comment changed elsewhere. Keep your draft and refresh.",
+          "conflict",
+        );
+      if (input.action === "delete") {
+        issue.comments = issue.comments.filter(
+          (item) => item.id !== input.commentId,
+        );
+        return {
+          ...touch(issue),
+          deletedCommentId: input.commentId,
+        };
+      }
+      if (!input.body)
+        throw new OperationError("A body is required.", "invalid-input");
+      comment.body = input.body;
+      comment.updatedAt = new Date(
+        Math.max(Date.now(), Date.parse(comment.updatedAt) + 1),
+      ).toISOString();
       return {
         ...touch(issue),
-        ...(changedComment
-          ? { changedComment: structuredClone(changedComment) }
-          : {}),
-        ...(input.action === "delete"
-          ? { deletedCommentId: input.commentId }
-          : {}),
+        changedComment: structuredClone(comment),
       };
     }
     if (name === "linear_reaction") {
@@ -616,7 +617,8 @@ export function createLinearFixtureService(): LinearService {
             emoji: input.emoji,
             userId,
           });
-      } else {
+      }
+      if (input.action === "remove") {
         const current = target.reactions.find(
           (item) => item.id === input.reactionId,
         );
@@ -661,11 +663,14 @@ export function createLinearFixtureService(): LinearService {
           identifier: issue.identifier,
           title: issue.title,
         });
-      } else
-        for (const item of issues.values())
+      }
+      if (input.action === "remove") {
+        issues.forEach((item) => {
           item.relations = item.relations.filter(
             (value) => value.id !== input.relationId,
           );
+        });
+      }
       return touch(issue);
     }
     if (name === "linear_upload") {
@@ -682,34 +687,34 @@ export function createLinearFixtureService(): LinearService {
     if (name === "linear_bulk") {
       const input = linearSchemas[name].parse(raw);
       scope(input);
-      const results = [];
-      for (const issueId of [...new Set(input.issueIds)]) {
-        try {
-          const issue = structuredClone(find({ ...input, issueId }));
-          if (input.patch) patchIssue(issue, input.patch);
-          labels(issue, input.addLabels ?? [], input.removeLabels ?? []);
-          issues.set(issueId, issue);
-          results.push({
-            issueId,
-            success: true,
-            saved: true,
-            retryable: false,
-            issue: touch(issue),
-          });
-        } catch (error) {
-          results.push({
-            issueId,
-            success: false,
-            saved: false,
-            retryable: true,
-            error:
-              error instanceof Error
-                ? error.message
-                : "The fixture bulk change failed.",
-          });
-        }
-      }
-      return { results };
+      return {
+        results: [...new Set(input.issueIds)].map((issueId) => {
+          try {
+            const issue = structuredClone(find({ ...input, issueId }));
+            if (input.patch) patchIssue(issue, input.patch);
+            labels(issue, input.addLabels ?? [], input.removeLabels ?? []);
+            issues.set(issueId, issue);
+            return {
+              issueId,
+              success: true,
+              saved: true,
+              retryable: false,
+              issue: touch(issue),
+            };
+          } catch (error) {
+            return {
+              issueId,
+              success: false,
+              saved: false,
+              retryable: true,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "The fixture bulk change failed.",
+            };
+          }
+        }),
+      };
     }
     throw new OperationError("Unsupported fixture operation.", "unsupported");
   }

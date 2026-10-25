@@ -10,12 +10,9 @@ export function createBulkHandlers(
   operation: LinearOperation,
   changes: ReturnType<typeof createIssuesHandlers>,
 ) {
-  const { context, checkedIssue, detail } = operation;
-  const { validatePatch, applyLabels } = changes;
-
-  const handlers = {
+  return {
     linear_bulk: async (input) => {
-      await context(input);
+      await operation.context(input);
       if (
         !input.patch &&
         !input.addLabels?.length &&
@@ -29,15 +26,15 @@ export function createBulkHandlers(
         let saved = false;
         try {
           const ref = { ...input, issueId };
-          const { client } = await context(ref);
-          const issue = await checkedIssue(client, ref);
+          const { client } = await operation.context(ref);
+          const issue = await operation.checkedIssue(client, ref);
           if (input.patch) {
-            const patch = await validatePatch(ref, issue, input.patch);
+            const patch = await changes.validatePatch(ref, issue, input.patch);
             await linearMutation(() => client.updateIssue(issue.id, patch));
             saved = true;
           }
           if (input.addLabels?.length || input.removeLabels?.length) {
-            await applyLabels({
+            await changes.applyLabels({
               ...ref,
               requestId: `${input.requestId}:${issueId}`,
               add: input.addLabels ?? [],
@@ -51,7 +48,7 @@ export function createBulkHandlers(
               success: true,
               saved,
               retryable: false,
-              issue: await detail(ref),
+              issue: await operation.detail(ref),
             });
           } catch {
             results.push({
@@ -65,9 +62,9 @@ export function createBulkHandlers(
           }
         } catch (error) {
           const failure = linearFailure(error);
-          const issue = await detail({ ...input, issueId }).catch(
-            () => undefined,
-          );
+          const issue = await operation
+            .detail({ ...input, issueId })
+            .catch(() => undefined);
           results.push({
             issueId,
             success: false,
@@ -83,5 +80,4 @@ export function createBulkHandlers(
       return { results };
     },
   } satisfies Pick<LinearHandlers, "linear_bulk">;
-  return handlers;
 }

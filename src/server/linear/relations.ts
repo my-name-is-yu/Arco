@@ -7,12 +7,10 @@ import {
   type LinearOperation,
 } from "./operation";
 export function createRelationsHandlers(operation: LinearOperation) {
-  const { context, checkedIssue, refreshAfterWrite } = operation;
-
-  const handlers = {
+  return {
     linear_relation: async (input) => {
-      const { client } = await context(input);
-      const issue = await checkedIssue(client, input);
+      const { client } = await operation.context(input);
+      const issue = await operation.checkedIssue(client, input);
       if (input.action === "add") {
         if (!input.relatedIssueId)
           throw new LinearServiceError("Choose a related issue.");
@@ -34,7 +32,8 @@ export function createRelationsHandlers(operation: LinearOperation) {
                 : IssueRelationType.Blocks,
           }),
         );
-      } else {
+      }
+      if (input.action === "remove") {
         if (!input.relationId)
           throw new LinearServiceError("Choose a relation to remove.");
         const relation = await client.issueRelation(input.relationId);
@@ -48,8 +47,9 @@ export function createRelationsHandlers(operation: LinearOperation) {
           );
         await linearMutation(() => client.deleteIssueRelation(relation.id));
       }
-      return refreshAfterWrite(input, undefined, { operation: "relation" });
+      return operation.refreshAfterWrite(input, undefined, {
+        operation: "relation",
+      });
     },
   } satisfies Pick<LinearHandlers, "linear_relation">;
-  return handlers;
 }
