@@ -309,7 +309,6 @@ export function LinearDetail({
       expectedUpdatedAt: issue.updatedAt,
       patch,
     });
-  const share = () => hostAction(() => host.share(issue));
   function reactions(items: LinearIssue["reactions"], commentId?: string) {
     return (
       <LinearReactions
@@ -450,7 +449,7 @@ export function LinearDetail({
             color="primary"
             size="sm"
             disabled={hostBusy}
-            onClick={() => void share()}
+            onClick={() => void hostAction(() => host.share(issue))}
           >
             Add to chat
           </Button>

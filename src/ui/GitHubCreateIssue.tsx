@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import type { ArcoHost, IssueDetail } from "../shared/contracts";
-import type { DraftKey, Draft as SavedDraft } from "../shared/state";
+import type { DraftKey, Draft } from "../shared/state";
 import {
   DraftStatus,
   draftStorageId,
@@ -56,7 +56,7 @@ export function GitHubCreateIssue({
       issueTypeName: saved?.githubIssueTypeName ?? "",
     };
   };
-  const toSavedDraft = (draft: TemplateDraft): SavedDraft => ({
+  const toSavedDraft = (draft: TemplateDraft): Draft => ({
     title: draft.title,
     body: draft.body,
     comment: "",

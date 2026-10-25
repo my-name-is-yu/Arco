@@ -198,18 +198,18 @@ export function BulkActions({
               result.issue,
             );
             next.push({ ...target, ok: true });
-          } else {
-            const retryable = result?.needsConfirmation === false;
-            next.push({
-              ...target,
-              ok: false,
-              retryable,
-              error:
-                result?.error ??
-                "The update result was not returned. Check the issue before trying again.",
-            });
-            if (!retryable) needsCheck.push(target);
+            continue;
           }
+          const retryable = result?.needsConfirmation === false;
+          next.push({
+            ...target,
+            ok: false,
+            retryable,
+            error:
+              result?.error ??
+              "The update result was not returned. Check the issue before trying again.",
+          });
+          if (!retryable) needsCheck.push(target);
         }
       } else {
         const issue = response as IssueDetail;
@@ -401,18 +401,19 @@ export function BulkActions({
             retained.push(target);
           }
         }
-        if (retained.length)
-          rememberUnconfirmed({
-            ...pending,
-            targets: retained,
-            // Some targets may already have been checked and released. Do not
-            // replay the original batch across those targets afterwards.
-            replay:
-              pending.replay && retained.length === pending.targets.length,
-            error:
-              "Could not confirm the update results. Check the connection and try again.",
-          });
-        else removeUnconfirmed(pending.attempt);
+        if (!retained.length) {
+          removeUnconfirmed(pending.attempt);
+          continue;
+        }
+        rememberUnconfirmed({
+          ...pending,
+          targets: retained,
+          // Some targets may already have been checked and released. Do not
+          // replay the original batch across those targets afterwards.
+          replay: pending.replay && retained.length === pending.targets.length,
+          error:
+            "Could not confirm the update results. Check the connection and try again.",
+        });
       }
       await refresh(issues);
     } finally {

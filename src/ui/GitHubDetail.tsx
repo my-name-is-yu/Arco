@@ -12,7 +12,7 @@ import type {
   RepoMetadata,
 } from "../shared/contracts";
 import type { Draft } from "../shared/state";
-import { contentConflict as draftConflict } from "./content-drafts";
+import { contentConflict } from "./content-drafts";
 import { DetailToolbar, closeDetailUtility } from "./DetailToolbar";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ConflictPanel } from "./ConflictPanel";
@@ -95,8 +95,7 @@ export function GitHubDetail({
   const openLink = (url: string) => void hostAction(() => host.openLink(url));
   const ref = { repo: issue.repo, number: issue.number };
   const dirty = draft.title !== issue.title || draft.body !== issue.body;
-  const contentConflict = draftConflict(issue, draft);
-  const share = () => hostAction(() => host.share(issue));
+  const conflict = contentConflict(issue, draft);
   const differentSharedTarget = shared && refKey(shared) !== refKey(issue);
   const sharedTarget = shared ? `${shared.repo} #${shared.number}` : "";
   const sharedDescription = `Shared issue: ${sharedTarget}${differentSharedTarget ? " · Different from the issue you are browsing" : ""}`;
@@ -124,7 +123,7 @@ export function GitHubDetail({
             color="primary"
             size="sm"
             disabled={hostBusy}
-            onClick={() => void share()}
+            onClick={() => void hostAction(() => host.share(issue))}
           >
             Add to chat
           </Button>
@@ -220,7 +219,7 @@ export function GitHubDetail({
                   />
                 }
               >
-                {contentConflict && (
+                {conflict && (
                   <ConflictPanel
                     source="GitHub"
                     latestTitle={issue.title}
@@ -265,9 +264,7 @@ export function GitHubDetail({
                   <Button
                     color="primary"
                     size="sm"
-                    disabled={
-                      busy || !draft.title.trim() || !dirty || contentConflict
-                    }
+                    disabled={busy || !draft.title.trim() || !dirty || conflict}
                     loading={busy}
                     onClick={() =>
                       void save(

@@ -186,10 +186,6 @@ export function SelectionAnnotation({
   const visible = Boolean(
     layout && layout.rect.width > 0 && layout.rect.height > 0,
   );
-  const dismiss = () => {
-    if (busy) return;
-    onDismiss();
-  };
 
   useEffect(() => {
     if (editing) setDraft(comment);
@@ -258,7 +254,7 @@ export function SelectionAnnotation({
             onKeyDown={(event) => {
               if (event.key === "Escape" && !event.nativeEvent.isComposing) {
                 event.stopPropagation();
-                dismiss();
+                if (!busy) onDismiss();
                 badge.current?.focus({ preventScroll: true });
               }
             }}

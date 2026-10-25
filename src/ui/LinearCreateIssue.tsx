@@ -32,7 +32,7 @@ export function LinearCreateIssue({
   run,
   onClose,
   onCreated,
-  onNotice,
+  onOpenLink,
 }: {
   host: ArcoHost;
   scope: LinearScope;
@@ -45,18 +45,10 @@ export function LinearCreateIssue({
   run: LinearRun;
   onClose: () => void;
   onCreated: (issue: LinearIssue | LinearSavedReceipt) => void;
-  onNotice: (message: string, kind?: NoticeValue["kind"]) => void;
+  onOpenLink: (url: string) => void;
 }) {
   const persistence = useDraftPersistence(host);
   const { load } = persistence;
-  const hostAction = async (action: () => Promise<void>) => {
-    onNotice("");
-    try {
-      await action();
-    } catch (error) {
-      onNotice(error instanceof Error ? error.message : String(error), "error");
-    }
-  };
   type CreateDraft = {
     title: string;
     body: string;
@@ -251,7 +243,7 @@ export function LinearCreateIssue({
                     const url = new URL("https://linear.app/new");
                     url.searchParams.set("team", scope.teamId);
                     url.searchParams.set("template", selectedTemplate.id);
-                    void hostAction(() => host.openLink(url.href));
+                    onOpenLink(url.href);
                   }}
                 >
                   Open Linear to use this template ↗
