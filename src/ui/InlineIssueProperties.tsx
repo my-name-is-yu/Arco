@@ -2,6 +2,8 @@ import type { IssueDetail, RepoMetadata } from "../shared/contracts";
 import type { LinearIssue, LinearMetadata } from "../shared/linear";
 import { MultiSelect } from "./MultiSelect";
 import { SingleSelect } from "./SingleSelect";
+import { githubStatePresentation } from "./github-state";
+import { linearPriorityLabels } from "./linear-priority";
 import {
   IssueAssigneeVisual,
   IssueLabelVisual,
@@ -58,12 +60,7 @@ export function GitHubInlineProperties({
       Number(right.toLowerCase() === self?.toLowerCase()) -
       Number(left.toLowerCase() === self?.toLowerCase()),
   );
-  const state =
-    issue.state === "open"
-      ? "open"
-      : issue.stateReason === "completed" || issue.stateReason === "not_planned"
-        ? issue.stateReason
-        : "closed";
+  const state = githubStatePresentation(issue);
   const labels = [
     ...new Map(
       [...issue.labels, ...(metadata?.labels ?? [])].map((label) => [
@@ -77,38 +74,11 @@ export function GitHubInlineProperties({
       <div className="inline-property">
         <SingleSelect
           label="Change issue state"
-          value={state}
-          options={[
-            {
-              value: "open",
-              label: "Open",
-              leading: <IssueStateVisual source="github" state="open" />,
-            },
-            {
-              value: "completed",
-              label: "Closed · Completed",
-              leading: <IssueStateVisual source="github" state="completed" />,
-            },
-            {
-              value: "not_planned",
-              label: "Closed · Not planned",
-              leading: <IssueStateVisual source="github" state="not_planned" />,
-            },
-            ...(state === "closed"
-              ? [
-                  {
-                    value: "closed",
-                    label: issue.stateReason
-                      ? `Closed · ${issue.stateReason.replaceAll("_", " ")}`
-                      : "Closed",
-                    disabled: true,
-                    leading: (
-                      <IssueStateVisual source="github" state="closed" />
-                    ),
-                  },
-                ]
-              : []),
-          ]}
+          value={state.value}
+          options={state.options.map((option) => ({
+            ...option,
+            leading: <IssueStateVisual source="github" state={option.value} />,
+          }))}
           disabled={busy}
           onChange={(value) =>
             onSave("arco_update_issue", {
@@ -338,14 +308,12 @@ export function LinearInlineProperties({
         <SingleSelect
           label="Linear Priority"
           value={String(issue.priority)}
-          options={["No priority", "Urgent", "High", "Medium", "Low"].map(
-            (label, value) => ({
-              value: String(value),
-              label,
-              empty: value === 0,
-              leading: <IssuePriorityVisual priority={value} />,
-            }),
-          )}
+          options={linearPriorityLabels.map((label, value) => ({
+            value: String(value),
+            label,
+            empty: value === 0,
+            leading: <IssuePriorityVisual priority={value} />,
+          }))}
           disabled={busy}
           onChange={(value) =>
             onSave("linear_update_issue", {

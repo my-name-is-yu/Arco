@@ -17,6 +17,7 @@ import {
   useDraftPersistence,
 } from "./useDraftPersistence";
 import { SingleSelect } from "./SingleSelect";
+import { linearPriorityLabels } from "./linear-priority";
 import { CreateDialog } from "./CreateDialog";
 import { DisclosureSummary } from "./DisclosureSummary";
 import type { LinearRun } from "./linear-run";
@@ -342,10 +343,7 @@ function LinearTemplateDefaults({
             ?.name ?? "Unavailable in this team"),
     ]);
   if (defaults.priority !== undefined)
-    values.push([
-      "Priority",
-      ["No priority", "Urgent", "High", "Normal", "Low"][defaults.priority],
-    ]);
+    values.push(["Priority", linearPriorityLabels[defaults.priority]]);
   if (defaults.estimate !== undefined)
     values.push([
       "Estimate",

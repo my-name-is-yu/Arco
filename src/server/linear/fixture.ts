@@ -444,6 +444,7 @@ export function createLinearFixtureService(): LinearService {
         ...structuredClone(first),
         issueId: randomUUID(),
         identifier: `YU-${number}`,
+        url: `https://linear.app/fixture/issue/YU-${number}`,
         title: input.title,
         body:
           input.body ??

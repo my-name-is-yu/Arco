@@ -33,6 +33,7 @@ import { GitHubRelations } from "./GitHubRelations";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { useGitHubComments } from "./github-comments";
 import { StateIcon, ShortDate } from "./GitHubIssueMeta";
+import { githubStatePresentation } from "./github-state";
 const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -77,6 +78,7 @@ export function GitHubDetail({
   const visibleComments = comments.comments;
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState(false);
+  const state = githubStatePresentation(issue);
   const assigneeOptions = [
     ...new Set([...issue.assignees, ...(metadata?.assignees ?? [])]),
   ].map((name) => ({
@@ -177,13 +179,7 @@ export function GitHubDetail({
             <span>
               {issue.repo} <strong>#{issue.number}</strong>
             </span>
-            {issue.stateReason && issue.state === "closed" && (
-              <span className="muted">
-                {issue.stateReason === "not_planned"
-                  ? "Not planned"
-                  : "Completed"}
-              </span>
-            )}
+            {state.reason && <span className="muted">{state.reason}</span>}
           </div>
           <div className="title-line">
             <h1>{issue.title}</h1>
@@ -423,13 +419,7 @@ export function GitHubDetail({
               <h2>Issue state</h2>
               <SingleSelect
                 label="Change issue state"
-                value={
-                  issue.state === "open"
-                    ? "open"
-                    : issue.stateReason === "not_planned"
-                      ? "not_planned"
-                      : "completed"
-                }
+                value={state.value}
                 disabled={busy}
                 onChange={(value) => {
                   void save("arco_update_issue", {
@@ -441,27 +431,12 @@ export function GitHubDetail({
                         : { state: "closed", stateReason: value },
                   });
                 }}
-                options={[
-                  {
-                    value: "open",
-                    label: "Open",
-                    leading: <IssueStateVisual source="github" state="open" />,
-                  },
-                  {
-                    value: "completed",
-                    label: "Closed · Completed",
-                    leading: (
-                      <IssueStateVisual source="github" state="completed" />
-                    ),
-                  },
-                  {
-                    value: "not_planned",
-                    label: "Closed · Not planned",
-                    leading: (
-                      <IssueStateVisual source="github" state="not_planned" />
-                    ),
-                  },
-                ]}
+                options={state.options.map((option) => ({
+                  ...option,
+                  leading: (
+                    <IssueStateVisual source="github" state={option.value} />
+                  ),
+                }))}
               />
             </section>
             <section>

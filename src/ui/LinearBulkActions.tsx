@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { ArcoHost } from "../shared/contracts";
 import { useSessionRef, useSessionState } from "./session-state";
 import { SingleSelect } from "./SingleSelect";
+import { linearPriorityLabels } from "./linear-priority";
 import {
   IssueAssigneeVisual,
   IssuePriorityVisual,
@@ -393,14 +394,12 @@ export function LinearBulkActions({
             disabled={busy}
             options={[
               { value: "", label: "Choose priority…" },
-              ...["No priority", "Urgent", "High", "Normal", "Low"].map(
-                (label, priority) => ({
-                  value: String(priority),
-                  label,
-                  empty: priority === 0,
-                  leading: <IssuePriorityVisual priority={priority} />,
-                }),
-              ),
+              ...linearPriorityLabels.map((label, priority) => ({
+                value: String(priority),
+                label,
+                empty: priority === 0,
+                leading: <IssuePriorityVisual priority={priority} />,
+              })),
             ]}
             onChange={changeValue}
           />

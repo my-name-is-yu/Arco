@@ -13,6 +13,23 @@ import {
 
 const ref = { ...LINEAR_FIXTURE_SCOPE, issueId: "fixture-linear-42" };
 describe("Linear source contracts", () => {
+  it("resolves a created fixture issue's own URL to its native issue ID", async () => {
+    const service = createLinearFixtureService();
+    const created = (await service.call("linear_create_issue", {
+      ...LINEAR_FIXTURE_SCOPE,
+      requestId: randomUUID(),
+      title: "A newly created issue",
+    })) as LinearIssue;
+    expect(created.url).toBe(
+      `https://linear.app/fixture/issue/${created.identifier}`,
+    );
+    await expect(
+      service.call("linear_resolve_issue", {
+        connectionId: LINEAR_FIXTURE_SCOPE.connectionId,
+        url: created.url,
+      }),
+    ).resolves.toMatchObject({ issueId: created.issueId });
+  });
   it("keeps body and comment search while returning only list fields", async () => {
     const service = createLinearFixtureService();
     const detail = (await service.call("linear_get_issue", ref)) as LinearIssue;
