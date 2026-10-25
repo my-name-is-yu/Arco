@@ -39,7 +39,7 @@ export function LinearCommentEditor({
     }),
     [issue.workspaceId, issue.teamId, issue.issueId, comment.id],
   );
-  const [body, setBody] = useState(comment.body);
+  // Older drafts can omit source baselines; freeze those fallbacks when editing starts.
   const [baseBody, setBaseBody] = useState(comment.body);
   const [revision, setRevision] = useState(comment.updatedAt);
   const touched = useRef(false);
@@ -48,7 +48,6 @@ export function LinearCommentEditor({
     let active = true;
     void load(key).then((saved) => {
       if (!active || !saved || touched.current) return;
-      setBody(saved.comment);
       setBaseBody(saved.baseBody ?? comment.body);
       setRevision(saved.baseUpdatedAt ?? comment.updatedAt);
       touched.current = true;
@@ -57,7 +56,7 @@ export function LinearCommentEditor({
       active = false;
     };
   }, [key, load, comment.body, comment.updatedAt]);
-  const current = touched.current ? body : comment.body;
+  const current = persistence.value(key)?.comment ?? comment.body;
   const conflict =
     touched.current && comment.body !== baseBody && comment.body !== current;
   const diskDraft = (
@@ -73,7 +72,6 @@ export function LinearCommentEditor({
   });
   const persist = (text: string, original = baseBody, updatedAt = revision) => {
     touched.current = true;
-    setBody(text);
     setBaseBody(original);
     setRevision(updatedAt);
     persistence.schedule(key, diskDraft(text, original, updatedAt));
@@ -109,7 +107,6 @@ export function LinearCommentEditor({
             "use-saved";
           void persistence.retry(key, diskDraft()).then((saved) => {
             if (saved === undefined || (touched.current && !useSaved)) return;
-            setBody(saved?.comment ?? comment.body);
             setBaseBody(saved?.baseBody ?? comment.body);
             setRevision(saved?.baseUpdatedAt ?? comment.updatedAt);
             touched.current = Boolean(saved);
@@ -118,7 +115,6 @@ export function LinearCommentEditor({
         onResolve={(choice) => {
           void persistence.resolve(key, choice, diskDraft()).then((saved) => {
             if (saved === undefined) return;
-            setBody(saved?.comment ?? comment.body);
             setBaseBody(saved?.baseBody ?? comment.body);
             setRevision(saved?.baseUpdatedAt ?? comment.updatedAt);
             touched.current = Boolean(saved);
