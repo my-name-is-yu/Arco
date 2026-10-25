@@ -1,37 +1,31 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
-import { createCredentialStore } from "../src/server/linear/auth";
+import {
+  createCredentialStore,
+  type CredentialStore,
+} from "../src/server/linear/auth";
 
-it("rotates an OS-stored fake credential once across independent Node processes", async (context) => {
+async function rotateNativeCredential(store: CredentialStore) {
   await mkdir("test-results", { recursive: true });
   const directory = await mkdtemp(
     join(process.cwd(), "test-results", "linear-native-rotation-"),
   );
   const connectionId = `arco-native-test-${randomUUID()}`;
-  const store = createCredentialStore();
   let stored = false;
   try {
-    try {
-      await store.write(connectionId, {
-        clientId: "fake-test-client",
-        accessToken: "fake-expired-access",
-        refreshToken: "fake-old-refresh",
-        expiresAt: 0,
-        scopes: ["read", "write"],
-      });
-      stored = true;
-    } catch {
-      context.skip(
-        true,
-        "OS credential storage unavailable on this execution platform; never use plaintext fallback.",
-      );
-      return;
-    }
+    await store.write(connectionId, {
+      clientId: "fake-test-client",
+      accessToken: "fake-expired-access",
+      refreshToken: "fake-old-refresh",
+      expiresAt: 0,
+      scopes: ["read", "write"],
+    });
+    stored = true;
     const worker = join(directory, "worker.mjs");
     await build({
       stdin: {
@@ -73,4 +67,22 @@ it("rotates an OS-stored fake credential once across independent Node processes"
     if (stored) await store.remove(connectionId);
     await rm(directory, { recursive: true, force: true });
   }
-}, 20_000);
+}
+
+// Validate the supported prebuilt target strictly; skip before OS-store access elsewhere.
+it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
+  "rotates an OS-stored fake credential once across independent Node processes",
+  async () => rotateNativeCredential(createCredentialStore()),
+  20_000,
+);
+
+it("fails native verification when credential storage unexpectedly rejects a write", async () => {
+  const failure = new Error("Unexpected credential-store failure");
+  const store: CredentialStore = {
+    read: vi.fn(),
+    write: vi.fn().mockRejectedValue(failure),
+    remove: vi.fn(),
+  };
+  await expect(rotateNativeCredential(store)).rejects.toBe(failure);
+  expect(store.remove).not.toHaveBeenCalled();
+});

@@ -333,7 +333,7 @@ describe("local settings and drafts", () => {
     const output = join(dir, "worker.mjs");
     await build({
       stdin: {
-        contents: `import { createStateStore } from './src/server/state'; const s=createStateStore(process.argv[2]); try { await s.updateSettings({expectedRevision:0,patch:{activeGithubRepo:process.argv[3]}}); console.log('saved'); } catch { console.log('conflict'); }`,
+        contents: `import { createStateStore, StateConflict } from './src/server/state'; const s=createStateStore(process.argv[2]); try { await s.updateSettings({expectedRevision:0,patch:{activeGithubRepo:process.argv[3]}}); console.log('saved'); } catch (error) { if (!(error instanceof StateConflict)) throw error; console.log('conflict'); }`,
         resolveDir: process.cwd(),
         loader: "ts",
       },
@@ -369,5 +369,7 @@ describe("local settings and drafts", () => {
     expect(["yu/Arco", "other/Arco"]).toContain(
       record.settings.activeGithubRepo,
     );
+    await writeFile(join(dir, "settings.json"), "{broken json");
+    await expect(run("yu/Arco")).rejects.toThrow("worker failed");
   });
 });
