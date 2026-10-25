@@ -94,8 +94,7 @@ export function GitHubDetail({
       ]),
     ).values(),
   ];
-  const openMarkdownLink = (url: string) =>
-    void hostAction(() => host.openLink(url));
+  const openLink = (url: string) => void hostAction(() => host.openLink(url));
   const ref = { repo: issue.repo, number: issue.number };
   const dirty = draft.title !== issue.title || draft.body !== issue.body;
   const contentConflict = draftConflict(issue, draft);
@@ -212,7 +211,7 @@ export function GitHubDetail({
                 renderedBody={
                   <IssueMarkdown
                     body={draft.body}
-                    onOpen={openMarkdownLink}
+                    onOpen={openLink}
                     image={{ host, issue }}
                   />
                 }
@@ -225,7 +224,7 @@ export function GitHubDetail({
                       <IssueMarkdown
                         body={issue.body}
                         image={{ host, issue }}
-                        onOpen={openMarkdownLink}
+                        onOpen={openLink}
                       />
                     }
                     busy={busy}
@@ -303,7 +302,7 @@ export function GitHubDetail({
                 <IssueMarkdown
                   body={issue.body}
                   image={{ host, issue }}
-                  onOpen={openMarkdownLink}
+                  onOpen={openLink}
                   busy={busy || dirty}
                   onToggleTask={(line, checked) => {
                     const body = toggleMarkdownTask(issue.body, line, checked);
@@ -354,7 +353,7 @@ export function GitHubDetail({
                     <IssueMarkdown
                       body={comment.body}
                       image={{ host, issue, commentId: comment.databaseId }}
-                      onOpen={openMarkdownLink}
+                      onOpen={openLink}
                     />
                   </div>
                   <CommentActions host={host} issue={issue} comment={comment} />
@@ -562,7 +561,11 @@ export function GitHubDetail({
             <details className="property-advanced">
               <DisclosureSummary>More properties</DisclosureSummary>
               <GitHubProperties host={host} issue={issue} />
-              <GitHubRelations host={host} issue={issue} />
+              <GitHubRelations
+                host={host}
+                issue={issue}
+                onOpenLink={openLink}
+              />
               <LabelManager host={host} repo={issue.repo} />
             </details>
           </aside>

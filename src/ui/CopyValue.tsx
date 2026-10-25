@@ -12,13 +12,18 @@ export function CopyValue({
   const [status, setStatus] = useState<"idle" | "copied" | "manual">("idle");
   const input = useRef<HTMLInputElement>(null);
   const copy = async (button: HTMLButtonElement) => {
+    const stillActive = () =>
+      button.ownerDocument.hasFocus() &&
+      button.ownerDocument.activeElement === button &&
+      !button.closest("details:not([open])");
     try {
       await navigator.clipboard.writeText(value);
       setStatus("copied");
-      onCopied?.(button);
+      if (stillActive()) onCopied?.(button);
     } catch {
       setStatus("manual");
       requestAnimationFrame(() => {
+        if (!stillActive()) return;
         input.current?.focus();
         input.current?.select();
       });
