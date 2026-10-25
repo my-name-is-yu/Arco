@@ -4,6 +4,7 @@ import {
   type SetStateAction,
 } from "react";
 import type { ArcoHost } from "../shared/contracts";
+import type { NativeIssueTarget } from "../shared/launch";
 
 type Cell<T> = {
   value: T;
@@ -66,8 +67,32 @@ export function useSessionState<T>(
 export function useSessionRef<T>(host: ArcoHost, key: string, initial: T) {
   return sessionValue(host, `ref:${key}`, () => ({ current: initial }));
 }
-export function setSessionState<T>(host: ArcoHost, key: string, value: T) {
+function setSessionState<T>(host: ArcoHost, key: string, value: T) {
   stateCell(host, key, value).set(value);
+}
+export function selectPresentedIssue(
+  host: ArcoHost,
+  target: NativeIssueTarget,
+) {
+  setSessionState(host, "issue-set:opened", target);
+  setSessionState(host, "active-source", target.source);
+  if (target.source === "github") {
+    setSessionState(host, "github:repoOverride", target.repo);
+    setSessionState(host, "github:selected", {
+      repo: target.repo,
+      number: target.number,
+    });
+    setSessionState(host, "github:showDetail", true);
+  } else {
+    setSessionState(host, "linear:teamOverride", target.teamId);
+    setSessionState(host, "linear:selected", {
+      connectionId: target.connectionId,
+      workspaceId: target.workspaceId,
+      teamId: target.teamId,
+      issueId: target.issueId,
+    });
+    setSessionState(host, "linear:showDetail", true);
+  }
 }
 export function useCommandSession(host: ArcoHost, source: "github" | "linear") {
   const [busy, setBusy] = useSessionState(
