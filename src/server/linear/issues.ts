@@ -102,27 +102,26 @@ export function createIssuesHandlers(operation: LinearOperation) {
       throw new LinearServiceError(
         "Choose existing team or workspace labels without overlapping additions and removals. Label groups cannot be applied directly.",
       );
-    for (const addition of additions)
-      if (addition?.parentId) {
-        const parent = await client.issueLabel(addition.parentId);
-        if (parent.groupType !== "multiSelect") {
-          const siblings = meta.labels.filter(
-            (value) =>
-              value.parentId === addition.parentId && value.id !== addition.id,
-          );
-          if (
-            siblings.some(
-              (value) =>
-                input.add.includes(value.id) ||
-                (current.labelIds.includes(value.id) &&
-                  !input.remove.includes(value.id)),
-            )
-          )
-            throw new LinearServiceError(
-              "To replace a label in a single-select group, explicitly choose the label to remove.",
-            );
-        }
-      }
+    const groupIds = new Set(
+      additions.flatMap((addition) =>
+        addition?.parentId ? [addition.parentId] : [],
+      ),
+    );
+    for (const groupId of groupIds) {
+      const group = await client.issueLabel(groupId);
+      if (group.groupType === "multiSelect") continue;
+      const selected = meta.labels.filter(
+        (value) =>
+          value.parentId === groupId &&
+          (input.add.includes(value.id) ||
+            (current.labelIds.includes(value.id) &&
+              !input.remove.includes(value.id))),
+      );
+      if (selected.length > 1)
+        throw new LinearServiceError(
+          "To replace a label in a single-select group, explicitly choose the label to remove.",
+        );
+    }
     await linearMutation(() =>
       client.updateIssue(current.id, {
         addedLabelIds: input.add,
