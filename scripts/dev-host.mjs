@@ -2,10 +2,8 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { setTimeout as delay } from "node:timers/promises";
+import { setTimeout } from "node:timers/promises";
 import { build } from "esbuild";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { z } from "zod";
 
 // Development only: this server refuses to run against the production MCP.
@@ -43,6 +41,7 @@ const toolInput = z.object({
 });
 const presentationInput = toolInput.pick({ session: true, name: true });
 async function body(request) {
+  request.setEncoding("utf8");
   let value = "";
   for await (const chunk of request) {
     value += chunk;
@@ -69,21 +68,29 @@ const server = createServer(async (request, response) => {
           { error: "Restart mock host to reset fixture sessions" },
           429,
         );
-      const transport = new StdioClientTransport({
-        command: process.execPath,
-        args: [fixtureServer],
-        stderr: "pipe",
-      });
+      const { Client } =
+        await import("@modelcontextprotocol/sdk/client/index.js");
+      const { StdioClientTransport } =
+        await import("@modelcontextprotocol/sdk/client/stdio.js");
       const client = new Client({
         name: "Arco browser fixture host",
         version: "0.1.0",
       });
-      await client.connect(transport);
-      const connection = await client.callTool({
-        name: "arco_connection",
-        arguments: {},
-      });
-      if (connection.structuredContent?.mode !== "fixture") {
+      await client.connect(
+        new StdioClientTransport({
+          command: process.execPath,
+          args: [fixtureServer],
+          stderr: "pipe",
+        }),
+      );
+      if (
+        (
+          await client.callTool({
+            name: "arco_connection",
+            arguments: {},
+          })
+        ).structuredContent?.mode !== "fixture"
+      ) {
         await client.close();
         throw new Error("Mock host refuses a non-fixture MCP");
       }
@@ -96,13 +103,15 @@ const server = createServer(async (request, response) => {
       const client = sessions.get(input.session);
       if (!client)
         return json(response, { error: "Unknown fixture session" }, 404);
-      const listing = await client.listTools();
-      const tool = listing.tools.find((tool) => tool.name === input.name);
+      const tool = (await client.listTools()).tools.find(
+        (tool) => tool.name === input.name,
+      );
       const uri = tool?._meta?.ui?.resourceUri;
       if (typeof uri !== "string")
         throw new Error("The fixture launch tool has no UI resource.");
-      const resource = await client.readResource({ uri });
-      const content = resource.contents.find((content) => content.uri === uri);
+      const content = (await client.readResource({ uri })).contents.find(
+        (content) => content.uri === uri,
+      );
       if (!content)
         throw new Error("The fixture UI resource was not returned.");
       return json(response, {
@@ -115,7 +124,7 @@ const server = createServer(async (request, response) => {
       const client = sessions.get(input.session);
       if (!client)
         return json(response, { error: "Unknown fixture session" }, 404);
-      if (toolDelayMs) await delay(toolDelayMs);
+      if (toolDelayMs) await setTimeout(toolDelayMs);
       return json(
         response,
         await client.callTool({ name: input.name, arguments: input.arguments }),

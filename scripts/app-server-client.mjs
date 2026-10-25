@@ -12,7 +12,7 @@ export function createAppServerClient(
   const lines = createInterface({ input: child.stdout });
   const fail = () => {
     closed = true;
-    for (const complete of pending.values()) complete();
+    pending.forEach((complete) => complete());
   };
   child.on("error", fail);
   child.on("exit", fail);
@@ -26,10 +26,6 @@ export function createAppServerClient(
     }
     pending.get(message?.id)?.(message);
   });
-  const notify = (method, params) => {
-    if (closed) throw new Error("App-server client is closed.");
-    child.stdin.write(JSON.stringify({ method, params }) + "\n");
-  };
   return {
     call(method, params) {
       if (closed) return Promise.reject(new Error(`${method} failed`));
@@ -42,10 +38,10 @@ export function createAppServerClient(
         pending.set(id, (message) => {
           clearTimeout(timer);
           pending.delete(id);
-          if (!message) reject(new Error(`${method} failed`));
-          else if (message.error)
-            reject(new Error(formatError(method, message.error)));
-          else resolve(message.result);
+          if (!message) return reject(new Error(`${method} failed`));
+          if (message.error)
+            return reject(new Error(formatError(method, message.error)));
+          resolve(message.result);
         });
         try {
           child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
@@ -54,7 +50,10 @@ export function createAppServerClient(
         }
       });
     },
-    notify,
+    notify(method, params) {
+      if (closed) throw new Error("App-server client is closed.");
+      child.stdin.write(JSON.stringify({ method, params }) + "\n");
+    },
     close() {
       fail();
       lines.close();

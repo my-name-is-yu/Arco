@@ -24,25 +24,24 @@ processHandle.stderr.on("data", () => {});
 const protocol = createAppServerClient(processHandle, {
   formatError: (method, error) => `${method}: ${error.message}`,
 });
-const { call } = protocol;
 try {
-  await call("initialize", {
+  await protocol.call("initialize", {
     clientInfo: { name: "arco-plugin-validation", version: "0.1.0" },
     capabilities: { experimentalApi: true },
   });
   protocol.notify("initialized", {});
-  const started = await call("thread/start", {
-    cwd: process.cwd(),
-    ephemeral: true,
-  });
-  const threadId = started.thread.id;
-  const status = await call("mcpServerStatus/list", {
-    threadId,
-    detail: "full",
-  });
-  const server = status.data.find(
-    (item) => item.name === "arco" || item.name.endsWith("__arco"),
-  );
+  const threadId = (
+    await protocol.call("thread/start", {
+      cwd: process.cwd(),
+      ephemeral: true,
+    })
+  ).thread.id;
+  const server = (
+    await protocol.call("mcpServerStatus/list", {
+      threadId,
+      detail: "full",
+    })
+  ).data.find((item) => item.name === "arco" || item.name.endsWith("__arco"));
   assert(server, "Installed Arco server was not discovered");
   const names = Object.keys(server.tools ?? {});
   assert(names.includes("arco_open"), "Arco failed to initialize");
@@ -54,7 +53,7 @@ try {
     names.includes("arco_open_project"),
     "Installed Arco lacks the project viewer",
   );
-  const failure = await call("mcpServer/tool/call", {
+  const failure = await protocol.call("mcpServer/tool/call", {
     threadId,
     server: server.name,
     tool: "search_mentions",
@@ -71,12 +70,13 @@ try {
     },
     "The running server must expose the current structured error contract",
   );
-  const ui = await call("mcpServer/resource/read", {
-    threadId,
-    server: server.name,
-    uri: "ui://arco/issues",
-  });
-  const html = ui.contents.find((content) => typeof content.text === "string");
+  const html = (
+    await protocol.call("mcpServer/resource/read", {
+      threadId,
+      server: server.name,
+      uri: "ui://arco/issues",
+    })
+  ).contents.find((content) => typeof content.text === "string");
   assert(html, "Installed Arco UI resource is missing");
   const hash = (value) => createHash("sha256").update(value).digest("hex");
   const expectedHtmlHash = hash(await readFile("dist/plugin/arco.html"));
@@ -85,19 +85,19 @@ try {
     expectedHtmlHash,
     "Installed HTML differs from the candidate build",
   );
-  const open = await call("mcpServer/tool/call", {
+  const open = await protocol.call("mcpServer/tool/call", {
     threadId,
     server: server.name,
     tool: "arco_open",
     arguments: {},
   });
-  const linear = await call("mcpServer/tool/call", {
+  const linear = await protocol.call("mcpServer/tool/call", {
     threadId,
     server: server.name,
     tool: "linear_connection",
     arguments: { connectionId: "default" },
   });
-  const project = await call("mcpServer/tool/call", {
+  const project = await protocol.call("mcpServer/tool/call", {
     threadId,
     server: server.name,
     tool: "arco_open_project",
