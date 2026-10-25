@@ -13,7 +13,7 @@
   },
   "interface": {
     "displayName": "Arco",
-    "shortDescription": "GitHub and Linear Issues beside your Codex chat.",
+    "shortDescription": "GitHub & Linear issues in chat",
     "capabilities": ["Interactive", "Read", "Write"],
     "composerIcon": "./assets/icon.svg",
     "composerIconDark": "./assets/icon-dark.svg",

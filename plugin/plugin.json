@@ -5,13 +5,12 @@
   "license": "MIT",
   "repository": "https://github.com/my-name-is-yu/Arco",
   "description": "GitHub and Linear Issue client for Codex.",
-  "mcpServers": "./mcp.json",
   "extensions": {
     "com.openai": {
       "onboardingSkill": "./skills/arco-setup/SKILL.md",
       "interface": {
         "displayName": "Arco",
-        "shortDescription": "GitHub and Linear Issues beside your Codex chat.",
+        "shortDescription": "GitHub & Linear issues in chat",
         "capabilities": ["Interactive", "Read", "Write"],
         "composerIcon": "./assets/icon.svg",
         "composerIconDark": "./assets/icon-dark.svg",
