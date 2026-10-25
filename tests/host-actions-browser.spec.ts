@@ -47,9 +47,9 @@ for (const source of ["github", "linear"] as const) {
       await copy.click();
       if (interaction === "Escape") await page.keyboard.press("Escape");
       await destination.focus();
-      await ui.locator("body").evaluate((reject) => {
+      await ui.locator("body").evaluate((_element, rejected) => {
         document.dispatchEvent(
-          new Event(reject ? "fixture-copy-reject" : "fixture-copy-complete"),
+          new Event(rejected ? "fixture-copy-reject" : "fixture-copy-complete"),
         );
       }, interaction === "rejection");
       if (interaction === "rejection") {
