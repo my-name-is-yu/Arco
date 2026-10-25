@@ -17,6 +17,7 @@ import { LinearCommentEditor } from "./LinearCommentEditor";
 import { CopyValue } from "./CopyValue";
 import { MultiSelect } from "./MultiSelect";
 import { SingleSelect } from "./SingleSelect";
+import { linearPriorityLabels } from "./linear-priority";
 import {
   IssueAssigneeVisual,
   IssueLabelVisual,
@@ -846,14 +847,12 @@ export function LinearDetail({
                 label="Linear Priority"
                 disabled={busy}
                 value={String(issue.priority)}
-                options={["No priority", "Urgent", "High", "Medium", "Low"].map(
-                  (label, value) => ({
-                    value: String(value),
-                    label,
-                    empty: value === 0,
-                    leading: <IssuePriorityVisual priority={value} />,
-                  }),
-                )}
+                options={linearPriorityLabels.map((label, value) => ({
+                  value: String(value),
+                  label,
+                  empty: value === 0,
+                  leading: <IssuePriorityVisual priority={value} />,
+                }))}
                 onChange={(value) => void update({ priority: Number(value) })}
               />
             </label>

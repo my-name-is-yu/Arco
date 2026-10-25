@@ -10,6 +10,7 @@ import { Notice } from "./Notice";
 import { isTextSelectionClick, selectionIssueData } from "./selection-context";
 import { seedPresentationCache } from "./presentation-cache";
 import { usePresentationImagePrefetch } from "./presentation-images";
+import { githubStatePresentation } from "./github-state";
 import "./inline-issue-tabs.css";
 
 export function presentationTarget(
@@ -48,12 +49,7 @@ function identifier(issue: IssuePresentationSummary) {
 
 function stateLabel(issue: IssuePresentationSummary) {
   if (issue.source === "linear") return issue.state.name;
-  if (issue.state === "open") return "Open";
-  return issue.stateReason === "completed"
-    ? "Closed · Completed"
-    : issue.stateReason === "not_planned"
-      ? "Closed · Not planned"
-      : "Closed";
+  return githubStatePresentation(issue).label;
 }
 
 export function InlineIssueTabs({
