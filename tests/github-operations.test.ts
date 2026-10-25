@@ -419,6 +419,82 @@ describe("explicit additional GitHub operations", () => {
     expect(
       run.mock.calls.filter(([args]) => args.includes("PATCH")),
     ).toHaveLength(1);
+    const patchIndex = run.mock.calls.findIndex(([args]) =>
+      args.includes("PATCH"),
+    );
+    expect(
+      run.mock.calls
+        .slice(0, patchIndex)
+        .filter(([args]) => args[3] === `repos/${FIXTURE_REPO}/issues/42`),
+    ).toHaveLength(1);
+  });
+
+  it("reuses the attribute preflight issue while reading fresh catalog choices for each change", async () => {
+    const { run: base, service } = setup();
+    let milestone: number | null = null;
+    let available = true;
+    const run = vi.fn<GhRunner>(async (args, input) => {
+      if (args[3] === `repos/${FIXTURE_REPO}/issues/42`) {
+        if (args.includes("PATCH"))
+          milestone = z
+            .object({ milestone: z.number() })
+            .parse(JSON.parse(input ?? "{}")).milestone;
+        return {
+          ...rawIssue(),
+          milestone: milestone === null ? null : { number: milestone },
+        };
+      }
+      if (args[3]?.includes("/milestones?") && !available) return [[]];
+      return base(args, input);
+    });
+    const operations = createGitHubOperations({ service, run });
+    const input = {
+      ...ref,
+      requestId: "attribute-preflight",
+      expectedUpdatedAt: rawIssue().updated_at,
+      patch: { milestoneNumber: 1 },
+    };
+    await operations.issueAttributes(input);
+    const patchIndex = run.mock.calls.findIndex(([args]) =>
+      args.includes("PATCH"),
+    );
+    expect(
+      run.mock.calls
+        .slice(0, patchIndex)
+        .filter(([args]) => args[3] === `repos/${FIXTURE_REPO}/issues/42`),
+    ).toHaveLength(1);
+    expect(
+      run.mock.calls
+        .slice(patchIndex + 1)
+        .filter(([args]) => args[3] === `repos/${FIXTURE_REPO}/issues/42`),
+    ).toHaveLength(1);
+
+    available = false;
+    run.mockClear();
+    await expect(
+      operations.issueAttributes({ ...input, requestId: "fresh-catalog" }),
+    ).rejects.toMatchObject({
+      code: "invalid",
+      message: "Select an existing milestone in this repository.",
+    });
+    expect(
+      run.mock.calls.filter(([args]) => args[3]?.includes("/milestones?")),
+    ).toHaveLength(1);
+    expect(run.mock.calls.some(([args]) => args.includes("PATCH"))).toBe(false);
+  });
+
+  it("rejects stale attributes before loading catalog choices or writing", async () => {
+    const { operations, run, writes } = setup();
+    await expect(
+      operations.issueAttributes({
+        ...ref,
+        requestId: "stale-attribute-preflight",
+        expectedUpdatedAt: "2026-10-21T00:00:00Z",
+        patch: { milestoneNumber: 1 },
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(run).toHaveBeenCalledOnce();
+    expect(writes()).toHaveLength(0);
   });
 
   it("rejects a comment that belongs to another Issue before editing or deleting", async () => {
@@ -893,7 +969,7 @@ describe("explicit additional GitHub operations", () => {
   });
 
   it("requires exact Issue/Project/item membership before removing from a Project", async () => {
-    const { operations, writes } = setup();
+    const { operations, run, writes } = setup();
     await expect(
       operations.projectMembership({
         ...ref,
@@ -903,6 +979,8 @@ describe("explicit additional GitHub operations", () => {
         action: "remove",
       }),
     ).rejects.toMatchObject({ code: "invalid" });
+    expect(writes()).toHaveLength(0);
+    run.mockClear();
     await operations.projectMembership({
       ...ref,
       requestId: "project-remove-right",
@@ -910,9 +988,49 @@ describe("explicit additional GitHub operations", () => {
       itemId: "item-42",
       action: "remove",
     });
+    const mutationIndex = run.mock.calls.findIndex(([, input]) =>
+      input?.includes('"query":"mutation'),
+    );
+    expect(
+      run.mock.calls
+        .slice(0, mutationIndex)
+        .filter(([args]) => args[3] === `repos/${FIXTURE_REPO}/issues/42`),
+    ).toHaveLength(1);
     expect(writes()).toHaveLength(1);
     expect(JSON.parse(writes()[0][1] ?? "").variables.itemId).toBe("item-42");
   });
+
+  it.each(["attributes", "membership"] as const)(
+    "rejects a foreign issue identity before a %s write",
+    async (operation) => {
+      const { run: base, service } = setup();
+      const run = vi.fn<GhRunner>(async (args, input) =>
+        args[3] === `repos/${FIXTURE_REPO}/issues/42`
+          ? {
+              ...rawIssue(),
+              repository_url: "https://api.github.com/repos/other/repo",
+            }
+          : base(args, input),
+      );
+      const operations = createGitHubOperations({ service, run });
+      const change =
+        operation === "attributes"
+          ? operations.issueAttributes({
+              ...ref,
+              requestId: "foreign-attribute-preflight",
+              patch: { milestoneNumber: 1 },
+            })
+          : operations.projectMembership({
+              ...ref,
+              requestId: "foreign-membership-preflight",
+              projectId: "project-A",
+              itemId: "item-42",
+              action: "remove",
+            });
+      await expect(change).rejects.toMatchObject({ code: "conflict" });
+      expect(run).toHaveBeenCalledOnce();
+    },
+  );
 
   it("retains ambiguous failed writes without replaying on the same request ID", async () => {
     const { operations, writes } = setup({ writeError: true });
