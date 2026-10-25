@@ -349,13 +349,11 @@ export function createLinearAuth(
       pending.set(connectionId, transaction);
       await new Promise<void>((resolve, reject) => {
         server.once("error", () => {
+          status.state = "failed";
+          status.message =
+            "The Linear callback port could not be opened. Complete any other connection attempt and try again.";
           transaction.close();
-          reject(
-            new LinearServiceError(
-              "The Linear callback port could not be opened. Complete any other connection attempt and try again.",
-              "unavailable",
-            ),
-          );
+          reject(new LinearServiceError(status.message, "unavailable"));
         });
         server.listen(Number(callback.port), "127.0.0.1", resolve);
       });

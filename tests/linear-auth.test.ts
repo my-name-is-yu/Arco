@@ -71,6 +71,47 @@ describe("Linear PKCE and local authorization", () => {
     expect(validState(`${first.state}x`, first.state)).toBe(false);
     expect(validState(null, first.state)).toBe(false);
   });
+  it("reports an occupied callback port as failed and can retry after it is released", async () => {
+    const server = createServer();
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("Test loopback unavailable");
+    const uri = `http://127.0.0.1:${address.port}/oauth/linear/callback`;
+    const store = memoryStore();
+    const http = vi.fn<typeof fetch>(async () => response());
+    const auth = createLinearAuth({
+      store,
+      directory: await directory(),
+      fetch: http,
+    });
+    authorizations.push(auth);
+    const message =
+      "The Linear callback port could not be opened. Complete any other connection attempt and try again.";
+    try {
+      await expect(
+        auth.begin("port-retry", "client", uri),
+      ).rejects.toMatchObject({
+        code: "unavailable",
+        message,
+      });
+      expect(auth.status("port-retry")).toEqual({ state: "failed", message });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    expect(await auth.begin("port-retry", "client", uri)).toMatchObject({
+      connectionId: "port-retry",
+      redirectUri: uri,
+    });
+    expect(auth.status("port-retry")).toEqual({
+      state: "pending",
+      message: "",
+    });
+    expect(http).not.toHaveBeenCalled();
+    expect(store.write).not.toHaveBeenCalled();
+  });
   it("rejects wrong state, then exchanges the valid callback without a client secret and closes it", async () => {
     const store = memoryStore();
     const http = vi.fn<typeof fetch>(async () => response());
