@@ -21,6 +21,14 @@ export function createFieldsOperations(context: GitHubOperationContext) {
       issueRecord(input),
       repoOwner(input.repo),
     ]);
+    return readCatalog(input, issue, owner);
+  }
+
+  async function readCatalog(
+    input: Input<"arco_issue_catalog">,
+    issue: Awaited<ReturnType<typeof issueRecord>>,
+    owner: Awaited<ReturnType<typeof repoOwner>>,
+  ): Promise<IssueCatalog> {
     const errors: string[] = [];
     const milestones = await pages(
       `repos/${input.repo}/milestones?state=all&per_page=100`,
@@ -79,7 +87,11 @@ export function createFieldsOperations(context: GitHubOperationContext) {
           "This issue has changed. Refresh before saving.",
           "conflict",
         );
-      const catalog = await issueCatalog(input);
+      const catalog = await readCatalog(
+        input,
+        issue,
+        await repoOwner(input.repo),
+      );
       const { milestoneNumber, issueTypeId } = input.patch;
       if (
         milestoneNumber != null &&

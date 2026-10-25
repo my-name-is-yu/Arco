@@ -69,8 +69,8 @@ export function createProjectsOperations(context: GitHubOperationContext) {
 
   function projectMembership(input: Input<"arco_project_membership">) {
     return once(input.requestId, ["projectMembership", input], async () => {
-      const issue = await issueRecord(input);
       if (input.action === "add") {
+        const issue = await issueRecord(input);
         const project = parse(
           z.object({
             data: z.object({ node: z.object({ id: z.string() }).nullable() }),
