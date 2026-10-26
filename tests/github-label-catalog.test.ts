@@ -93,8 +93,15 @@ function source() {
     }
     throw new Error(`Unexpected fictional write: ${method} ${endpoint}`);
   };
-  const service = createGitHubService({ run });
-  const operations = createGitHubOperations({ service, run });
+  const service = createGitHubService({
+    credentialIdentity: async () => "test-credential",
+    run,
+  });
+  const operations = createGitHubOperations({
+    credentialIdentity: async () => "test-credential",
+    service,
+    run,
+  });
   return { service, operations, calls, controls };
 }
 

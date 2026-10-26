@@ -34,6 +34,10 @@ import { createRepositoryIssueReader } from "./github/issue-list";
 import { createConditionalReader } from "./github/conditional-read";
 import { credentialIdentity } from "./github/credential-identity";
 import {
+  createGitHubAuthSession,
+  type GitHubAuthSession,
+} from "./github/auth-session";
+import {
   createGitHubTransport,
   createGitHubWriteGuard,
   GitHubError,
@@ -59,15 +63,17 @@ export function createGitHubService(
   options: {
     run?: GhRunner;
     credentialIdentity?: () => Promise<string>;
+    authSession?: GitHubAuthSession;
   } = {},
 ): GitHubService {
   const run = options.run;
-  const once = createGitHubWriteGuard<IssueDetail>();
+  const identity = options.credentialIdentity ?? credentialIdentity;
+  const authSession = options.authSession ?? createGitHubAuthSession(identity);
+  const once = createGitHubWriteGuard<IssueDetail>(authSession.read);
 
   const transport = createGitHubTransport({ run, policy: "core" });
   const api = transport.request;
   const conditional = createConditionalReader({ run: run ?? runGh });
-  const identity = options.credentialIdentity ?? credentialIdentity;
 
   async function issueRecord(input: IssueRef) {
     const issue = parse(
@@ -263,16 +269,16 @@ export function createGitHubService(
     },
     async accountIssues(raw) {
       const input = accountIssuesInputSchema.parse(raw);
-      const credential = await identity();
+      const generation = await authSession.read();
       const response = parse(
         z.array(apiIssueSummarySchema),
         await conditional.read(
           `issues?filter=${input.filter}&state=${input.state}&sort=${input.sort}&direction=${input.order}&per_page=${issuePageSize}&page=${input.page}`,
           `[.[] | ${issueSummaryProjection}]`,
-          credential,
+          generation,
         ),
       );
-      if (credential !== (await identity())) {
+      if (generation !== (await authSession.read())) {
         conditional.clear();
         throw new GitHubError(
           "GitHub authentication changed while loading issues. Refresh and try again.",

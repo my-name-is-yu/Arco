@@ -143,7 +143,10 @@ describe("write safety across the service boundary", () => {
       if (args[3] === "orgs/yu/issue-types") return [type];
       return base(args, input);
     });
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const input = {
       repo: FIXTURE_REPO,
       requestId: "template-type-once",
@@ -187,7 +190,10 @@ describe("write safety across the service boundary", () => {
         return base(args, input);
       });
       await expect(
-        createGitHubService({ run }).create({
+        createGitHubService({
+          credentialIdentity: async () => "test-credential",
+          run,
+        }).create({
           repo: FIXTURE_REPO,
           requestId: "invalid-type-before-create",
           title: "Template",
@@ -209,7 +215,10 @@ describe("write safety across the service boundary", () => {
       return base(args, input);
     };
     await expect(
-      createGitHubService({ run }).create({
+      createGitHubService({
+        credentialIdentity: async () => "test-credential",
+        run,
+      }).create({
         repo: FIXTURE_REPO,
         requestId: "dropped-template-type",
         title: "Template",
@@ -221,7 +230,10 @@ describe("write safety across the service boundary", () => {
 
   it("coalesces concurrent duplicate comments and rejects requestId reuse with a changed payload", async () => {
     const run = stubRun();
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const input = { ...ref, requestId: "comment-once", body: "One comment" };
     await Promise.all([service.comment(input), service.comment(input)]);
     expect(
@@ -238,7 +250,10 @@ describe("write safety across the service boundary", () => {
 
   it("keeps user text only in JSON stdin and writes only explicitly selected fields", async () => {
     const run = stubRun();
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const body =
       "@secret-file\n$(touch /tmp/never) `echo nope` --method DELETE";
     await service.update({
@@ -254,7 +269,10 @@ describe("write safety across the service boundary", () => {
 
   it("does not write over a detected concurrent update", async () => {
     const run = stubRun();
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     await expect(
       service.update({
         ...ref,
@@ -270,7 +288,10 @@ describe("write safety across the service boundary", () => {
     const run = stubRun({
       issue: apiIssue({ assignees: [{ login: "test-user" }] }),
     });
-    const saved = await createGitHubService({ run }).update({
+    const saved = await createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    }).update({
       ...ref,
       requestId: "assign-explicit",
       patch: { assignees: ["test-user"] },
@@ -298,7 +319,10 @@ describe("write safety across the service boundary", () => {
 
   it("reports silently dropped assignee changes rather than displaying saved success", async () => {
     await expect(
-      createGitHubService({ run: stubRun() }).update({
+      createGitHubService({
+        credentialIdentity: async () => "test-credential",
+        run: stubRun(),
+      }).update({
         ...ref,
         requestId: "assign-dropped",
         patch: { assignees: ["test-user"] },
@@ -312,7 +336,10 @@ describe("write safety across the service boundary", () => {
         pull_request: { url: "https://api.github.com/pulls/42" },
       }),
     });
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     await expect(
       service.update({
         ...ref,
@@ -356,7 +383,10 @@ describe("write safety across the service boundary", () => {
       }
       return base(args, input);
     };
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const input = {
       ...ref,
       requestId: "saved-refresh-failed",
@@ -382,7 +412,10 @@ describe("write safety across the service boundary", () => {
           throw new GitHubError("Preflight failed", code);
         return base(args, input);
       });
-      const service = createGitHubService({ run });
+      const service = createGitHubService({
+        credentialIdentity: async () => "test-credential",
+        run,
+      });
       const input = {
         ...ref,
         requestId: `recover-preflight-${code}`,
@@ -405,7 +438,10 @@ describe("write safety across the service boundary", () => {
         throw new GitHubError("Permission denied", "forbidden");
       return base(args, input);
     });
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const input = {
       ...ref,
       requestId: "recover-rejected-write",
@@ -423,7 +459,10 @@ describe("write safety across the service boundary", () => {
 
   it("retains an accepted comment with an unreadable response without posting it again", async () => {
     const run = stubRun({ write: async () => ({}) });
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const input = {
       ...ref,
       requestId: "saved-unreadable-comment",
@@ -448,7 +487,10 @@ describe("write safety across the service boundary", () => {
         throw new Error("temporary detail failure");
       return base(args, input);
     });
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const input = {
       repo: FIXTURE_REPO,
       requestId: "created-refresh-failed",
@@ -473,7 +515,10 @@ describe("write safety across the service boundary", () => {
         throw new Error("ghp_secret-value body-contents");
       },
     });
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const input = {
       ...ref,
       requestId: "uncertain-write",
@@ -494,7 +539,10 @@ describe("write safety across the service boundary", () => {
 
   it("adds labels with the delta endpoint and never replaces unspecified labels", async () => {
     const run = stubRun();
-    await createGitHubService({ run }).labels({
+    await createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    }).labels({
       ...ref,
       requestId: "label-delta",
       add: ["needs/review"],
@@ -534,7 +582,10 @@ describe("write safety across the service boundary", () => {
         if (args.includes("DELETE")) throw new GitHubError("Rejected", code);
         return [];
       });
-      const service = createGitHubService({ run: stubRun({ write }) });
+      const service = createGitHubService({
+        credentialIdentity: async () => "test-credential",
+        run: stubRun({ write }),
+      });
       const input = {
         ...ref,
         requestId: `partially-saved-labels-${code}`,
@@ -564,7 +615,10 @@ describe("write safety across the service boundary", () => {
       { optionId: "unlisted" },
     ]) {
       const run = stubRun();
-      const service = createGitHubService({ run });
+      const service = createGitHubService({
+        credentialIdentity: async () => "test-credential",
+        run,
+      });
       await expect(
         service.projectStatus({
           ...ref,
@@ -632,7 +686,10 @@ describe("write safety across the service boundary", () => {
         };
       },
     });
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     const detail = await service.get(ref);
     expect(detail.projectsError).toBeUndefined();
     expect(detail.projects).toEqual([
@@ -701,7 +758,10 @@ describe("write safety across the service boundary", () => {
           };
         },
       });
-      const service = createGitHubService({ run });
+      const service = createGitHubService({
+        credentialIdentity: async () => "test-credential",
+        run,
+      });
       const detail = await service.get(ref);
       expect(detail.projects).toEqual([]);
       expect(detail.projectsError).toContain("Unable to load Projects");
@@ -795,7 +855,10 @@ describe("reads and explicit fixtures", () => {
       }
       return base(args, input);
     });
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     expect(await service.get(ref)).toMatchObject({
       commentsHasMore: true,
       commentsNextPage: 2,
@@ -858,7 +921,10 @@ describe("reads and explicit fixtures", () => {
           }
         : base(args, input),
     );
-    const service = createGitHubService({ run });
+    const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
+      run,
+    });
     expect(await service.readMarkdown(ref)).toBe("Original body");
     expect(await service.readMarkdown(ref, 101)).toBe(
       "Image in a later comment",
@@ -877,7 +943,10 @@ describe("reads and explicit fixtures", () => {
   it("rejects retired repository search syntax before sending a request", async () => {
     const run = stubRun();
     await expect(
-      createGitHubService({ run }).list({
+      createGitHubService({
+        credentialIdentity: async () => "test-credential",
+        run,
+      }).list({
         repo: FIXTURE_REPO,
         query: "OR repo:other/repo",
         state: "all",
@@ -889,6 +958,7 @@ describe("reads and explicit fixtures", () => {
 
   it("preserves the Issue when Projects permission is missing", async () => {
     const issue = await createGitHubService({
+      credentialIdentity: async () => "test-credential",
       run: stubRun({ projects: new Error("token=secret") }),
     }).get(ref);
     expect(issue.title).toBe("Original");
@@ -899,6 +969,7 @@ describe("reads and explicit fixtures", () => {
 
   it("reports unavailable credentials safely and never returns raw errors", async () => {
     const service = createGitHubService({
+      credentialIdentity: async () => "test-credential",
       run: async () => {
         throw new Error("token=secret");
       },

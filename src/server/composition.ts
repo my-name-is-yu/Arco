@@ -6,6 +6,8 @@ import type { GitHubService } from "../shared/contracts";
 import type { LinearService } from "../shared/linear";
 import { createFixtureService } from "./fixture";
 import { createGitHubService } from "./github";
+import { createGitHubAuthSession } from "./github/auth-session";
+import { credentialIdentity } from "./github/credential-identity";
 import { createGitHubOperations } from "./github-operations";
 import { createFixtureGitHubOperations } from "./github-operations-fixture";
 import {
@@ -25,11 +27,12 @@ export interface ArcoBackend {
 }
 
 export function createLiveBackend(): ArcoBackend {
-  const service = createGitHubService();
+  const authSession = createGitHubAuthSession(credentialIdentity);
+  const service = createGitHubService({ authSession });
   return {
     service,
     linearService: createLinearService(),
-    operations: createGitHubOperations({ service }),
+    operations: createGitHubOperations({ service, authSession }),
     stateStore: createStateStore(),
     fixture: false,
     cleanup() {},

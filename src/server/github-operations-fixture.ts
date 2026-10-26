@@ -205,9 +205,9 @@ export function createFixtureGitHubOperations(options: {
   const service = options.service;
   const extras = new Map<string, Extras>();
   const reactionTargets = new Map<string, Reaction[]>();
-  const once = createGitHubWriteGuard<
-    GitHubOperationResult | BulkUpdateResult
-  >();
+  const once = createGitHubWriteGuard<GitHubOperationResult | BulkUpdateResult>(
+    async () => "fixture",
+  );
   let labelSequence = 100;
   let reactionSequence = 1;
   async function state(ref: IssueRef) {

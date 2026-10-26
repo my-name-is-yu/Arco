@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { credentialIdentity } from "./credential-identity";
+import {
+  createGitHubAuthSession,
+  type GitHubAuthSession,
+} from "./auth-session";
 import {
   issueRefSchema,
   type GitHubService,
@@ -51,11 +56,15 @@ export function issuePath(ref: IssueRef) {
 export function createGitHubOperationContext(options: {
   service: GitHubService;
   run?: GhRunner;
+  credentialIdentity?: () => Promise<string>;
+  authSession?: GitHubAuthSession;
 }) {
   const service = options.service;
-  const once = createGitHubWriteGuard<
-    GitHubOperationResult | BulkUpdateResult
-  >();
+  const identity = options.credentialIdentity ?? credentialIdentity;
+  const authSession = options.authSession ?? createGitHubAuthSession(identity);
+  const once = createGitHubWriteGuard<GitHubOperationResult | BulkUpdateResult>(
+    authSession.read,
+  );
   let fixtureMode: Promise<boolean> | undefined;
   const transport = createGitHubTransport({
     run: options.run,
@@ -125,6 +134,7 @@ export function createGitHubOperationContext(options: {
   }
   return {
     service,
+    authSession,
     once,
     api,
     graphql: transport.query,

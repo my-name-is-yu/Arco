@@ -12,7 +12,10 @@ it("keeps the initial service when the caller replaces its options reference", a
   replacement.fixture.mutate(ref, (issue) => {
     issue.title = "Replacement fixture source";
   });
-  const options = { service: initial };
+  const options = {
+    service: initial,
+    credentialIdentity: async () => "test-credential",
+  };
   const context = createGitHubOperationContext(options);
   options.service = replacement;
 

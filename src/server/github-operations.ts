@@ -12,6 +12,7 @@ import { createProjectsOperations } from "./github/projects";
 import { createRelationsOperations } from "./github/relations";
 import { createTemplatesOperations } from "./github/templates";
 import type { GhRunner } from "./github/transport";
+import type { GitHubAuthSession } from "./github/auth-session";
 export { checkFieldValue } from "./github/field-values";
 export { classifyMarkdownTemplate } from "./github/templates";
 export const githubOperationReadOnly = new Set<GitHubOperationToolName>([
@@ -28,6 +29,8 @@ export const githubOperationReadOnly = new Set<GitHubOperationToolName>([
 export function createGitHubOperations(options: {
   service: GitHubService;
   run?: GhRunner;
+  credentialIdentity?: () => Promise<string>;
+  authSession?: GitHubAuthSession;
 }) {
   const context = createGitHubOperationContext(options);
   const fields = createFieldsOperations(context);

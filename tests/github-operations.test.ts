@@ -258,7 +258,11 @@ function setup(
     if (issueNumber) return rawIssue(Number(issueNumber));
     throw new Error(`Unhandled fixture endpoint ${endpoint}`);
   });
-  const operations = createGitHubOperations({ service, run });
+  const operations = createGitHubOperations({
+    credentialIdentity: async () => "test-credential",
+    service,
+    run,
+  });
   const writes = () =>
     run.mock.calls.filter(
       ([args, input]) =>
@@ -405,7 +409,11 @@ describe("explicit additional GitHub operations", () => {
         throw new GitHubError("Verification unavailable", "unavailable");
       return base(args, input);
     });
-    const operations = createGitHubOperations({ service, run });
+    const operations = createGitHubOperations({
+      credentialIdentity: async () => "test-credential",
+      service,
+      run,
+    });
     const input = {
       ...ref,
       requestId: "saved-attributes-read-failed",
@@ -447,7 +455,11 @@ describe("explicit additional GitHub operations", () => {
       if (args[3]?.includes("/milestones?") && !available) return [[]];
       return base(args, input);
     });
-    const operations = createGitHubOperations({ service, run });
+    const operations = createGitHubOperations({
+      credentialIdentity: async () => "test-credential",
+      service,
+      run,
+    });
     const input = {
       ...ref,
       requestId: "attribute-preflight",
@@ -1012,7 +1024,11 @@ describe("explicit additional GitHub operations", () => {
             }
           : base(args, input),
       );
-      const operations = createGitHubOperations({ service, run });
+      const operations = createGitHubOperations({
+        credentialIdentity: async () => "test-credential",
+        service,
+        run,
+      });
       const change =
         operation === "attributes"
           ? operations.issueAttributes({
@@ -1177,6 +1193,7 @@ describe("explicit additional GitHub operations", () => {
 
   it("never falls back from an explicit fixture service into the live gh CLI", async () => {
     const operations = createGitHubOperations({
+      credentialIdentity: async () => "test-credential",
       service: createFixtureService(),
     });
     await expect(
@@ -1224,6 +1241,7 @@ describe("template fidelity", () => {
       throw new Error("Unexpected template request");
     });
     const inherited = createGitHubOperations({
+      credentialIdentity: async () => "test-credential",
       service: createFixtureService(),
       run,
     });
