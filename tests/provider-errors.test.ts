@@ -101,6 +101,7 @@ describe("provider error boundaries", () => {
     const service = createLinearService({
       auth: {
         accessToken: vi.fn().mockResolvedValue("private-token"),
+        sessionScope: async () => "fictional-authorization",
       } as unknown as LinearAuth,
       client: () =>
         ({
@@ -148,6 +149,7 @@ describe("provider error boundaries", () => {
       const service = createLinearService({
         auth: {
           accessToken: vi.fn().mockResolvedValue("private-token"),
+          sessionScope: async () => "fictional-authorization",
         } as unknown as LinearAuth,
         client: () =>
           ({

@@ -33,7 +33,18 @@ export function createLinearService(
     options.client ??
     ((accessToken: string) => new LinearClient({ accessToken }));
   const request = options.fetch ?? fetch;
-  const once = createWriteGuard<object>();
+  const once = createWriteGuard<
+    object,
+    readonly [LinearToolName, { connectionId: string }]
+  >(
+    256,
+    (message, code = "unavailable") => new LinearServiceError(message, code),
+    async ([, input]) =>
+      JSON.stringify([
+        input.connectionId,
+        await auth.sessionScope(input.connectionId),
+      ]),
+  );
   async function execute<N extends LinearToolName>(
     name: N,
     input: Args<N>,

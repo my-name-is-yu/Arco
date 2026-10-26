@@ -7,7 +7,11 @@ import { randomUUID } from "node:crypto";
 import { text } from "node:stream/consumers";
 import { postFragmentedJson } from "./fragmented-json";
 import { LinearClient } from "@linear/sdk";
-import { createLinearAuth } from "../src/server/linear/auth";
+import {
+  createLinearAuth,
+  type CredentialStore,
+  type LinearCredential,
+} from "../src/server/linear/auth";
 import { createLinearService } from "../src/server/linear/service";
 import type {
   LinearCommentPage,
@@ -39,25 +43,48 @@ const connection = (nodes: unknown[], hasMore = false) => ({
 
 async function source() {
   const directory = await mkdtemp(join(tmpdir(), "arco-linear-sdk-test-"));
+  const credentials = new Map<string, LinearCredential>(
+    [scope.connectionId, "other-test"].map((connectionId) => [
+      connectionId,
+      {
+        clientId: "fake-public-client",
+        accessToken:
+          connectionId === "other-test"
+            ? "fake-sdk-token-other"
+            : "fake-sdk-token",
+        refreshToken: "fake-refresh",
+        expiresAt: Date.now() + 86_400_000,
+        scopes: ["read", "write"],
+        authorizationId: randomUUID(),
+      },
+    ]),
+  );
+  const storeControls = { failRemove: false };
+  const store: CredentialStore = {
+    async read(connectionId) {
+      return structuredClone(credentials.get(connectionId) ?? null);
+    },
+    async write(connectionId, value) {
+      credentials.set(connectionId, structuredClone(value));
+    },
+    async remove(connectionId) {
+      if (storeControls.failRemove)
+        throw new Error("Fictional credential removal failed");
+      credentials.delete(connectionId);
+    },
+  };
   const auth = createLinearAuth({
     directory,
-    store: {
-      async read(connectionId) {
-        return {
-          clientId: "fake-public-client",
-          accessToken:
-            connectionId === "other-test"
-              ? "fake-sdk-token-other"
-              : "fake-sdk-token",
-          refreshToken: "fake-refresh",
-          expiresAt: Date.now() + 86_400_000,
-          scopes: ["read", "write"],
-        };
-      },
-      async write() {},
-      async remove() {},
-    },
+    store,
+    fetch: async () =>
+      Response.json({
+        access_token: "fake-sdk-token-rotated",
+        refresh_token: "fake-refresh-rotated",
+        expires_in: 86400,
+        scope: "read write",
+      }),
   });
+  const hooks: { beforeOperation?: (operation: string) => Promise<void> } = {};
   const issue = {
     id: "issue",
     identifier: "TST-1",
@@ -134,6 +161,7 @@ async function source() {
         bearer: request.headers.authorization === "Bearer fake-sdk-token",
         query: input.query,
       });
+      await hooks.beforeOperation?.(operation);
       if (
         (operation === "updateIssue" && controls.rejectUpdate) ||
         (operation === "user" &&
@@ -523,7 +551,17 @@ async function source() {
     );
     await rm(directory, { recursive: true, force: true });
   });
-  return { service, calls, issue, controls, server };
+  return {
+    service,
+    calls,
+    issue,
+    controls,
+    server,
+    auth,
+    store,
+    storeControls,
+    hooks,
+  };
 }
 
 describe("Linear adapter through the official SDK HTTP transport", () => {
@@ -1162,6 +1200,214 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
       calls.filter((call) => call.operation === "fileUpload"),
     ).toHaveLength(1);
     expect(calls.some((call) => call.operation === "updateIssue")).toBe(false);
+  });
+  it("does not expose an old write receipt after disconnect or replacement of the same alias", async () => {
+    const { service, auth, store, calls, issue } = await source();
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "Account A private receipt" },
+    };
+    const first = await service.call("linear_update_issue", input);
+    expect(first).toMatchObject({ title: "Account A private receipt" });
+    const original = await store.read(scope.connectionId);
+    if (!original) throw new Error("Fictional credential missing");
+    expect(JSON.stringify(first)).not.toContain(original.authorizationId);
+    expect(JSON.stringify(first)).not.toContain(original.accessToken);
+    await auth.disconnect(scope.connectionId);
+    await expect(
+      service.call("linear_update_issue", input),
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/^(auth|conflict)$/),
+    });
+    await store.write(scope.connectionId, {
+      ...original,
+      authorizationId: randomUUID(),
+      accessToken: "fake-sdk-token-other",
+    });
+    await expect(
+      service.call("linear_update_issue", input),
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/^(auth|conflict)$/),
+    });
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(1);
+    await expect(
+      service.call("linear_update_issue", {
+        ...input,
+        requestId: randomUUID(),
+        expectedUpdatedAt: issue.updatedAt,
+        patch: { title: "Explicit new-session update" },
+      }),
+    ).resolves.toMatchObject({ title: "Explicit new-session update" });
+  });
+  it("keeps identical writes deduplicated across routine token refresh", async () => {
+    const { service, auth, store, calls, issue } = await source();
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "One confirmed update" },
+    };
+    const first = await service.call("linear_update_issue", input);
+    const before = await store.read(scope.connectionId);
+    await auth.refresh(scope.connectionId);
+    expect((await store.read(scope.connectionId))?.authorizationId).toBe(
+      before?.authorizationId,
+    );
+    expect((await store.read(scope.connectionId))?.accessToken).not.toBe(
+      before?.accessToken,
+    );
+    await expect(service.call("linear_update_issue", input)).resolves.toEqual(
+      first,
+    );
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(1);
+  });
+  it("keeps a legitimate write receipt when disconnect fails to remove the credential", async () => {
+    const { service, auth, storeControls, calls, issue } = await source();
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "Still the same grant" },
+    };
+    const first = await service.call("linear_update_issue", input);
+    storeControls.failRemove = true;
+    await expect(auth.disconnect(scope.connectionId)).rejects.toThrow(
+      "removal failed",
+    );
+    await expect(service.call("linear_update_issue", input)).resolves.toEqual(
+      first,
+    );
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(1);
+  });
+  it("does not resume a paused preflight into a mutation after reconnect", async () => {
+    const { service, auth, store, hooks, calls, issue } = await source();
+    const original = await store.read(scope.connectionId);
+    if (!original) throw new Error("Fictional credential missing");
+    let notify = () => {};
+    let resume = () => {};
+    const paused = new Promise<void>((resolve) => {
+      notify = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    hooks.beforeOperation = async (operation) => {
+      if (operation === "issue") {
+        notify();
+        await gate;
+      }
+    };
+    const pending = service.call("linear_update_issue", {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "Should not be sent" },
+    });
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: expect.stringMatching(/^(auth|conflict)$/),
+    });
+    try {
+      await paused;
+      await auth.disconnect(scope.connectionId);
+      await store.write(scope.connectionId, {
+        ...original,
+        authorizationId: randomUUID(),
+        accessToken: "fake-sdk-token-other",
+      });
+    } finally {
+      resume();
+    }
+    await rejected;
+    expect(calls.filter((call) => call.operation === "updateIssue")).toEqual(
+      [],
+    );
+  });
+  it("does not expose a dispatched write's late result after reconnect", async () => {
+    const { service, auth, store, hooks, calls, issue } = await source();
+    const original = await store.read(scope.connectionId);
+    if (!original) throw new Error("Fictional credential missing");
+    let notify = () => {};
+    let resume = () => {};
+    const paused = new Promise<void>((resolve) => {
+      notify = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    hooks.beforeOperation = async (operation) => {
+      if (operation === "updateIssue") {
+        notify();
+        await gate;
+      }
+    };
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "Late account A receipt" },
+    };
+    const pending = service.call("linear_update_issue", input);
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: expect.stringMatching(/^(auth|conflict|uncertain)$/),
+    });
+    try {
+      await paused;
+      await auth.disconnect(scope.connectionId);
+      await store.write(scope.connectionId, {
+        ...original,
+        authorizationId: randomUUID(),
+        accessToken: "fake-sdk-token-other",
+      });
+    } finally {
+      resume();
+    }
+    await rejected;
+    await expect(
+      service.call("linear_update_issue", input),
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/^(auth|conflict|uncertain)$/),
+    });
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(1);
+  });
+  it("keeps an unconfirmed write blocked after its connection alias is rebound", async () => {
+    const { service, auth, store, controls, calls, issue } = await source();
+    const original = await store.read(scope.connectionId);
+    if (!original) throw new Error("Fictional credential missing");
+    controls.partialError = true;
+    const input = {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { title: "Unconfirmed earlier write" },
+    };
+    await expect(
+      service.call("linear_update_issue", input),
+    ).rejects.toMatchObject({ code: "uncertain" });
+    await auth.disconnect(scope.connectionId);
+    await store.write(scope.connectionId, {
+      ...original,
+      authorizationId: randomUUID(),
+      accessToken: "fake-sdk-token-other",
+    });
+    controls.partialError = false;
+    await expect(
+      service.call("linear_update_issue", input),
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/^(auth|conflict|uncertain)$/),
+    });
+    expect(
+      calls.filter((call) => call.operation === "updateIssue"),
+    ).toHaveLength(1);
   });
   it("preserves incoming and outgoing dependency meaning with original relation IDs", async () => {
     const { service, controls } = await source();

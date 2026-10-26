@@ -84,6 +84,8 @@ For Linear:
 
 Linear tokens are stored in the OS credential store. Your application's access settings determine who can connect; the maintainer's development application is not a shared public connection.
 
+The first write after upgrading an older Linear sign-in adds a private grant ID to its stored credential. Routine token refresh preserves this ID; reconnecting replaces it. Earlier Arco versions with the old strict credential format cannot read the upgraded record and may require reconnecting after a downgrade.
+
 ## Update or remove
 
 For a prebuilt installation, refresh the catalog and installed plugin:
