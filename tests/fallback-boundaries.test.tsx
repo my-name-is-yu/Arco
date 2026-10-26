@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ArcoHost, IssueDetail } from "../src/shared/contracts";
+import type {
+  ArcoHost,
+  Connection,
+  IssueDetail,
+} from "../src/shared/contracts";
 import type { LinearIssue } from "../src/shared/linear";
 import { useGitHubComments } from "../src/ui/github-comments";
 import { useLinearComments } from "../src/ui/linear-comments";
+import { GitHubAuthScopeContext } from "../src/ui/github-auth";
 import {
   pageContinuationError,
   requirePageContinuation,
@@ -43,6 +48,14 @@ describe("pagination response boundaries", () => {
     (source) => {
       const host = { call: vi.fn() } as unknown as ArcoHost;
       const client = new QueryClient();
+      const authScope = "fixture-github-session";
+      client.setQueryData(["connection"], {
+        mode: "fixture",
+        connected: true,
+        account: "fixture-user",
+        authGeneration: authScope,
+        message: "Fixture only",
+      } satisfies Connection);
       let error: Error | null = null;
       let hasNextPage = true;
       let isError = false;
@@ -109,7 +122,13 @@ describe("pagination response boundaries", () => {
       }
       renderToStaticMarkup(
         <QueryClientProvider client={client}>
-          {source === "github" ? <GitHubProbe /> : <LinearProbe />}
+          {source === "github" ? (
+            <GitHubAuthScopeContext.Provider value={authScope}>
+              <GitHubProbe />
+            </GitHubAuthScopeContext.Provider>
+          ) : (
+            <LinearProbe />
+          )}
         </QueryClientProvider>,
       );
       expect(isError).toBe(true);

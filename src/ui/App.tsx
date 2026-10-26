@@ -15,6 +15,7 @@ import {
 import { useSettings } from "./useSettings";
 import { InlineIssueTabs, presentationTarget } from "./InlineIssueTabs";
 import { seedPresentationCache } from "./presentation-cache";
+import { GitHubAuthBoundary } from "./github-auth";
 function Workspace({
   host,
   launch,
@@ -63,11 +64,16 @@ function Workspace({
       settings.update("source", () => ({ activeSource: next }));
   };
   return source === "github" ? (
-    <GitHubWorkspace
-      host={host}
-      launch={launch}
-      onSourceChange={changeSource}
-    />
+    <GitHubAuthBoundary host={host}>
+      {(scope) => (
+        <GitHubWorkspace
+          key={scope}
+          host={host}
+          launch={launch}
+          onSourceChange={changeSource}
+        />
+      )}
+    </GitHubAuthBoundary>
   ) : (
     <LinearWorkspace
       host={host}
@@ -85,21 +91,31 @@ function LaunchWorkspace({ host }: { host: ArcoHost }) {
   );
   const error = host.launchError();
   if (launch?.issues) {
-    const target = openedIssue ?? presentationTarget(launch.issues[0]);
+    const issueSet = launch.issues;
+    const target = openedIssue ?? presentationTarget(issueSet[0]);
     const workspaceLaunch = { ...launch, target };
     delete workspaceLaunch.issues;
     const workspace = <Workspace host={host} launch={workspaceLaunch} />;
-    return mode === "inline" ? (
+    const tabs = (githubAuthScope?: string) => (
       <InlineIssueTabs
         host={host}
-        issues={launch.issues}
+        issues={issueSet}
         activeTarget={target}
         onSelect={(issue) =>
-          selectPresentedIssue(host, presentationTarget(issue))
+          selectPresentedIssue(host, presentationTarget(issue), githubAuthScope)
         }
       >
         {workspace}
       </InlineIssueTabs>
+    );
+    return mode === "inline" ? (
+      issueSet.some((issue) => issue.source === "github") ? (
+        <GitHubAuthBoundary host={host}>
+          {(scope) => tabs(scope)}
+        </GitHubAuthBoundary>
+      ) : (
+        tabs()
+      )
     ) : (
       workspace
     );

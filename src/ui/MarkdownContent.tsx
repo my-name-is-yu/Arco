@@ -7,7 +7,8 @@ import {
   type ComponentProps,
 } from "react";
 import { Markdown } from "@openai/apps-sdk-ui/components/Markdown";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { GitHubAuthScopeContext } from "./github-auth";
 import rehypeSanitize from "rehype-sanitize";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { markdownTasks, type MarkdownTask } from "./markdown-tasks";
@@ -35,14 +36,21 @@ function SourceImage({
   onOpen: (url: string) => void;
 }) {
   const { ref, near } = useNearViewport<HTMLSpanElement>();
+  const authScope = useContext(GitHubAuthScopeContext);
+  const client = useQueryClient();
   const preview = useQuery({
     ...sourceImageQueryOptions(
       image?.host,
       image?.issue,
       url,
       image?.commentId,
+      authScope ?? undefined,
+      client,
     ),
-    enabled: Boolean(image) && near,
+    enabled:
+      Boolean(image) &&
+      near &&
+      (image?.issue.source !== "github" || authScope !== null),
   });
   return (
     <span className="source-image" ref={ref}>

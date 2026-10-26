@@ -1,3 +1,9 @@
+import {
+  useGitHubAuthScope,
+  useGitHubCall,
+  githubSessionKey,
+  isGitHubAuthScope,
+} from "./github-auth";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost, Comment, IssueRef } from "../shared/contracts";
 import { useCommandSession, useSessionState } from "./session-state";
@@ -9,10 +15,12 @@ export function useGitHubOperation(
   issue?: IssueRef,
 ) {
   const client = useQueryClient();
-  const commands = useCommandSession(host, "github");
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
+  const commands = useCommandSession(host, "github", authScope);
   const [error, setError] = useSessionState<string | null>(
     host,
-    `github:operation:${JSON.stringify(scope)}`,
+    githubSessionKey(authScope, `github:operation:${JSON.stringify(scope)}`),
     null,
   );
   const run = async <T>(
@@ -35,6 +43,7 @@ export function useGitHubOperation(
       args.repo,
       args.number,
       args.commentId,
+      authScope,
     ];
     const refresh = async () => {
       if (reaction) {
@@ -49,22 +58,21 @@ export function useGitHubOperation(
         ...(issue
           ? [
               client.invalidateQueries({
-                queryKey: ["issue", issue.repo, issue.number],
+                queryKey: ["issue", issue.repo, issue.number, authScope],
               }),
             ]
           : []),
       ]);
     };
     try {
-      const result = await host.call<T>(name, { ...args, requestId });
-      commands.requests.delete(key);
+      const result = await call<T>(name, { ...args, requestId });
       if (
         issue &&
         (name === "arco_edit_comment" || name === "arco_delete_comment")
       ) {
         const changed = (result as { changedComment?: Comment }).changedComment;
         client.setQueryData<Comment[]>(
-          ["github", "comment-posts", issue.repo, issue.number],
+          ["github", "comment-posts", issue.repo, issue.number, authScope],
           (old = []) => {
             if (!changed)
               return old.filter(
@@ -78,6 +86,7 @@ export function useGitHubOperation(
           },
         );
       }
+      if (!isGitHubAuthScope(client, authScope)) return true;
       after?.(result);
       await refresh();
       return true;
@@ -90,7 +99,7 @@ export function useGitHubOperation(
       await client.invalidateQueries({ queryKey: ["github"] });
       if (issue)
         await client.invalidateQueries({
-          queryKey: ["issue", issue.repo, issue.number],
+          queryKey: ["issue", issue.repo, issue.number, authScope],
         });
       return false;
     } finally {

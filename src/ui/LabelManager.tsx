@@ -8,8 +8,11 @@ import type {
 } from "../shared/github-operations";
 import { useGitHubOperation } from "./useGitHubOperation";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 
 export function LabelManager({ host, repo }: { host: ArcoHost; repo: string }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LabelDefinition | null>(null);
   const [form, setForm] = useState({
@@ -20,9 +23,9 @@ export function LabelManager({ host, repo }: { host: ArcoHost; repo: string }) {
   const [deleting, setDeleting] = useState<LabelDefinition | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const labels = useQuery({
-    queryKey: ["github", "label-definitions", repo],
+    queryKey: ["github", "label-definitions", repo, authScope],
     queryFn: () =>
-      host.call<{ repo: string; labels: LabelDefinition[] }>(
+      call<{ repo: string; labels: LabelDefinition[] }>(
         "arco_label_definitions",
         { repo },
       ),

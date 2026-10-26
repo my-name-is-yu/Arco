@@ -4,6 +4,7 @@ import type { ArcoHost } from "../shared/contracts";
 import type { ProjectChoices } from "../shared/github-operations";
 import { SingleSelect } from "./SingleSelect";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 import { requirePageContinuation } from "./page-continuation";
 
 export function ProjectScopePicker({
@@ -17,14 +18,16 @@ export function ProjectScopePicker({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const [open, setOpen] = useState(false);
   const [ownerDraft, setOwnerDraft] = useState(repo.split("/")[0]);
   const [owner, setOwner] = useState(ownerDraft);
   const [ownerType, setOwnerType] = useState<"user" | "organization">("user");
   const query = useInfiniteQuery({
-    queryKey: ["github", "scope-projects", repo, owner, ownerType],
+    queryKey: ["github", "scope-projects", repo, owner, ownerType, authScope],
     queryFn: async ({ pageParam }) => {
-      const page = await host.call<ProjectChoices>("arco_projects", {
+      const page = await call<ProjectChoices>("arco_projects", {
         repo,
         owner,
         ownerType,

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ArcoHost } from "../src/shared/contracts";
+import type { ArcoHost, Connection } from "../src/shared/contracts";
 import type {
   LinearComment,
   LinearIssue,
@@ -10,6 +10,7 @@ import type {
 import { LinearDetail } from "../src/ui/LinearDetail";
 import { LinearInlineProperties } from "../src/ui/InlineIssueProperties";
 import { MultiSelect } from "../src/ui/MultiSelect";
+import { GitHubAuthScopeContext } from "../src/ui/github-auth";
 
 type Option = {
   value: string;
@@ -113,23 +114,36 @@ const metadata: LinearMetadata = {
 };
 const host = { call: vi.fn() } as unknown as ArcoHost;
 function renderDetail(catalog?: LinearMetadata) {
-  return renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
-      <LinearDetail
-        feedback={null}
-        shared={null}
-        onBack={() => {}}
-        onFullscreen={() => {}}
-        host={host}
-        issue={issue}
-        metadata={catalog}
-        metadataError={null}
-        busy={false}
-        run={async () => undefined}
-        onNotice={() => {}}
-      />
+  const client = new QueryClient();
+  const authScope = "fixture-github-session";
+  client.setQueryData(["connection"], {
+    mode: "fixture",
+    connected: true,
+    account: "fixture-user",
+    authGeneration: authScope,
+    message: "Fixture only",
+  } satisfies Connection);
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={client}>
+      <GitHubAuthScopeContext.Provider value={authScope}>
+        <LinearDetail
+          feedback={null}
+          shared={null}
+          onBack={() => {}}
+          onFullscreen={() => {}}
+          host={host}
+          issue={issue}
+          metadata={catalog}
+          metadataError={null}
+          busy={false}
+          run={async () => undefined}
+          onNotice={() => {}}
+        />
+      </GitHubAuthScopeContext.Provider>
     </QueryClientProvider>,
   );
+  client.clear();
+  return html;
 }
 function optionsFor(value: string) {
   return state.controls

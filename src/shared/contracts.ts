@@ -192,6 +192,7 @@ export interface Connection {
   mode: "fixture" | "github";
   connected: boolean;
   account: string | null;
+  authGeneration: string;
   message: string;
 }
 export interface RepoMetadata {
@@ -199,6 +200,7 @@ export interface RepoMetadata {
   assignees: string[];
 }
 export interface GitHubService {
+  authGeneration?(): Promise<string>;
   connection(): Promise<Connection>;
   list(input: ListInput): Promise<IssuePage>;
   accountIssues(input: AccountIssuesInput): Promise<AccountIssuePage>;
@@ -249,6 +251,7 @@ export type ConversationIssue = IssueDetail | LinearIssue;
 export interface PresentationIssues {
   issues: ConversationIssue[];
   receivedAt: number;
+  githubAuthGeneration?: string;
 }
 export type SharedIssueRef =
   ({ source: "github" } & IssueRef) | ({ source: "linear" } & LinearRef);
@@ -265,6 +268,7 @@ export interface ArcoHost {
     options?: { signal?: AbortSignal; priority?: "background" | "interactive" },
   ): Promise<{
     launch: LaunchContext & { issues: IssuePresentationSummary[] };
+    presentation?: PresentationIssues;
   }>;
   call<T>(
     name: string,

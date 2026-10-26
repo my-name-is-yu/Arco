@@ -222,7 +222,10 @@ describe("host launch context", () => {
     const data = await host.call("arco_show_issues", {
       targets: presentationTargets(response),
     });
-    expect(data).toEqual(refreshed.structuredContent);
+    expect(data).toEqual({
+      ...refreshed.structuredContent,
+      presentation: host.presentationIssues?.(),
+    });
     expect(host.presentationIssues?.()?.issues[0].body).toBe(
       "An externally updated description",
     );

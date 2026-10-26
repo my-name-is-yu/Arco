@@ -14,6 +14,7 @@ import type { LinearIssue } from "../src/shared/linear";
 import { seedPresentationCache } from "../src/ui/presentation-cache";
 
 const receivedAt = 1_000;
+const authScope = "fixture-github-session";
 const sources = ["github", "linear"] as const;
 let client: QueryClient;
 let issues: ConversationIssue[];
@@ -28,7 +29,7 @@ function issueFor(source: (typeof sources)[number]) {
 
 function expectedKey(issue: ConversationIssue) {
   return issue.source === "github"
-    ? ["issue", issue.repo, issue.number]
+    ? ["issue", issue.repo, issue.number, authScope]
     : [
         "linear-issue",
         {
@@ -66,7 +67,12 @@ describe("presentation detail cache", () => {
   it("seeds all four mixed-provider details under their normal query keys", () => {
     seedPresentationCache(
       client,
-      hostWithSnapshot(() => ({ issues, receivedAt })),
+      hostWithSnapshot(() => ({
+        issues,
+        receivedAt,
+        githubAuthGeneration: authScope,
+      })),
+      authScope,
     );
 
     expect(client.getQueryCache().getAll()).toHaveLength(4);
@@ -99,7 +105,12 @@ describe("presentation detail cache", () => {
 
       seedPresentationCache(
         client,
-        hostWithSnapshot(() => ({ issues: [issue], receivedAt })),
+        hostWithSnapshot(() => ({
+          issues: [issue],
+          receivedAt,
+          githubAuthGeneration: authScope,
+        })),
+        authScope,
       );
 
       expect(client.getQueryData(expectedKey(issue))).toEqual(newerRead);
@@ -124,7 +135,12 @@ describe("presentation detail cache", () => {
 
       seedPresentationCache(
         client,
-        hostWithSnapshot(() => ({ issues: [issue], receivedAt })),
+        hostWithSnapshot(() => ({
+          issues: [issue],
+          receivedAt,
+          githubAuthGeneration: authScope,
+        })),
+        authScope,
       );
 
       expect(client.getQueryData(expectedKey(issue))).toEqual(newerRevision);
@@ -135,11 +151,15 @@ describe("presentation detail cache", () => {
   );
 
   it("does not make an invalidated issue fresh when the same snapshot is seeded again", async () => {
-    const host = hostWithSnapshot(() => ({ issues, receivedAt }));
-    seedPresentationCache(client, host);
+    const host = hostWithSnapshot(() => ({
+      issues,
+      receivedAt,
+      githubAuthGeneration: authScope,
+    }));
+    seedPresentationCache(client, host, authScope);
     await client.invalidateQueries({ refetchType: "none" });
 
-    seedPresentationCache(client, host);
+    seedPresentationCache(client, host, authScope);
 
     for (const issue of issues)
       expect(client.getQueryState(expectedKey(issue))).toMatchObject({
@@ -149,12 +169,17 @@ describe("presentation detail cache", () => {
   });
 
   it("applies a later snapshot and makes its updated issue details fresh", async () => {
-    let snapshot: PresentationIssues = { issues, receivedAt };
+    let snapshot: PresentationIssues = {
+      issues,
+      receivedAt,
+      githubAuthGeneration: authScope,
+    };
     const host = hostWithSnapshot(() => snapshot);
-    seedPresentationCache(client, host);
+    seedPresentationCache(client, host, authScope);
     await client.invalidateQueries({ refetchType: "none" });
     snapshot = {
       receivedAt: receivedAt + 100,
+      githubAuthGeneration: authScope,
       issues: issues.map((issue) => ({
         ...issue,
         body: `${issue.body}\n\nNew source content`,
@@ -162,7 +187,7 @@ describe("presentation detail cache", () => {
       })),
     };
 
-    seedPresentationCache(client, host);
+    seedPresentationCache(client, host, authScope);
 
     for (const issue of snapshot.issues) {
       expect(client.getQueryData(expectedKey(issue))).toEqual(issue);
@@ -171,5 +196,72 @@ describe("presentation detail cache", () => {
         isInvalidated: false,
       });
     }
+  });
+
+  it.each([undefined, "another-github-session"])(
+    "skips GitHub snapshots tagged %s while preserving Linear data",
+    (githubAuthGeneration) => {
+      seedPresentationCache(
+        client,
+        hostWithSnapshot(() => ({ issues, receivedAt, githubAuthGeneration })),
+        authScope,
+      );
+      expect(client.getQueryCache().getAll()).toHaveLength(2);
+      for (const issue of issues)
+        if (issue.source === "github") {
+          expect(client.getQueryData(expectedKey(issue))).toBeUndefined();
+          expect(
+            client.getQueryData(["issue", issue.repo, issue.number]),
+          ).toBeUndefined();
+        } else expect(client.getQueryData(expectedKey(issue))).toEqual(issue);
+    },
+  );
+
+  it("does not seed GitHub without a verified scope or reseed account A data under account B", () => {
+    const snapshot = { issues, receivedAt, githubAuthGeneration: authScope };
+    const host = hostWithSnapshot(() => snapshot);
+    seedPresentationCache(client, host);
+    seedPresentationCache(client, host, "account-b-session");
+    expect(client.getQueryCache().getAll()).toHaveLength(2);
+    for (const issue of issues)
+      if (issue.source === "github") {
+        expect(client.getQueryData(expectedKey(issue))).toBeUndefined();
+        expect(
+          client.getQueryData([
+            "issue",
+            issue.repo,
+            issue.number,
+            "account-b-session",
+          ]),
+        ).toBeUndefined();
+      }
+    expect(host.presentationIssues?.()).toBe(snapshot);
+  });
+
+  it("uses an explicitly supplied current-generation snapshot without importing the host's old GitHub snapshot", () => {
+    const issue = issueFor("github");
+    const old = {
+      issues: [issue],
+      receivedAt,
+      githubAuthGeneration: "account-a-session",
+    };
+    const current = {
+      issues: [{ ...issue, body: "Current account content" }],
+      receivedAt: receivedAt + 1,
+      githubAuthGeneration: authScope,
+    };
+    seedPresentationCache(
+      client,
+      hostWithSnapshot(() => old),
+      authScope,
+      current,
+    );
+    expect(client.getQueryData(expectedKey(issue))).toEqual(current.issues[0]);
+    expect(
+      client
+        .getQueryCache()
+        .getAll()
+        .map((query) => query.queryKey),
+    ).toEqual([expectedKey(issue)]);
   });
 });

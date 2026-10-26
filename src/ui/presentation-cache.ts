@@ -1,15 +1,29 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { ArcoHost, ConversationIssue } from "../shared/contracts";
+import type {
+  ArcoHost,
+  ConversationIssue,
+  PresentationIssues,
+} from "../shared/contracts";
 import { githubIssueKey } from "./github-queries";
 import { linearRef } from "./linear-queries";
 
-export function seedPresentationCache(client: QueryClient, host: ArcoHost) {
-  const snapshot = host.presentationIssues?.();
+export function seedPresentationCache(
+  client: QueryClient,
+  host: ArcoHost,
+  githubAuthScope?: string,
+  presentation?: PresentationIssues,
+) {
+  const snapshot = presentation ?? host.presentationIssues?.();
   if (!snapshot) return;
   for (const issue of snapshot.issues) {
+    if (
+      issue.source === "github" &&
+      (!githubAuthScope || snapshot.githubAuthGeneration !== githubAuthScope)
+    )
+      continue;
     const key =
       issue.source === "github"
-        ? githubIssueKey(issue)
+        ? githubIssueKey(issue, githubAuthScope!)
         : ["linear-issue", linearRef(issue)];
     const current = client.getQueryState<ConversationIssue>(key);
     if (

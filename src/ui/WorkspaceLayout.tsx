@@ -1,6 +1,12 @@
-import type { ReactNode, Ref, UIEventHandler } from "react";
+import {
+  useContext,
+  type ReactNode,
+  type Ref,
+  type UIEventHandler,
+} from "react";
 import { Plus } from "@openai/apps-sdk-ui/components/Icon";
 import { SingleSelect } from "./SingleSelect";
+import { GitHubAuthScopeContext } from "./github-auth";
 export function WorkspaceLayout({
   source,
   detailOpen,
@@ -12,10 +18,14 @@ export function WorkspaceLayout({
   viewer?: "project" | "personal";
   children: ReactNode;
 }) {
+  const githubAuthScope = useContext(GitHubAuthScopeContext);
   return (
     <main
       className={`arco workspace${source === "linear" ? " linear-workspace" : ""}${detailOpen ? " show-detail" : ""}`}
       data-viewer={viewer}
+      data-arco-github-auth-generation={
+        source === "github" ? (githubAuthScope ?? undefined) : undefined
+      }
     >
       {children}
     </main>

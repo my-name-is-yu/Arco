@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ArcoHost,
-  Connection,
   IssueDetail,
   IssueRef,
   RepoMetadata,
@@ -19,6 +18,7 @@ import {
 } from "./IssuePropertyVisual";
 import { BulkActionPanel } from "./BulkActionPanel";
 import { useCommandSession, useSessionState } from "./session-state";
+import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 import {
   bulkIssueId,
   checkBulkChange,
@@ -45,18 +45,20 @@ const id = bulkIssueId;
 
 export function BulkActions({
   host,
+  identity,
   issues,
   onClear,
   onBusy,
 }: {
   host: ArcoHost;
+  identity: string;
   issues: BulkIssue[];
   onClear: () => void;
   onBusy: (busy: boolean) => void;
 }) {
   const client = useQueryClient();
-  const connection = client.getQueryData<Connection>(["connection"]);
-  const identity = `${connection?.mode ?? "pending"}:${connection?.account ?? "disconnected"}`;
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const [unconfirmed, setUnconfirmed] = useSessionState<
     UnconfirmedBulkAttempt[]
   >(host, `github:bulk:unconfirmed:${identity}`, []);
@@ -91,7 +93,11 @@ export function BulkActions({
       ),
   );
   const [error, setError] = useSessionState(host, `${sessionKey}:error`, "");
-  const { busy, setBusy, lock } = useCommandSession(host, "github");
+  const { busy, setBusy, lock, requests } = useCommandSession(
+    host,
+    "github",
+    authScope,
+  );
   useEffect(() => {
     if (
       !busy &&
@@ -110,14 +116,14 @@ export function BulkActions({
   const repo = repos.length === 1 ? repos[0] : undefined;
   const first = issues[0];
   const metadata = useQuery({
-    queryKey: ["metadata", repo],
-    queryFn: () => host.call<RepoMetadata>("arco_repo_metadata", { repo }),
+    queryKey: ["metadata", repo, authScope],
+    queryFn: () => call<RepoMetadata>("arco_repo_metadata", { repo }),
     enabled: Boolean(repo),
   });
   const catalog = useQuery({
-    queryKey: ["github", "catalog", repo, first?.number],
+    queryKey: ["github", "catalog", repo, first?.number, authScope],
     queryFn: () =>
-      host.call<IssueCatalog>("arco_issue_catalog", {
+      call<IssueCatalog>("arco_issue_catalog", {
         repo,
         number: first?.number,
       }),
@@ -181,11 +187,16 @@ export function BulkActions({
     ]);
   };
   const applyAttempt = async (attempt: BulkAttempt) => {
+    const input: Record<string, unknown> = { ...attempt.args };
+    delete input.requestId;
+    const requestKey = JSON.stringify([attempt.name, input]);
     try {
-      const response = await host.call<BulkUpdateResult | IssueDetail>(
+      const pending = call<BulkUpdateResult | IssueDetail>(
         attempt.name,
         attempt.args,
       );
+      const dispatchedId = requests.get(requestKey);
+      const response = await pending;
       removeUnconfirmed(attempt);
       const next: Result[] = [];
       const needsCheck: IssueRef[] = [];
@@ -197,7 +208,7 @@ export function BulkActions({
           );
           if (result?.ok) {
             client.setQueryData(
-              ["issue", result.repo, result.number],
+              ["issue", result.repo, result.number, authScope],
               result.issue,
             );
             next.push({ ...target, ok: true });
@@ -216,9 +227,14 @@ export function BulkActions({
         }
       } else {
         const issue = response as IssueDetail;
-        client.setQueryData(["issue", issue.repo, issue.number], issue);
+        client.setQueryData(
+          ["issue", issue.repo, issue.number, authScope],
+          issue,
+        );
         next.push({ ...attempt.targets[0], ok: true });
       }
+      if (!needsCheck.length && requests.get(requestKey) === dispatchedId)
+        requests.delete(requestKey);
       if (needsCheck.length)
         rememberUnconfirmed({
           attempt,
@@ -279,7 +295,7 @@ export function BulkActions({
           remove: action === "label-remove" ? [value] : [],
         },
       };
-    const current = await host.call<IssueDetail>("arco_get_issue", {
+    const current = await call<IssueDetail>("arco_get_issue", {
       ...issue,
     });
     const patch =
@@ -381,11 +397,14 @@ export function BulkActions({
         const retained: IssueRef[] = [];
         for (const target of pending.targets) {
           try {
-            const issue = await host.call<IssueDetail>("arco_get_issue", {
+            const issue = await call<IssueDetail>("arco_get_issue", {
               ...target,
             });
-            client.setQueryData(["issue", issue.repo, issue.number], issue);
-            const applied = await checkBulkChange(host, pending.attempt, issue);
+            client.setQueryData(
+              ["issue", issue.repo, issue.number, authScope],
+              issue,
+            );
+            const applied = await checkBulkChange(call, pending.attempt, issue);
             if (matchesOperation(pending.attempt))
               mergeResults([
                 {

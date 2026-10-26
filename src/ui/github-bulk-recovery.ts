@@ -80,7 +80,7 @@ const sameValue = (actual: unknown, expected: unknown) =>
 
 // Read the source without repeating a mutation whose result is unconfirmed.
 export async function checkBulkChange(
-  host: ArcoHost,
+  call: ArcoHost["call"],
   attempt: BulkAttempt,
   issue: IssueDetail,
 ) {
@@ -104,7 +104,7 @@ export async function checkBulkChange(
   const { patch, issueField, projectField } = attempt.args;
   const ref = { repo: issue.repo, number: issue.number };
   if (patch) {
-    const catalog = await host.call<IssueCatalog>("arco_issue_catalog", ref);
+    const catalog = await call<IssueCatalog>("arco_issue_catalog", ref);
     return (
       (patch.milestoneNumber === undefined ||
         catalog.milestoneNumber === patch.milestoneNumber) &&
@@ -113,7 +113,7 @@ export async function checkBulkChange(
     );
   }
   if (issueField) {
-    const response = await host.call<IssueFieldList>("arco_issue_fields", ref);
+    const response = await call<IssueFieldList>("arco_issue_fields", ref);
     if (response.error) throw new Error(response.error);
     const field = response.fields.find(
       (field) => field.id === issueField.fieldId,
@@ -121,7 +121,7 @@ export async function checkBulkChange(
     return Boolean(field && sameValue(field.value, issueField.value));
   }
   if (projectField) {
-    const memberships = await host.call<IssueProjectMemberships>(
+    const memberships = await call<IssueProjectMemberships>(
       "arco_issue_projects",
       ref,
     );
@@ -131,7 +131,7 @@ export async function checkBulkChange(
     if (!member && memberships.errors.length)
       throw new Error(memberships.errors.join(" "));
     if (!member) return false;
-    const response = await host.call<ProjectFieldList>("arco_project_fields", {
+    const response = await call<ProjectFieldList>("arco_project_fields", {
       ...ref,
       projectId: projectField.projectId,
       itemId: member.itemId,

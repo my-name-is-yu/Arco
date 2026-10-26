@@ -278,6 +278,11 @@ export function createArcoServer(backend: ArcoBackend) {
           );
         const issues: IssuePresentationSummary[] = [];
         const issueDetails: ConversationIssue[] = [];
+        const githubAuthGeneration = [...unique.values()].some(
+          (target) => target.source === "github",
+        )
+          ? await backend.service.authGeneration?.()
+          : undefined;
         for (const target of unique.values()) {
           const { issue } = await readPresentationIssue(target);
           // Model-facing fields stay compact; fetched details are app-only.
@@ -294,9 +299,17 @@ export function createArcoServer(backend: ArcoBackend) {
           issues.push(summary.data);
           issueDetails.push(issue);
         }
+        if (
+          githubAuthGeneration !== undefined &&
+          githubAuthGeneration !== (await backend.service.authGeneration?.())
+        )
+          throw new OperationError(
+            "GitHub authentication changed while loading these issues. Refresh to try again.",
+            "auth",
+          );
         return {
           ...dataResult({ launch: { ...personalLaunchContext, issues } }),
-          _meta: { issueDetails },
+          _meta: { issueDetails, githubAuthGeneration },
         };
       } catch (error) {
         return failureResult(error);

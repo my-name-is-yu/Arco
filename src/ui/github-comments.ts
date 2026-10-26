@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 import {
   useInfiniteQuery,
   useQuery,
@@ -17,12 +18,12 @@ import {
   pageContinuationError,
   requirePageContinuation,
 } from "./page-continuation";
-const issueKey = (issue: IssueRef) =>
-  ["issue", issue.repo, issue.number] as const;
-export const commentsKey = (issue: IssueRef) =>
-  ["github", "comments", issue.repo, issue.number] as const;
-export const commentPostsKey = (issue: IssueRef) =>
-  ["github", "comment-posts", issue.repo, issue.number] as const;
+const issueKey = (issue: IssueRef, scope: string) =>
+  ["issue", issue.repo, issue.number, scope] as const;
+export const commentsKey = (issue: IssueRef, scope: string) =>
+  ["github", "comments", issue.repo, issue.number, scope] as const;
+export const commentPostsKey = (issue: IssueRef, scope: string) =>
+  ["github", "comment-posts", issue.repo, issue.number, scope] as const;
 const firstCommentPage = (issue: IssueDetail): CommentPage => ({
   comments: issue.comments,
   hasMore: issue.commentsHasMore,
@@ -50,6 +51,8 @@ export function mergeCommentPages(
 
 export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
   const client = useQueryClient();
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const firstPage = firstCommentPage(issue);
   const firstPageError = pageContinuationError(
     firstPage.hasMore,
@@ -57,12 +60,14 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
     "GitHub comments",
   );
   const comments = useInfiniteQuery({
-    queryKey: commentsKey(issue),
+    queryKey: commentsKey(issue, authScope),
     initialPageParam: 1,
     initialData: { pages: [firstPage], pageParams: [1] },
     structuralSharing: (previous, incoming) => {
       const pages = incoming as InfiniteData<CommentPage, number>;
-      const current = client.getQueryData<IssueDetail>(issueKey(issue));
+      const current = client.getQueryData<IssueDetail>(
+        issueKey(issue, authScope),
+      );
       if (!current) return replaceEqualDeep(previous, pages);
       // A continuation can finish after a newer detail refresh. Its captured
       // first page must never replace the current issue's first page.
@@ -81,11 +86,11 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
       // continuation pages need additional provider reads during refresh.
       if (pageParam === 1) {
         const page = firstCommentPage(
-          client.getQueryData<IssueDetail>(issueKey(issue)) ?? issue,
+          client.getQueryData<IssueDetail>(issueKey(issue, authScope)) ?? issue,
         );
         return requirePageContinuation(page, page.nextPage, "GitHub comments");
       }
-      const page = await host.call<CommentPage>(
+      const page = await call<CommentPage>(
         "arco_comments",
         {
           repo: issue.repo,
@@ -101,14 +106,14 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
     getNextPageParam: (page) => (page.hasMore ? page.nextPage : undefined),
   });
   const posted = useQuery<Comment[]>({
-    queryKey: commentPostsKey(issue),
+    queryKey: commentPostsKey(issue, authScope),
     queryFn: () => [],
     initialData: [],
     enabled: false,
   });
   useEffect(() => {
     client.setQueryData<InfiniteData<CommentPage, number>>(
-      commentsKey(issue),
+      commentsKey(issue, authScope),
       (previous) => ({
         pages: [
           firstCommentPage(issue),
@@ -117,7 +122,7 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
         pageParams: issue.commentsHasMore ? (previous?.pageParams ?? [1]) : [1],
       }),
     );
-  }, [client, issue]);
+  }, [client, issue, authScope]);
   useEffect(() => {
     const loaded = new Map(
       comments.data.pages.flatMap((page) =>
@@ -133,12 +138,14 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
             native.body === comment.body))
       );
     };
-    client.setQueryData<Comment[]>(commentPostsKey(issue), (previous) =>
-      previous?.some(confirmed)
-        ? previous.filter((comment) => !confirmed(comment))
-        : previous,
+    client.setQueryData<Comment[]>(
+      commentPostsKey(issue, authScope),
+      (previous) =>
+        previous?.some(confirmed)
+          ? previous.filter((comment) => !confirmed(comment))
+          : previous,
     );
-  }, [client, comments.data, issue]);
+  }, [client, comments.data, issue, authScope]);
   const visibleComments = mergeCommentPages(comments.data.pages, posted.data);
   return {
     comments: visibleComments,
