@@ -17,7 +17,7 @@ jobs:
     name: Publish verified macOS arm64 package
     runs-on: macos-15
     environment: npm
-    timeout-minutes: 5
+    timeout-minutes: 4
     steps:
       - name: Check out release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,7 +48,7 @@ jobs:
           console.log(`Releasing ${version} with npm ${npmVersion} on macOS arm64.`);
           NODE
 
-      - name: Require full Quality validation for this commit
+      - name: Require Quality validation for this commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -60,7 +60,7 @@ jobs:
           import { readFile } from "node:fs/promises";
           const { workflow_runs } = JSON.parse(await readFile(`${process.env.RUNNER_TEMP}/arco-quality-runs.json`, "utf8"));
           const validated = workflow_runs.some(run => run.head_sha === process.env.GITHUB_SHA && run.event === "workflow_dispatch" && run.conclusion === "success");
-          assert(validated, "Run the Quality workflow manually and confirm the full suite passes for this exact commit before publishing.");
+          assert(validated, "Run the Quality workflow manually and confirm its checks pass for this exact commit before publishing.");
           NODE
 
       - name: Install locked dependencies

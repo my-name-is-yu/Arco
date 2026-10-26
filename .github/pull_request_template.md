@@ -8,7 +8,7 @@ Briefly explain the problem and resulting behavior in your own words.
 
 ## Verification
 
-List the checks you ran and their results. For code changes, include `npm run check` and `npm run test:browser:smoke`, plus affected browser specs for behavior changes. Full browser validation is manual; use `npm run test:browser` locally or **Actions → Quality → Run workflow** when needed, and require a passing full run for the exact commit before publishing a release. Documentation-only changes do not start CI; include local `npm run check:docs` and any command checks. State any skipped or unverified behavior.
+List the checks you ran and their results. For code changes, include `npm run check` and `npm run test:browser:smoke`, plus affected browser specs for behavior changes. Quality runs, including manual runs, use the browser smoke suite. Run full browser validation locally with `npm run test:browser`, and require a passing full local run and a manual Quality run for the exact commit before publishing a release. Documentation-only changes do not start CI; include local `npm run check:docs` and any command checks. State any skipped or unverified behavior.
 
 For UI changes, include fictional or redacted screenshots. Distinguish fixture, native Codex, and live provider evidence.
 
