@@ -176,10 +176,25 @@ export function createGitHubService(
     });
   }
 
+  async function readLabels(repo: string) {
+    return parse(
+      z.array(z.array(apiLabelSchema)),
+      await api(
+        "read",
+        `repos/${repo}/labels?per_page=100`,
+        "GET",
+        undefined,
+        true,
+      ),
+    )
+      .flat()
+      .map(labelDto);
+  }
+
   async function metadata(rawRepo: string) {
     const repo = repoSchema.parse(rawRepo);
     const [labels, assignees] = await Promise.all([
-      api("read", `repos/${repo}/labels?per_page=100`, "GET", undefined, true),
+      readLabels(repo),
       api(
         "read",
         `repos/${repo}/assignees?per_page=100`,
@@ -189,9 +204,7 @@ export function createGitHubService(
       ),
     ]);
     return {
-      labels: parse(z.array(z.array(apiLabelSchema)), labels)
-        .flat()
-        .map(labelDto),
+      labels,
       assignees: parse(
         z.array(z.array(z.object({ login: z.string() }))),
         assignees,
@@ -216,6 +229,7 @@ export function createGitHubService(
       api,
       once,
       issueRecord,
+      readLabels,
       metadata,
       get,
       refreshAfterWrite,

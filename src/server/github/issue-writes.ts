@@ -8,6 +8,7 @@ import {
   type GitHubService,
   type IssueDetail,
   type IssueRef,
+  type Label,
   type ProjectInput,
   type ProjectStatus,
 } from "../../shared/contracts.js";
@@ -41,6 +42,7 @@ interface IssueWriteContext {
   api: GitHubTransport["request"];
   once: ReturnType<typeof createGitHubWriteGuard<IssueDetail>>;
   issueRecord(ref: IssueRef): Promise<z.output<typeof apiIssueSchema>>;
+  readLabels(repo: string): Promise<Label[]>;
   metadata: GitHubService["metadata"];
   get: GitHubService["get"];
   refreshAfterWrite(ref: IssueRef): Promise<IssueDetail>;
@@ -108,14 +110,14 @@ export function createIssueWrites(context: IssueWriteContext) {
             "invalid",
           );
         }
-        const [issue, choices] = await Promise.all([
+        const [issue, labels] = await Promise.all([
           context.issueRecord(input),
-          context.metadata(input.repo),
+          input.add.length ? context.readLabels(input.repo) : [],
         ]);
         if (
           input.add.some(
             (name) =>
-              !choices.labels.some(
+              !labels.some(
                 (label) => label.name.toLowerCase() === name.toLowerCase(),
               ),
           )
