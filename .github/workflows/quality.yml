@@ -31,7 +31,7 @@ jobs:
   quality:
     name: Quality checks
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 20 || 5 }}
+    timeout-minutes: 5
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,7 +55,7 @@ jobs:
         run: npm run check
 
       - name: Install Chromium and system dependencies
-        run: npx --no-install playwright install --with-deps chromium
+        run: npx --no-install playwright install --with-deps --only-shell chromium
 
       - name: Test critical browser interactions
         if: steps.scope.outputs.mode == 'smoke'

@@ -4,7 +4,7 @@ import {
   type FrameLocator,
   type Locator,
   type Page,
-} from "@playwright/test";
+} from "./browser-test";
 import { writeFile } from "node:fs/promises";
 import { choose, selectControl } from "./select-helpers";
 

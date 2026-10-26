@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { request } from "node:http";
 import { text } from "node:stream/consumers";
 import { setTimeout } from "node:timers/promises";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 
 async function postSplitBody(url: URL, body: Buffer, split: number) {
   const outgoing = request(url, {
@@ -74,4 +74,21 @@ test("the fixture host still rejects an oversized streamed request", async ({
   );
   expect(result.status).toBe(500);
   expect(JSON.parse(result.body)).toEqual({ error: "Request too large" });
+});
+
+test("closing a fixture session is idempotent and rejects further tool calls", async ({
+  request,
+}) => {
+  const created = await request.post("/session");
+  expect(created.ok()).toBe(true);
+  const { session } = (await created.json()) as { session: string };
+  const closed = await request.delete(`/session/${session}`);
+  expect(closed.ok()).toBe(true);
+  expect(await closed.json()).toEqual({ closed: true });
+  const tool = await request.post("/tool", {
+    data: { session, name: "arco_connection", arguments: {} },
+  });
+  expect(tool.status()).toBe(404);
+  expect((await request.delete(`/session/${session}`)).ok()).toBe(true);
+  expect((await request.delete("/session/not-a-session")).status()).toBe(400);
 });

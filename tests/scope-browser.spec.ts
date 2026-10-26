@@ -1,5 +1,5 @@
 import { toolFailure } from "./tool-failure";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 import { choose, selectControl } from "./select-helpers";
 import type { SettingsRecord } from "../src/shared/state";
 

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./browser-test";
 import type { IssueSummary } from "../src/shared/contracts";
 import { choose, selectControl } from "./select-helpers";
 

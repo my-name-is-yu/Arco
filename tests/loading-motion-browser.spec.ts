@@ -1,5 +1,5 @@
 import { toolFailure } from "./tool-failure";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./browser-test";
 import { choose } from "./select-helpers";
 
 const githubTitle = "Preserve issue selection and scroll position";

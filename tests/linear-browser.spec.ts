@@ -1,6 +1,6 @@
 import { toolFailure } from "./tool-failure";
 import { expectDraftWrite, observeDraftWrites } from "./draft-helpers";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./browser-test";
 import { choose, selectControl } from "./select-helpers";
 import { checkMarkdownSecurity } from "./markdown-security-helpers";
 import {

@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./browser-test";
 import type { Draft, DraftKey, DraftRecord } from "../src/shared/state";
 import { toolFailure } from "./tool-failure";
 

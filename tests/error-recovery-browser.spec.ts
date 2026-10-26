@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 import { toolFailure } from "./tool-failure";
 import { commandError } from "../src/server/github/transport";
 

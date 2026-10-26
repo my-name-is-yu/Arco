@@ -1,5 +1,5 @@
 import { toolFailure } from "./tool-failure";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 import { choose } from "./select-helpers";
 
 test("a GitHub leaf failure returns to its own panel after switching sources and retains its retry ID", async ({

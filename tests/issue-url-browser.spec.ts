@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./browser-test";
 import { choose, selectControl } from "./select-helpers";
 
 const frame = (page: Page) => page.frameLocator("#arco");

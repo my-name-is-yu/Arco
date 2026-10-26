@@ -1,5 +1,5 @@
 import { toolFailure } from "./tool-failure";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 
 for (const invalidSuccess of [false, true])
   test(

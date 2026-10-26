@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 import type { RepositoryPage } from "../src/shared/contracts";
 import type { SettingsRecord } from "../src/shared/state";
 import { choose, selectControl } from "./select-helpers";

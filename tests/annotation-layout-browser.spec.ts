@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 import { choose } from "./select-helpers";
 
 test("an unsaved annotation comment survives a temporarily hidden range without using guessed coordinates", async ({

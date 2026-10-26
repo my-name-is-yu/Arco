@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "./browser-test";
 import type { Settings, SettingsRecord } from "../src/shared/state";
 import type { NativeIssueTarget } from "../src/shared/launch";
 import { choose, selectControl } from "./select-helpers";

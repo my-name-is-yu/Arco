@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 import type { ConversationIssue } from "../src/shared/contracts";
 import type { IssuePresentationSummary } from "../src/shared/launch";
 

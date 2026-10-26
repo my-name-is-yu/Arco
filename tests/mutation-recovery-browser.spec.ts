@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 import { choose, selectControl } from "./select-helpers";
 import { toolFailure } from "./tool-failure";
 

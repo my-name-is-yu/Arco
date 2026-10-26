@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./browser-test";
 import type { LinearIssue } from "../src/shared/linear";
 import { choose, selectControl } from "./select-helpers";
 

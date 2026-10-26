@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./browser-test";
 import type { ProjectFieldList } from "../src/shared/github-operations";
 import { choose, selectControl } from "./select-helpers";
 

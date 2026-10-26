@@ -1,4 +1,4 @@
-import { expect, test, type FrameLocator } from "@playwright/test";
+import { expect, test, type FrameLocator } from "./browser-test";
 import { choose } from "./select-helpers";
 
 type SelectionProbe = {

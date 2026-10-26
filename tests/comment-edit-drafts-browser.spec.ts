@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./browser-test";
 import type { Comment, IssueDetail } from "../src/shared/contracts";
 import type { LinearComment, LinearIssue } from "../src/shared/linear";
 import type { Draft, DraftKey, DraftRecord } from "../src/shared/state";

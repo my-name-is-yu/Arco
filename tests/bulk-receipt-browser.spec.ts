@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./browser-test";
 import { choose } from "./select-helpers";
 import type { LinearBulkMemberResult } from "../src/shared/linear";
 
