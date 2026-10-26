@@ -181,10 +181,11 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   return result.data;
 }
 
-export function createGitHubWriteGuard<T>() {
+export function createGitHubWriteGuard<T>(readScope: () => Promise<string>) {
   const once = createWriteGuard<T>(
     256,
     (message, code) => new GitHubError(message, code),
+    readScope,
   );
   return (requestId: string, payload: unknown, write: () => Promise<T>) =>
     once(requestId, payload, async () => {

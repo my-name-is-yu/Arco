@@ -15,8 +15,9 @@ export function createBulkOperations(
   fields: ReturnType<typeof createFieldsOperations>,
   projects: ReturnType<typeof createProjectsOperations>,
 ) {
-  const onceMember =
-    createGitHubWriteGuard<BulkUpdateResult["results"][number]>();
+  const onceMember = createGitHubWriteGuard<
+    BulkUpdateResult["results"][number]
+  >(context.authSession.read);
   function bulkUpdate(input: Input<"arco_bulk_update">) {
     return context.once(input.requestId, ["bulkUpdate", input], async () => {
       const repo = input.issues[0].repo.toLowerCase();

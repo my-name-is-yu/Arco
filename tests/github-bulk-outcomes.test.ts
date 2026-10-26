@@ -14,7 +14,9 @@ const ref = { repo: FIXTURE_REPO, number: 42 };
 function trackedFixture(rejectNumber?: number) {
   const service = createFixtureService();
   const write = vi.fn(service.update);
-  const once = createGitHubWriteGuard<IssueDetail>();
+  const once = createGitHubWriteGuard<IssueDetail>(
+    async () => "test-credential",
+  );
   service.update = vi.fn((input) =>
     once(input.requestId, input, async () => {
       if (input.number === rejectNumber)
@@ -28,7 +30,10 @@ function trackedFixture(rejectNumber?: number) {
 describe("production GitHub bulk mutation outcomes", () => {
   it("keeps a later member's preflight rejection retryable after an earlier member writes", async () => {
     const { service, write } = trackedFixture(43);
-    const operations = createGitHubOperations({ service });
+    const operations = createGitHubOperations({
+      credentialIdentity: async () => "test-credential",
+      service,
+    });
     const result = await operations.bulkUpdate({
       requestId: "bulk-independent-member-progress",
       issues: [ref, { ...ref, number: 43 }],
@@ -57,7 +62,11 @@ describe("production GitHub bulk mutation outcomes", () => {
       const run = vi.fn<GhRunner>(async () => {
         throw new GitHubError("Could not read the issue attributes", code);
       });
-      const operations = createGitHubOperations({ service, run });
+      const operations = createGitHubOperations({
+        credentialIdentity: async () => "test-credential",
+        service,
+        run,
+      });
       const input = {
         requestId: `bulk-partially-applied-${code}`,
         issues: [ref],

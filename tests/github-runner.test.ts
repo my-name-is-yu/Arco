@@ -43,7 +43,9 @@ describe("GitHub CLI mutation outcomes", () => {
       );
       launch.mockClear();
       const transport = createGitHubTransport({ policy: "extended" });
-      const once = createGitHubWriteGuard<unknown>();
+      const once = createGitHubWriteGuard<unknown>(
+        async () => "test-credential",
+      );
       const write = () => transport.mutate("mutation Save { save }", {});
       for (let attempt = 0; attempt < 2; attempt++)
         await expect(once("partial-result", {}, write)).rejects.toMatchObject({
@@ -69,7 +71,7 @@ describe("GitHub CLI mutation outcomes", () => {
       );
     launch.mockClear();
     const transport = createGitHubTransport({ policy: "extended" });
-    const once = createGitHubWriteGuard<unknown>();
+    const once = createGitHubWriteGuard<unknown>(async () => "test-credential");
     const write = () => transport.mutate("mutation Save { save }", {});
     await expect(once("rate-rejected", {}, write)).rejects.toMatchObject({
       code: "rate-limited",

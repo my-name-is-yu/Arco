@@ -163,7 +163,7 @@ export function createFixtureService(): FixtureGitHubService {
   const createdTimes = new Map(
     issues.map((issue) => [issue.number, Date.parse(issue.updatedAt)]),
   );
-  const once = createGitHubWriteGuard<IssueDetail>();
+  const once = createGitHubWriteGuard<IssueDetail>(async () => "fixture");
   let commentSequence = 1;
   function find(raw: IssueRef): IssueDetail {
     const ref = issueRefSchema.parse(raw);
