@@ -34,6 +34,11 @@ describe("mutation progress and retry safety", () => {
       code: "unavailable",
     });
     expect(action).toHaveBeenCalledOnce();
+    await expect(once("other", {}, async () => "other")).resolves.toBe("other");
+    await expect(once("parallel", {}, action)).rejects.toMatchObject({
+      code: "uncertain",
+    });
+    expect(action).toHaveBeenCalledOnce();
   });
 
   it("retries a recovered preflight with the same ID while preserving its payload binding", async () => {
@@ -103,7 +108,7 @@ describe("mutation progress and retry safety", () => {
   });
 
   it("propagates nested mutations to the outer guard without leaking between operations", async () => {
-    const outer = createWriteGuard();
+    const outer = createWriteGuard(1);
     const inner = createWriteGuard();
     const action = vi.fn(async () => {
       await inner("child", {}, () => trackWrite(async () => "saved"));
@@ -114,6 +119,108 @@ describe("mutation progress and retry safety", () => {
         code: "forbidden",
       });
     expect(action).toHaveBeenCalledOnce();
+    await outer("later", {}, async () => "later");
+    await expect(outer("parent", {}, action)).rejects.toMatchObject({
+      code: "uncertain",
+    });
+    expect(action).toHaveBeenCalledOnce();
     expect(getWriteProgress()).toEqual({ confirmed: false, uncertain: false });
   });
+
+  it("keeps completed request IDs bound after more than the default result retention limit", async () => {
+    const once = createWriteGuard<string>();
+    const action = vi.fn(() => trackWrite(async () => "original result"));
+    const payload = { body: "One fictional comment" };
+    await expect(once("original", payload, action)).resolves.toBe(
+      "original result",
+    );
+    await expect(once("original", payload, action)).resolves.toBe(
+      "original result",
+    );
+    for (let index = 0; index < 512; index++)
+      await once(`later-${index}`, { index }, () =>
+        trackWrite(async () => "later"),
+      );
+    await expect(once("original", payload, action)).rejects.toMatchObject({
+      code: "uncertain",
+      message: expect.stringMatching(/refresh.*without repeating/i),
+    });
+    await expect(
+      once("original", { body: "A different comment" }, action),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it.each(["unknown", "saved-refresh"] as const)(
+    "does not replay an evicted %s result",
+    async (outcome) => {
+      const once = createWriteGuard(1);
+      const action = vi.fn(async () => {
+        await trackWrite(async () => {
+          if (outcome === "unknown")
+            throw new OperationError("Response lost", "timeout");
+          return "saved";
+        });
+        throw new OperationError("The following read failed", "unavailable");
+      });
+      const code = outcome === "unknown" ? "timeout" : "unavailable";
+      await expect(once("first", {}, action)).rejects.toMatchObject({ code });
+      await expect(once("first", {}, action)).rejects.toMatchObject({ code });
+      await once("later", {}, async () => "later");
+      await expect(once("first", {}, action)).rejects.toMatchObject({
+        code: "uncertain",
+      });
+      await expect(
+        once("first", { changed: true }, action),
+      ).rejects.toMatchObject({ code: "conflict" });
+      expect(action).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["preflight", "provider-rejection"] as const)(
+    "recovers an evicted definite %s failure with the same payload only",
+    async (failure) => {
+      const once = createWriteGuard<string>(1);
+      const mutation = vi.fn<() => Promise<string>>();
+      const action = vi.fn<() => Promise<string>>();
+      if (failure === "preflight") {
+        mutation.mockResolvedValue("saved");
+        action.mockRejectedValueOnce(new OperationError("Reconnect", "auth"));
+      } else {
+        mutation
+          .mockRejectedValueOnce(
+            new OperationError("Permission denied", "forbidden"),
+          )
+          .mockResolvedValue("saved");
+      }
+      action.mockImplementation(() =>
+        trackWrite(
+          mutation,
+          (error) =>
+            error instanceof OperationError && error.code === "forbidden",
+        ),
+      );
+      await expect(
+        once("recover", { title: "same" }, action),
+      ).rejects.toMatchObject({
+        code: failure === "preflight" ? "auth" : "forbidden",
+      });
+      await once("later", {}, async () => "later");
+      await expect(
+        once("recover", { title: "different" }, action),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await expect(
+        Promise.all([
+          once("recover", { title: "same" }, action),
+          once("recover", { title: "same" }, action),
+        ]),
+      ).resolves.toEqual(["saved", "saved"]);
+      expect(action).toHaveBeenCalledTimes(2);
+      await once("last", {}, async () => "last");
+      await expect(
+        once("recover", { title: "same" }, action),
+      ).rejects.toMatchObject({ code: "uncertain" });
+      expect(action).toHaveBeenCalledTimes(2);
+    },
+  );
 });

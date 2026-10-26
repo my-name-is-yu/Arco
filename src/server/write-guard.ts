@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import { OperationError } from "../shared/errors";
 
 type WriteProgress = {
@@ -63,22 +64,36 @@ export function createWriteGuard<T = unknown>(
       progress: WriteProgress;
     }
   >();
+  // Retain small request bindings for this process after releasing full results.
+  const retired = new Map<string, { payload: string; retryable: boolean }>();
   return (
     requestId: string,
     payload: unknown,
     write: () => Promise<T>,
   ): Promise<T> => {
-    const key = JSON.stringify(payload);
+    const key = createHash("sha256")
+      .update(JSON.stringify(payload) ?? "")
+      .digest("hex");
     const previous = requests.get(requestId);
-    if (previous) {
-      if (previous.payload !== key)
+    const retained = previous ?? retired.get(requestId);
+    if (retained) {
+      if (retained.payload !== key)
         return Promise.reject(
           error(
             "This requestId was already used for a different change.",
             "conflict",
           ),
         );
-      if (!previous.retryable) return previous.promise;
+      if (!retained.retryable)
+        return (
+          previous?.promise ??
+          Promise.reject(
+            error(
+              "This request's result is no longer retained. Check the provider and refresh without repeating the change.",
+              "uncertain",
+            ),
+          )
+        );
     }
     if (!previous && requests.size >= limit) {
       const removable = [...requests].find(
@@ -88,6 +103,10 @@ export function createWriteGuard<T = unknown>(
         return Promise.reject(
           error("Changes are still being processed. Wait for them to finish."),
         );
+      retired.set(removable[0], {
+        payload: removable[1].payload,
+        retryable: removable[1].retryable,
+      });
       requests.delete(removable[0]);
     }
     const progress: WriteProgress = {
@@ -106,6 +125,7 @@ export function createWriteGuard<T = unknown>(
       progress,
     };
     requests.set(requestId, entry);
+    retired.delete(requestId);
     void entry.promise.then(
       () => {
         entry.settled = true;
