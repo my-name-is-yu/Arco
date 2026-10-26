@@ -861,6 +861,7 @@ test(
     const app = issueFrame(page);
     await selectText(app, ".issue-heading h1");
     await addSelectionToChat(app);
+    await expect(selectionComment(app)).toBeVisible();
     await selectText(app, ".issue-body p");
     await addSelectionToChat(app);
     await expect(
