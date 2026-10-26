@@ -195,6 +195,7 @@ export function createLinearOperation(options: {
   const request = options.fetch;
   const contexts = new Map<string, ReturnType<typeof loadContext>>();
   const metadataValues = new Map<string, Promise<LinearMetadata>>();
+  const commentAuthors = new Map<string, NonNullable<Comment["user"]>>();
   const scopeKey = (scope: LinearScope) =>
     JSON.stringify([scope.connectionId, scope.workspaceId, scope.teamId]);
   return {
@@ -277,10 +278,7 @@ export function createLinearOperation(options: {
     const { organization, team } = await context(scope);
     const wants = (field: keyof LinearMetadata) => fields.includes(field);
     const chain = [team];
-    while (
-      (wants("states") || wants("labels") || wants("estimateValues")) &&
-      chain.at(-1)?.parent
-    ) {
+    while (wants("states") || wants("labels") || wants("estimateValues")) {
       const parent = await chain.at(-1)!.parent;
       if (!parent || chain.some((item) => item.id === parent.id)) break;
       chain.push(parent);
@@ -414,12 +412,21 @@ export function createLinearOperation(options: {
   }
 
   async function commentData(item: Comment): Promise<LinearComment> {
-    const author = await item.user;
+    const authorId = item.userId;
+    let pending = authorId ? commentAuthors.get(authorId) : undefined;
+    if (!pending) {
+      pending = item.user;
+      if (authorId && pending) {
+        commentAuthors.set(authorId, pending);
+        void pending.catch(() => commentAuthors.delete(authorId));
+      }
+    }
+    const author = await pending;
     return {
       id: item.id,
       body: item.body,
       author: author?.name ?? "Deleted user",
-      authorId: item.userId ?? "",
+      authorId: authorId ?? "",
       parentId: item.parentId ?? null,
       updatedAt: item.updatedAt.toISOString(),
       url: item.url,
