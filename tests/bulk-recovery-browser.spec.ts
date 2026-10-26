@@ -377,3 +377,87 @@ test("partial read-only recovery never replays the old batch across already revi
   expect(writes[2].issues?.map((issue) => issue.number)).toEqual([43]);
   expect(writes[2].requestId).not.toBe(writes[0].requestId);
 });
+
+test("a late readback from retired authentication cannot release an unknown request ID", async ({
+  page,
+}) => {
+  let generation = "readback-account-a";
+  let holdRead = false;
+  let held = false;
+  let release = () => {};
+  const writes: ToolInput["arguments"][] = [];
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as ToolInput;
+    if (input.name === "arco_connection") {
+      const response = await route.fetch();
+      const result = await response.json();
+      result.structuredContent.authGeneration = generation;
+      return route.fulfill({ response, json: result });
+    }
+    if (input.name === "arco_change_labels") {
+      writes.push(input.arguments);
+      return route.fulfill({
+        json: toolFailure("The update result is unconfirmed."),
+      });
+    }
+    if (
+      input.name !== "arco_get_issue" ||
+      input.arguments.number !== 43 ||
+      !holdRead
+    )
+      return route.continue();
+    holdRead = false;
+    const response = await route.fetch();
+    held = true;
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return route.fulfill({ response });
+  });
+  try {
+    await page.goto("/?entry=project");
+    await select(page, [43]);
+    await choose(panel(page), "Bulk action", "label-add");
+    await choose(panel(page), "Bulk value", "bug");
+    await apply(page).click();
+    await expect(retry(page)).toBeEnabled();
+    holdRead = true;
+    await panel(page)
+      .getByRole("button", { name: "Check current state", exact: true })
+      .click();
+    await expect.poll(() => held).toBe(true);
+    generation = "readback-account-b";
+    await app(page)
+      .getByRole("button", { name: "Refresh", exact: true })
+      .click();
+    await expect(
+      app(page)
+        .locator('[data-arco-github-auth-generation="readback-account-b"]')
+        .first(),
+    ).toBeVisible();
+    const completed = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/tool") &&
+        response.request().postDataJSON()?.name === "arco_get_issue" &&
+        response.request().postDataJSON()?.arguments.number === 43,
+    );
+    release();
+    await completed;
+    await app(page)
+      .locator("body")
+      .evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+    await select(page, [43]);
+    await choose(panel(page), "Bulk action", "label-add");
+    await choose(panel(page), "Bulk value", "bug");
+    await apply(page).click();
+    await expect.poll(() => writes.length).toBe(2);
+    expect(writes[1].requestId).toBe(writes[0].requestId);
+  } finally {
+    release();
+  }
+});

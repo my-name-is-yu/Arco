@@ -18,7 +18,11 @@ import {
 } from "./IssuePropertyVisual";
 import { BulkActionPanel } from "./BulkActionPanel";
 import { useCommandSession, useSessionState } from "./session-state";
-import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
+import {
+  isGitHubAuthScope,
+  useGitHubAuthScope,
+  useGitHubCall,
+} from "./github-auth";
 import {
   bulkIssueId,
   checkBulkChange,
@@ -196,6 +200,7 @@ export function BulkActions({
         attempt.args,
       );
       const dispatchedId = requests.get(requestKey);
+      if (dispatchedId) attempt.args.requestId = dispatchedId;
       const response = await pending;
       removeUnconfirmed(attempt);
       const next: Result[] = [];
@@ -405,6 +410,10 @@ export function BulkActions({
               issue,
             );
             const applied = await checkBulkChange(call, pending.attempt, issue);
+            if (!isGitHubAuthScope(client, authScope)) {
+              retained.push(target);
+              continue;
+            }
             if (matchesOperation(pending.attempt))
               mergeResults([
                 {
@@ -424,6 +433,10 @@ export function BulkActions({
           }
         }
         if (!retained.length) {
+          const { requestId, ...input } = pending.attempt.args;
+          const requestKey = JSON.stringify([pending.attempt.name, input]);
+          if (requests.get(requestKey) === requestId)
+            requests.delete(requestKey);
           removeUnconfirmed(pending.attempt);
           continue;
         }
