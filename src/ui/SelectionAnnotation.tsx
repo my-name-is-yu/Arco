@@ -13,11 +13,11 @@ export interface AnnotationTarget {
   };
 }
 
-function clipRect(rect: DOMRect, element: Element | null) {
-  let left = Math.max(0, rect.left);
-  let right = Math.min(window.innerWidth, rect.right);
-  let top = Math.max(0, rect.top);
-  let bottom = Math.min(window.innerHeight, rect.bottom);
+function clipBounds(element: Element | null) {
+  let left = 0;
+  let right = window.innerWidth;
+  let top = 0;
+  let bottom = window.innerHeight;
   for (let parent = element; parent; parent = parent.parentElement) {
     const style = getComputedStyle(parent);
     const bounds = parent.getBoundingClientRect();
@@ -36,6 +36,14 @@ function clipRect(rect: DOMRect, element: Element | null) {
       );
     }
   }
+  return { left, right, top, bottom };
+}
+
+function clipRect(rect: DOMRect, bounds: ReturnType<typeof clipBounds>) {
+  const left = Math.max(bounds.left, rect.left);
+  const right = Math.min(bounds.right, rect.right);
+  const top = Math.max(bounds.top, rect.top);
+  const bottom = Math.min(bounds.bottom, rect.bottom);
   return new DOMRect(
     left,
     top,
@@ -50,7 +58,7 @@ function targetRect(target: AnnotationTarget) {
     return input.element.isConnected && input.element.value === input.value
       ? clipRect(
           input.element.getBoundingClientRect(),
-          input.element.parentElement,
+          clipBounds(input.element.parentElement),
         )
       : null;
   const range = target.range;
@@ -64,10 +72,14 @@ function targetRect(target: AnnotationTarget) {
     range.startContainer instanceof Element
       ? range.startContainer
       : range.startContainer.parentElement;
-  const visible = Array.from(range.getClientRects(), (rect) =>
-    clipRect(rect, element),
-  );
-  return visible.find((rect) => rect.width > 0 && rect.height > 0) ?? null;
+  const rectangles = range.getClientRects();
+  if (!rectangles.length) return null;
+  const bounds = clipBounds(element);
+  for (const rect of rectangles) {
+    const visible = clipRect(rect, bounds);
+    if (visible.width > 0 && visible.height > 0) return visible;
+  }
+  return null;
 }
 
 function fieldStyle(input: HTMLInputElement | HTMLTextAreaElement) {
