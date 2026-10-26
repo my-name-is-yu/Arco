@@ -1,5 +1,6 @@
 import { LinearServiceError } from "./errors";
 import { decodeLinearUpload } from "./upload";
+import { trackWrite } from "../write-guard";
 
 import {
   linearMutation,
@@ -31,13 +32,15 @@ export function createAttachmentsHandlers(operation: LinearOperation) {
         "Cache-Control": "public, max-age=31536000",
       });
       file.headers.forEach((header) => headers.set(header.key, header.value));
-      const uploaded = await operation.request(file.uploadUrl, {
-        method: "PUT",
-        headers,
-        body: bytes,
-        redirect: "error",
-        signal: AbortSignal.timeout(60_000),
-      });
+      const uploaded = await trackWrite(() =>
+        operation.request(file.uploadUrl, {
+          method: "PUT",
+          headers,
+          body: bytes,
+          redirect: "error",
+          signal: AbortSignal.timeout(60_000),
+        }),
+      );
       if (!uploaded.ok)
         throw new LinearServiceError(
           `The Linear attachment upload failed (${uploaded.status}).`,

@@ -1,5 +1,10 @@
 import { LinearServiceError } from "./errors";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,6 +21,7 @@ export const credentialSchema = z
     refreshToken: z.string().min(1),
     expiresAt: z.number().finite(),
     scopes: z.array(z.string()),
+    authorizationId: z.uuid().optional(),
   })
   .strict();
 export type LinearCredential = z.infer<typeof credentialSchema>;
@@ -205,12 +211,29 @@ export function createLinearAuth(
         }),
         current.clientId,
       );
-      await store.write(connectionId, updated);
+      await store.write(connectionId, {
+        ...updated,
+        ...(current.authorizationId
+          ? { authorizationId: current.authorizationId }
+          : {}),
+      });
       return updated.accessToken;
     });
   }
   return {
     accessToken,
+    async sessionScope(connectionId: string) {
+      return locked(connectionId, async () => {
+        const current = await store.read(connectionId);
+        if (!current)
+          throw new LinearServiceError("Connect to Linear.", "auth");
+        if (current.authorizationId) return current.authorizationId;
+        // Share a legacy grant's identity across processes under the connection lock.
+        const authorizationId = randomUUID();
+        await store.write(connectionId, { ...current, authorizationId });
+        return authorizationId;
+      });
+    },
     async refresh(connectionId: string) {
       await accessToken(connectionId, true);
     },
@@ -309,7 +332,10 @@ export function createLinearAuth(
                   "Linear authorization was cancelled.",
                   "auth",
                 );
-              await store.write(connectionId, credential);
+              await store.write(connectionId, {
+                ...credential,
+                authorizationId: randomUUID(),
+              });
             });
             status.state = "connected";
             res.end(
