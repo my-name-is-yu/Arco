@@ -188,6 +188,10 @@ export function GitHubWorkspace({
     "github:bulkIssues",
     [],
   );
+  const bulkIssueKeys = useMemo(
+    () => new Set(bulkIssues.map(refKey)),
+    [bulkIssues],
+  );
   const [bulkBusy, setBulkBusy] = useSessionState(
     host,
     "github:bulkBusy",
@@ -321,6 +325,14 @@ export function GitHubWorkspace({
     });
   };
   const setQuery = (query: string) => updateFilter({ query });
+  const repositoryInfo = useMemo(() => {
+    const byName = new Map<string, RepositoryPage["repositories"][number]>();
+    for (const page of repositoryDiscovery.data?.pages ?? [])
+      for (const repository of page.repositories)
+        if (!byName.has(repository.repo))
+          byName.set(repository.repo, repository);
+    return byName;
+  }, [repositoryDiscovery.data]);
   const repositories = [
     ...new Set(
       [
@@ -328,9 +340,7 @@ export function GitHubWorkspace({
         ...launch.candidates,
         ...(settings.query.data?.settings.githubRepos ?? []),
         ...registeredRepos,
-        ...(repositoryDiscovery.data?.pages.flatMap((page) =>
-          page.repositories.map((repository) => repository.repo),
-        ) ?? []),
+        ...repositoryInfo.keys(),
       ].filter((value): value is string => Boolean(value)),
     ),
   ];
@@ -947,9 +957,7 @@ export function GitHubWorkspace({
                         label: "Repositories",
                         options: [
                           ...repositories.map((value) => {
-                            const info = repositoryDiscovery.data?.pages
-                              .flatMap((page) => page.repositories)
-                              .find((repository) => repository.repo === value);
+                            const info = repositoryInfo.get(value);
                             return {
                               value,
                               label: `${value}${info?.archived ? " (archived)" : ""}${info?.issuesEnabled === false ? " (issues disabled)" : ""}`,
@@ -1282,9 +1290,7 @@ export function GitHubWorkspace({
               <input
                 type="checkbox"
                 aria-label={`Select ${issue.repo} #${issue.number} for bulk actions`}
-                checked={bulkIssues.some(
-                  (value) => refKey(value) === refKey(issue),
-                )}
+                checked={bulkIssueKeys.has(refKey(issue))}
                 disabled={bulkBusy}
                 onChange={(event) =>
                   setBulkIssues((previous) =>

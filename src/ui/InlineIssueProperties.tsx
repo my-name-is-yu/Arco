@@ -185,6 +185,7 @@ export function LinearInlineProperties({
       ].map((member) => [member.id, member]),
     ).values(),
   ].sort((left, right) => Number(right.id === self) - Number(left.id === self));
+  const availableLabelIds = new Set(metadata?.labels.map((label) => label.id));
   const labels = [
     ...new Map(
       [...issue.labels, ...(metadata?.labels ?? [])].map((label) => [
@@ -283,9 +284,7 @@ export function LinearInlineProperties({
             label: `${label.name}${label.teamId ? "" : " · workspace"}`,
             color: label.color,
             leading: <IssueLabelVisual color={label.color} />,
-            disabled: !metadata?.labels.some(
-              (available) => available.id === label.id,
-            ),
+            disabled: !availableLabelIds.has(label.id),
           }))}
           disabled={busy || !metadata}
           loading={!metadata && !metadataError}

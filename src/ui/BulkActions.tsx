@@ -128,6 +128,9 @@ export function BulkActions({
     action !== "" && action !== "close" && action !== "reopen";
   const catalogAction = action === "milestone" || action === "issue-type";
   const compatible = (!requiresValue || Boolean(repo)) && issues.length <= 100;
+  const labelsByName = new Map<string, RepoMetadata["labels"][number]>();
+  for (const label of metadata.data?.labels ?? [])
+    if (!labelsByName.has(label.name)) labelsByName.set(label.name, label);
   const values = action.startsWith("label")
     ? (metadata.data?.labels.map((label) => label.name) ?? [])
     : (metadata.data?.assignees ?? []);
@@ -569,8 +572,7 @@ export function BulkActions({
               },
               ...values.map((value) => {
                 const color = action.startsWith("label")
-                  ? metadata.data?.labels.find((label) => label.name === value)
-                      ?.color
+                  ? labelsByName.get(value)?.color
                   : undefined;
                 return {
                   value,
