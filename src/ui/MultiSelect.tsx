@@ -95,7 +95,12 @@ export function MultiSelect({
   placeholderLeading?: ReactNode;
   compact?: boolean;
 }) {
-  const available = new Set(options.map((option) => option.value));
+  const available = useMemo(() => {
+    const indexed = new Map<string, MultiSelectOption>();
+    for (const option of options)
+      if (!indexed.has(option.value)) indexed.set(option.value, option);
+    return indexed;
+  }, [options]);
   const retained = useRef<{
     label: string;
     options: Map<string, MultiSelectOption>;
@@ -105,14 +110,14 @@ export function MultiSelect({
       new Map(
         value.flatMap((selected) => {
           const option =
-            options.find((option) => option.value === selected) ??
+            available.get(selected) ??
             (retained.current.label === label
               ? retained.current.options.get(selected)
               : undefined);
           return option ? [[selected, option] as const] : [];
         }),
       ),
-    [label, options, value],
+    [available, label, value],
   );
   useEffect(() => {
     retained.current = { label, options: selected };

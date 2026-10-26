@@ -191,6 +191,9 @@ export function LinearDetail({
   onNotice: (message: string, kind?: "error" | "info") => void;
 }) {
   const discussion = useLinearComments(host, issue);
+  const commentsById = new Map<string, LinearComment>();
+  for (const comment of discussion.comments)
+    if (!commentsById.has(comment.id)) commentsById.set(comment.id, comment);
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState(false);
   const [commentEdit, setCommentEdit] = useState<{
@@ -229,16 +232,18 @@ export function LinearDetail({
   const draft = resolveContentDraft(issue, storedDraft);
   const dirty = draft.title !== issue.title || draft.body !== issue.body;
   const conflict = contentConflict(issue, draft);
+  const availableStateIds = new Set(metadata?.states.map((state) => state.id));
+  const availableMemberIds = new Set(
+    metadata?.members.map((member) => member.id),
+  );
+  const availableLabelIds = new Set(metadata?.labels.map((label) => label.id));
   const states = [
     ...(metadata?.states ?? []),
-    ...(!metadata?.states.some((state) => state.id === issue.state.id)
-      ? [issue.state]
-      : []),
+    ...(!availableStateIds.has(issue.state.id) ? [issue.state] : []),
   ];
   const members = [
     ...(metadata?.members ?? []),
-    ...(issue.assignee &&
-    !metadata?.members.some((member) => member.id === issue.assignee?.id)
+    ...(issue.assignee && !availableMemberIds.has(issue.assignee.id)
       ? [issue.assignee]
       : []),
   ];
@@ -254,9 +259,7 @@ export function LinearDetail({
       value: label.id,
       label: `${label.name}${label.teamId ? "" : " · workspace"}`,
       color: label.color,
-      disabled: !metadata?.labels.some(
-        (available) => available.id === label.id,
-      ),
+      disabled: !availableLabelIds.has(label.id),
     }));
   const replyTo = draft.linearReplyTo ?? null;
   const differentSharedTarget =
@@ -331,7 +334,7 @@ export function LinearDetail({
   }
   function commentView(comment: LinearComment): React.ReactNode {
     const parent = comment.parentId
-      ? discussion.comments.find((item) => item.id === comment.parentId)
+      ? commentsById.get(comment.parentId)
       : undefined;
     return (
       <article
@@ -796,9 +799,7 @@ export function LinearDetail({
                   label: state.name,
                   disabled:
                     state.type === "duplicate" ||
-                    !metadata?.states.some(
-                      (available) => available.id === state.id,
-                    ),
+                    !availableStateIds.has(state.id),
                   leading: (
                     <IssueStateVisual
                       source="linear"
@@ -831,9 +832,7 @@ export function LinearDetail({
                   ...members.map((member) => ({
                     value: member.id,
                     label: member.name,
-                    disabled: !metadata?.members.some(
-                      (available) => available.id === member.id,
-                    ),
+                    disabled: !availableMemberIds.has(member.id),
                     leading: <IssueAssigneeVisual name={member.name} />,
                   })),
                 ]}

@@ -173,6 +173,7 @@ export function LinearWorkspace({
   );
   const list = useRef<HTMLDivElement>(null);
   const [bulk, setBulk] = useSessionState<string[]>(host, "linear:bulk", []);
+  const bulkIssueIds = useMemo(() => new Set(bulk), [bulk]);
   const selectedStateTypes = useSessionRef(
     host,
     "linear:selectedStateTypes",
@@ -320,6 +321,12 @@ export function LinearWorkspace({
     () => issues.data?.pages.flatMap((page) => page.issues) ?? [],
     [issues.data],
   );
+  const rowStateTypes = useMemo(() => {
+    const byId = new Map<string, LinearIssue["state"]["type"]>();
+    for (const issue of rows)
+      if (!byId.has(issue.issueId)) byId.set(issue.issueId, issue.state.type);
+    return byId;
+  }, [rows]);
   const loadMoreIssues = useIssueListContinuation({
     listRef: list,
     scope: pageScope,
@@ -1233,8 +1240,8 @@ export function LinearWorkspace({
                         metadata={metadata.data}
                         hasDuplicate={bulk.some(
                           (id) =>
-                            (rows.find((issue) => issue.issueId === id)?.state
-                              .type ?? selectedStateTypes.current.get(id)) ===
+                            (rowStateTypes.get(id) ??
+                              selectedStateTypes.current.get(id)) ===
                             "duplicate",
                         )}
                         busy={commands.busy}
@@ -1250,7 +1257,7 @@ export function LinearWorkspace({
                       <input
                         type="checkbox"
                         aria-label={`${issue.identifier} — select for bulk actions`}
-                        checked={bulk.includes(issue.issueId)}
+                        checked={bulkIssueIds.has(issue.issueId)}
                         disabled={commands.busy}
                         onChange={(event) => {
                           selectedStateTypes.current.set(
