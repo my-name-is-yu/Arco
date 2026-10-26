@@ -268,9 +268,11 @@ for (const source of ["github", "linear"] as const) {
       .getByRole("button", { name: "Save this screen’s draft", exact: true })
       .click();
     await expect(form.container.getByRole("alert")).toHaveCount(0);
-    expect(state.record.draft).toEqual(
-      savedDraft(source, form.original, "Input made after the read failure"),
-    );
+    await expect
+      .poll(() => state.record.draft)
+      .toEqual(
+        savedDraft(source, form.original, "Input made after the read failure"),
+      );
     expect(state.providerWrites).toEqual([]);
   });
 

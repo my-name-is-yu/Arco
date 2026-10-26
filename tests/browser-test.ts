@@ -68,6 +68,12 @@ export const test = base.extend<{ fixtureSessions: void }>({
         context.off("response", onResponse);
         await Promise.all(pending);
         restore.forEach((restoreApi) => restoreApi());
+        // Stop page requests before closing the backend they use.
+        try {
+          await context.close();
+        } catch (error) {
+          failures.push(error);
+        }
         const closed = await Promise.allSettled(
           [...sessions].map(async (session) => {
             const response = await request.delete(
