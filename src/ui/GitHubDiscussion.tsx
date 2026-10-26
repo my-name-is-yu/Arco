@@ -15,6 +15,7 @@ import type { Draft, DraftKey } from "../shared/state";
 import { useGitHubOperation } from "./useGitHubOperation";
 import { useNearViewport } from "./useNearViewport";
 import { CopyValue } from "./CopyValue";
+import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 
 const reactionNames = {
   "+1": "👍",
@@ -36,6 +37,8 @@ export function ReactionBar({
   issue: IssueRef;
   commentId?: number;
 }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const [adding, setAdding] = useState(false);
   const { ref, near } = useNearViewport<HTMLDivElement>();
   const input = {
@@ -44,9 +47,16 @@ export function ReactionBar({
     ...(commentId ? { commentId } : {}),
   };
   const query = useQuery({
-    queryKey: ["github", "reactions", issue.repo, issue.number, commentId],
+    queryKey: [
+      "github",
+      "reactions",
+      issue.repo,
+      issue.number,
+      commentId,
+      authScope,
+    ],
     queryFn: ({ signal }) =>
-      host.call<ReactionList>("arco_reactions", input, {
+      call<ReactionList>("arco_reactions", input, {
         signal,
         priority: "background",
       }),

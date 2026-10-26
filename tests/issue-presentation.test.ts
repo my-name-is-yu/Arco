@@ -532,6 +532,7 @@ describe("grouped inline issue presentation", () => {
       linearRef,
     );
     expect(response._meta).toEqual({
+      githubAuthGeneration: "fixture-github-session",
       issueDetails: [
         await linearRead.mock.results[0].value,
         await githubRead.mock.results[0].value,
@@ -585,6 +586,22 @@ describe("grouped inline issue presentation", () => {
       expect(issue).not.toHaveProperty("body");
       expect(issue).not.toHaveProperty("comments");
     }
+  });
+
+  it("rejects a group if GitHub authentication changes while details are being fetched", async () => {
+    vi.spyOn(backend.service, "authGeneration")
+      .mockResolvedValueOnce("before-fetch")
+      .mockResolvedValueOnce("after-fetch");
+    const response = await client.callTool({
+      name: "arco_show_issues",
+      arguments: { targets: [github, linear] },
+    });
+    expect(response.isError).toBe(true);
+    expect(toolFailureSchema.parse(response.structuredContent).error.kind).toBe(
+      "auth",
+    );
+    expect(response._meta).toBeUndefined();
+    expect(response.structuredContent).not.toHaveProperty("launch");
   });
 
   it.each([

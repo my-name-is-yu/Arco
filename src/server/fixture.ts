@@ -212,11 +212,13 @@ export function createFixtureService(): FixtureGitHubService {
         return touch(issue);
       },
     },
+    authGeneration: async () => "fixture-github-session",
     async connection() {
       return {
         mode: "fixture",
         connected: true,
         account: "fixture-user",
+        authGeneration: "fixture-github-session",
         message:
           "Local fixture. Changes are stored in memory and are not sent to GitHub.",
       };

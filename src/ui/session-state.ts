@@ -6,6 +6,9 @@ import {
 import type { ArcoHost } from "../shared/contracts";
 import type { NativeIssueTarget } from "../shared/launch";
 
+export const githubSessionKey = (scope: string, key: string) =>
+  `${key}:${scope}`;
+
 type Cell<T> = {
   value: T;
   listeners: Set<() => void>;
@@ -71,16 +74,30 @@ function setSessionState<T>(host: ArcoHost, key: string, value: T) {
 export function selectPresentedIssue(
   host: ArcoHost,
   target: NativeIssueTarget,
+  githubAuthScope?: string,
 ) {
   setSessionState(host, "issue-set:opened", target);
   setSessionState(host, "active-source", target.source);
   if (target.source === "github") {
-    setSessionState(host, "github:repoOverride", target.repo);
-    setSessionState(host, "github:selected", {
-      repo: target.repo,
-      number: target.number,
-    });
-    setSessionState(host, "github:showDetail", true);
+    if (!githubAuthScope) return;
+    setSessionState(
+      host,
+      githubSessionKey(githubAuthScope, "github:repoOverride"),
+      target.repo,
+    );
+    setSessionState(
+      host,
+      githubSessionKey(githubAuthScope, "github:selected"),
+      {
+        repo: target.repo,
+        number: target.number,
+      },
+    );
+    setSessionState(
+      host,
+      githubSessionKey(githubAuthScope, "github:showDetail"),
+      true,
+    );
   } else {
     setSessionState(host, "linear:teamOverride", target.teamId);
     setSessionState(host, "linear:selected", {
@@ -92,17 +109,25 @@ export function selectPresentedIssue(
     setSessionState(host, "linear:showDetail", true);
   }
 }
-export function useCommandSession(host: ArcoHost, source: "github" | "linear") {
-  const [busy, setBusy] = useSessionState(
-    host,
-    `${source}:mutationBusy`,
-    false,
-  );
-  const lock = useSessionRef(host, `${source}:mutationLock`, false);
-  const requests = sessionValue(
+export function useCommandSession(
+  host: ArcoHost,
+  source: "github" | "linear",
+  scope?: string,
+) {
+  const owner = scope ? `${source}:${scope}` : source;
+  const [busy, setBusy] = useSessionState(host, `${owner}:mutationBusy`, false);
+  const lock = useSessionRef(host, `${owner}:mutationLock`, false);
+  const requests = getCommandRequests(host, source);
+  return { busy, setBusy, lock, requests };
+}
+export function getCommandRequests(
+  host: ArcoHost,
+  source: "github" | "linear",
+) {
+  // An unresolved write keeps its request ID across account changes.
+  return sessionValue(
     host,
     `${source}:requests`,
     () => new Map<string, string>(),
   );
-  return { busy, setBusy, lock, requests };
 }

@@ -78,7 +78,14 @@ function presentationIssues(
       "invalid-response",
       "The server returned different or invalid issue details. Refresh to try again.",
     );
-  return { issues: details as ConversationIssue[], receivedAt: Date.now() };
+  return {
+    issues: details as ConversationIssue[],
+    receivedAt: Date.now(),
+    ...(typeof metadata.githubAuthGeneration === "string" &&
+    metadata.githubAuthGeneration.length > 0
+      ? { githubAuthGeneration: metadata.githubAuthGeneration }
+      : {}),
+  };
 }
 
 function issueContext(issue: ConversationIssue) {
@@ -374,6 +381,10 @@ export async function connectHost(): Promise<ArcoHost> {
           );
         const details = presentationIssues(result._meta, launch);
         if (details) presentedIssues = details;
+        return {
+          ...result.structuredContent,
+          ...(details ? { presentation: details } : {}),
+        } as T;
       }
       return result.structuredContent as T;
     },

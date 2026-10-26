@@ -1,3 +1,9 @@
+import {
+  useGitHubAuthScope,
+  useGitHubCall,
+  githubSessionKey,
+  isGitHubAuthScope,
+} from "./github-auth";
 import { AsyncState } from "./AsyncState";
 import {
   WorkspaceLayout,
@@ -142,6 +148,8 @@ export function GitHubWorkspace({
   launch: LaunchContext;
   onSourceChange: (source: "github" | "linear") => void;
 }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const projectView = launch.view === "project";
   const { mode, sharedIssue } = useHostView();
   const target = launch.target?.source === "github" ? launch.target : null;
@@ -166,26 +174,26 @@ export function GitHubWorkspace({
   );
   const [repoOverride, setRepoOverride] = useSessionState<string | null>(
     host,
-    "github:repoOverride",
+    githubSessionKey(authScope, "github:repoOverride"),
     target?.repo ??
       (restoreSharedView ? (restoredGithub?.repo ?? launch.repo) : launch.repo),
   );
   const [accountViewOverride, setAccountViewOverride] = useSessionState<
     AccountIssuesInput["filter"] | null
-  >(host, "github:accountViewOverride", null);
+  >(host, githubSessionKey(authScope, "github:accountViewOverride"), null);
   const [registeredRepos, setRegisteredRepos] = useSessionState<string[]>(
     host,
-    "github:registeredRepos",
+    githubSessionKey(authScope, "github:registeredRepos"),
     [],
   );
   const previousSelection = useSessionRef(
     host,
-    "github:previousSelection",
+    githubSessionKey(authScope, "github:previousSelection"),
     new Map<string, number>(),
   );
   const [bulkIssues, setBulkIssues] = useSessionState<BulkIssue[]>(
     host,
-    "github:bulkIssues",
+    githubSessionKey(authScope, "github:bulkIssues"),
     [],
   );
   const bulkIssueKeys = useMemo(
@@ -194,25 +202,29 @@ export function GitHubWorkspace({
   );
   const [bulkBusy, setBulkBusy] = useSessionState(
     host,
-    "github:bulkBusy",
+    githubSessionKey(authScope, "github:bulkBusy"),
     false,
   );
   const [repoError, setRepoError] = useSessionState(
     host,
-    "github:repoError",
+    githubSessionKey(authScope, "github:repoError"),
     "",
   );
   const [searchEntry, setSearchEntry] = useSessionState<string | null>(
     host,
-    "github:searchEntry",
+    githubSessionKey(authScope, "github:searchEntry"),
     null,
   );
   const [searchError, setSearchError] = useSessionState(
     host,
-    "github:searchError",
+    githubSessionKey(authScope, "github:searchError"),
     "",
   );
-  const [urlBusy, setUrlBusy] = useSessionState(host, "github:urlBusy", false);
+  const [urlBusy, setUrlBusy] = useSessionState(
+    host,
+    githubSessionKey(authScope, "github:urlBusy"),
+    false,
+  );
   const urlRequest = useRef(0);
   useEffect(
     () => () => {
@@ -223,40 +235,44 @@ export function GitHubWorkspace({
   );
   const [localFilters, setLocalFilters] = useSessionState<
     Settings["githubFilters"]
-  >(host, "github:localFilters", {});
+  >(host, githubSessionKey(authScope, "github:localFilters"), {});
   const filtersRef = useSessionRef<Settings["githubFilters"]>(
     host,
-    "github:filtersRef",
+    githubSessionKey(authScope, "github:filtersRef"),
     {},
   );
   const [selected, setSelected] = useSessionState<IssueRef | null>(
     host,
-    "github:selected",
+    githubSessionKey(authScope, "github:selected"),
     target ?? restoredSelection,
   );
   const [showDetail, setShowDetail] = useSessionState(
     host,
-    "github:showDetail",
+    githubSessionKey(authScope, "github:showDetail"),
     Boolean(target),
   );
   const shared = sharedIssue?.source === "github" ? sharedIssue : null;
   const [createOpen, setCreateOpen] = useSessionState(
     host,
-    "github:createOpen",
+    githubSessionKey(authScope, "github:createOpen"),
     false,
   );
   const [notice, setNotice] = useSessionState<NoticeValue | null>(
     host,
-    "github:notice",
+    githubSessionKey(authScope, "github:notice"),
     null,
   );
   const [hostBusy, setHostBusy] = useSessionState(
     host,
-    "github:hostBusy",
+    githubSessionKey(authScope, "github:hostBusy"),
     false,
   );
-  const hostLock = useSessionRef(host, "github:hostLock", false);
-  const commands = useCommandSession(host, "github");
+  const hostLock = useSessionRef(
+    host,
+    githubSessionKey(authScope, "github:hostLock"),
+    false,
+  );
+  const commands = useCommandSession(host, "github", authScope);
   const searchRef = useRef<HTMLInputElement>(null);
   const scopeSelectRef = useRef<SingleSelectHandle>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -270,7 +286,7 @@ export function GitHubWorkspace({
       ? settings.query.data?.settings.projectGithubRepos[launch.projectKey]
       : "") ??
     "";
-  const connectionIdentity = `${connection.data?.mode ?? "pending"}:${connection.data?.account ?? "disconnected"}`;
+  const connectionIdentity = `${connection.data?.mode ?? "pending"}:${connection.data?.account ?? "disconnected"}:${authScope}`;
   const accountView =
     accountViewOverride ??
     settings.query.data?.settings.githubAccountFilter.filter ??
@@ -285,9 +301,10 @@ export function GitHubWorkspace({
       connection.data?.mode,
       connection.data?.account,
       connection.data?.connected,
+      authScope,
     ],
     queryFn: ({ pageParam }) =>
-      host.call<RepositoryPage>("arco_repositories", { page: pageParam }),
+      call<RepositoryPage>("arco_repositories", { page: pageParam }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.hasMore ? last.page + 1 : undefined),
     enabled: connection.data?.connected === true && !targetedInline,
@@ -418,14 +435,20 @@ export function GitHubWorkspace({
   const detail = useGitHubIssue(
     host,
     activeRef,
-    !targetedInline && Boolean(activeRef),
+    !targetedInline &&
+      Boolean(activeRef) &&
+      connection.data?.connected === true,
   );
   const sharedDetail = useGitHubIssue(
     host,
     shared,
-    !targetedInline && Boolean(shared),
+    !targetedInline && Boolean(shared) && connection.data?.connected === true,
   );
-  const targetDetail = useGitHubIssue(host, target, targetedInline);
+  const targetDetail = useGitHubIssue(
+    host,
+    target,
+    targetedInline && connection.data?.connected === true,
+  );
   const metadataRepo = targetedInline
     ? target!.repo
     : mode === "inline" && shared
@@ -476,8 +499,9 @@ export function GitHubWorkspace({
         name,
         args: { ...args, requestId: operationId },
       });
-      commands.requests.delete(operationKey);
-      after?.(result);
+      if (isGitHubAuthScope(queryClient, authScope)) {
+        after?.(result);
+      }
     } catch (error) {
       setNotice({ kind: "error", text: errorText(error) });
       await queryClient.invalidateQueries({ queryKey: ["issue"] });
@@ -488,6 +512,7 @@ export function GitHubWorkspace({
     }
   };
   const hostAction = async (action: () => Promise<void>) => {
+    if (!isGitHubAuthScope(queryClient, authScope)) return;
     if (hostLock.current) return;
     hostLock.current = true;
     setHostBusy(true);
@@ -546,7 +571,7 @@ export function GitHubWorkspace({
         throw new Error(
           "Wait for the current change before opening another issue.",
         );
-      const issue = await host.call<IssueDetail>("arco_get_issue", target);
+      const issue = await call<IssueDetail>("arco_get_issue", target);
       if (request !== urlRequest.current) return;
       if (
         issue.repo.toLowerCase() !== target.repo.toLowerCase() ||
@@ -556,7 +581,7 @@ export function GitHubWorkspace({
           "GitHub returned a different issue than the pasted URL.",
         );
       const resolved = { repo: issue.repo, number: issue.number };
-      queryClient.setQueryData(githubIssueKey(resolved), issue);
+      queryClient.setQueryData(githubIssueKey(resolved, authScope), issue);
       changeRepo(resolved.repo);
       setSelected(resolved);
       setShowDetail(true);
@@ -774,6 +799,7 @@ export function GitHubWorkspace({
     return (
       <main
         className="arco compact-mode inline-mode"
+        data-arco-github-auth-generation={authScope}
         data-arco-issue={
           retainedIssue ? selectionIssueData(retainedIssue) : undefined
         }
@@ -1225,6 +1251,7 @@ export function GitHubWorkspace({
           bulkActions={
             bulkIssues.length > 0 && (
               <BulkActions
+                identity={connectionIdentity}
                 host={host}
                 issues={bulkIssues}
                 onClear={() => setBulkIssues([])}

@@ -231,6 +231,7 @@ export function createGitHubService(
   });
 
   return {
+    authGeneration: authSession.read,
     ...createIssueWrites({
       api,
       once,
@@ -242,14 +243,21 @@ export function createGitHubService(
     }),
     async connection() {
       try {
+        const authGeneration = await authSession.read();
         const user = parse(
           z.object({ login: z.string() }),
           await api("read", "user"),
         );
+        if (authGeneration !== (await authSession.read()))
+          throw new GitHubError(
+            "GitHub authentication changed. Refresh to verify the current account.",
+            "auth",
+          );
         return {
           mode: "github",
           connected: true,
           account: user.login,
+          authGeneration,
           message: "Connected using your existing GitHub CLI authentication.",
         };
       } catch (error) {
@@ -257,6 +265,7 @@ export function createGitHubService(
           mode: "github",
           connected: false,
           account: null,
+          authGeneration: authSession.current(),
           message:
             error instanceof GitHubError
               ? error.message

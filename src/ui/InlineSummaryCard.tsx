@@ -3,7 +3,13 @@ import {
   ArrowUpRight,
   DotsHorizontalMoreMenu,
 } from "@openai/apps-sdk-ui/components/Icon";
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { selectionIssueData } from "./selection-context";
 import { Notice, type NoticeValue } from "./Notice";
@@ -11,6 +17,7 @@ import { IssueMarkdown } from "./MarkdownContent";
 import { CopyValue } from "./CopyValue";
 import { closeDetailUtility } from "./DetailToolbar";
 import { useSessionRef } from "./session-state";
+import { GitHubAuthScopeContext } from "./github-auth";
 export function InlineSummaryCard({
   issue,
   host,
@@ -32,6 +39,7 @@ export function InlineSummaryCard({
   notice?: NoticeValue | null;
   footer?: string;
 }) {
+  const githubAuthScope = useContext(GitHubAuthScopeContext);
   const identifier =
     issue.source === "github"
       ? `${issue.repo} #${issue.number}`
@@ -75,6 +83,9 @@ export function InlineSummaryCard({
     <main
       className="arco compact-mode inline-mode inline-issue-card"
       data-arco-issue={selectionIssueData(issue)}
+      data-arco-github-auth-generation={
+        issue.source === "github" ? (githubAuthScope ?? undefined) : undefined
+      }
       aria-busy={busy}
     >
       <div className="inline-card-top">

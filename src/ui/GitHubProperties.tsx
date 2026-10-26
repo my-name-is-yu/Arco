@@ -22,6 +22,7 @@ import { MultiSelect } from "./MultiSelect";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { requirePageContinuation } from "./page-continuation";
 import { useSessionState } from "./session-state";
+import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 
 type Memberships = {
   memberships: {
@@ -235,10 +236,12 @@ export function FieldEditor({
 }
 
 function Catalog({ host, issue }: { host: ArcoHost; issue: IssueDetail }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const query = useQuery({
-    queryKey: ["github", "catalog", issue.repo, issue.number],
+    queryKey: ["github", "catalog", issue.repo, issue.number, authScope],
     queryFn: () =>
-      host.call<IssueCatalog>("arco_issue_catalog", {
+      call<IssueCatalog>("arco_issue_catalog", {
         repo: issue.repo,
         number: issue.number,
       }),
@@ -340,12 +343,20 @@ function Catalog({ host, issue }: { host: ArcoHost; issue: IssueDetail }) {
 }
 
 function IssueFields({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const client = useQueryClient();
-  const queryKey = ["github", "issue-fields", issue.repo, issue.number];
+  const queryKey = [
+    "github",
+    "issue-fields",
+    issue.repo,
+    issue.number,
+    authScope,
+  ];
   const query = useQuery({
     queryKey,
     queryFn: () =>
-      host.call<IssueFieldList>("arco_issue_fields", {
+      call<IssueFieldList>("arco_issue_fields", {
         repo: issue.repo,
         number: issue.number,
       }),
@@ -426,6 +437,8 @@ function ProjectFields({
   projectId: string;
   itemId: string;
 }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const client = useQueryClient();
   const queryKey = [
     "github",
@@ -434,11 +447,12 @@ function ProjectFields({
     issue.number,
     projectId,
     itemId,
+    authScope,
   ];
   const query = useQuery({
     queryKey,
     queryFn: () =>
-      host.call<ProjectFieldList>("arco_project_fields", {
+      call<ProjectFieldList>("arco_project_fields", {
         repo: issue.repo,
         number: issue.number,
         projectId,
@@ -514,22 +528,24 @@ function ProjectFields({
 }
 
 function Projects({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const [ownerDraft, setOwnerDraft] = useState(issue.repo.split("/")[0]);
   const [owner, setOwner] = useState(ownerDraft);
   const [ownerType, setOwnerType] = useState<"user" | "organization">("user");
   const [projectId, setProjectId] = useState("");
   const memberships = useQuery({
-    queryKey: ["github", "memberships", issue.repo, issue.number],
+    queryKey: ["github", "memberships", issue.repo, issue.number, authScope],
     queryFn: () =>
-      host.call<Memberships>("arco_issue_projects", {
+      call<Memberships>("arco_issue_projects", {
         repo: issue.repo,
         number: issue.number,
       }),
   });
   const query = useInfiniteQuery({
-    queryKey: ["github", "projects", issue.repo, owner, ownerType],
+    queryKey: ["github", "projects", issue.repo, owner, ownerType, authScope],
     queryFn: async ({ pageParam }) => {
-      const page = await host.call<ProjectChoices>("arco_projects", {
+      const page = await call<ProjectChoices>("arco_projects", {
         repo: issue.repo,
         owner,
         ownerType,

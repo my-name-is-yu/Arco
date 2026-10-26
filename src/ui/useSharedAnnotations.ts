@@ -151,11 +151,16 @@ export function useSharedAnnotations(host: ArcoHost, onSync: () => void) {
       }),
     [host, sync, onSync],
   );
-  const share = async (next: Annotation[]) => {
+  const share = async (next: Annotation[], canShare?: () => boolean) => {
     lock.current = true;
     setBusy(true);
     setError("");
     try {
+      if (canShare && !canShare())
+        throw new ToolCallError(
+          "auth",
+          "GitHub authentication changed. Select the text again before sharing it.",
+        );
       const contexts = next.map((item) => item.context);
       const before = contextChanges.current;
       const id = next.length ? crypto.randomUUID() : undefined;
@@ -183,6 +188,11 @@ export function useSharedAnnotations(host: ArcoHost, onSync: () => void) {
         sync();
         return false;
       }
+      if (canShare && !canShare())
+        throw new ToolCallError(
+          "auth",
+          "GitHub authentication changed. Select the text again before sharing it.",
+        );
       await host.shareAnnotations(contexts, id);
       if (
         !sameAnnotations(host.sharedAnnotations() ?? [], contexts) ||

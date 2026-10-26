@@ -4,6 +4,7 @@ import { Button } from "@openai/apps-sdk-ui/components/Button";
 import type { ArcoHost } from "../shared/contracts";
 import type { IssueTemplates } from "../shared/github-operations";
 import { SingleSelect } from "./SingleSelect";
+import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 
 export interface TemplateDraft {
   title: string;
@@ -23,9 +24,11 @@ export function TemplatePicker({
   disabled: boolean;
   onApply: (draft: TemplateDraft) => void;
 }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const query = useQuery({
-    queryKey: ["github", "templates", repo],
-    queryFn: () => host.call<IssueTemplates>("arco_issue_templates", { repo }),
+    queryKey: ["github", "templates", repo, authScope],
+    queryFn: () => call<IssueTemplates>("arco_issue_templates", { repo }),
   });
   const [path, setPath] = useState("");
   const [error, setError] = useState("");

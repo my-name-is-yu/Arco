@@ -1,8 +1,14 @@
 import { useMemo } from "react";
-import { queryOptions, useQueries } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useQueries,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { MAX_PRESENTED_ISSUES } from "../shared/launch";
+import { isGitHubAuthScope } from "./github-auth";
 
 export function safeMarkdownUrl(value: string): string | undefined {
   try {
@@ -49,6 +55,8 @@ export function sourceImageQueryOptions(
   issue: ConversationIssue | undefined,
   url: string,
   commentId?: string | number,
+  githubAuthScope?: string,
+  client?: QueryClient,
 ) {
   const normalizedUrl = safeMarkdownUrl(url);
   const sourceRef =
@@ -64,16 +72,28 @@ export function sourceImageQueryOptions(
       ...sourceRef,
       commentId,
       normalizedUrl ?? url,
+      ...(issue?.source === "github" ? [githubAuthScope] : []),
     ],
     queryFn: ({ signal }) => {
       if (!host || !issue || !normalizedUrl)
         throw new Error("An issue and a valid image URL are required.");
+      if (
+        issue.source === "github" &&
+        (!githubAuthScope ||
+          (client && !isGitHubAuthScope(client, githubAuthScope)))
+      )
+        throw new Error("GitHub authentication changed. Refresh this image.");
       return host.readImage(issue, normalizedUrl, commentId, {
         signal,
         priority: "background",
       });
     },
-    enabled: Boolean(host && issue && normalizedUrl),
+    enabled: Boolean(
+      host &&
+      issue &&
+      normalizedUrl &&
+      (issue.source !== "github" || githubAuthScope),
+    ),
     retry: false,
     staleTime: 10 * 60_000,
     gcTime: 10 * 60_000,
@@ -83,20 +103,36 @@ export function sourceImageQueryOptions(
 export function presentationImageQueries(
   host: Pick<ArcoHost, "readImage">,
   issues: ConversationIssue[],
+  githubAuthScope?: string,
+  client?: QueryClient,
 ) {
   return issues.slice(0, MAX_PRESENTED_ISSUES).flatMap((issue) => {
+    if (issue.source === "github" && !githubAuthScope) return [];
     const url = firstMarkdownImage(issue.body);
-    return url ? [sourceImageQueryOptions(host, issue, url)] : [];
+    return url
+      ? [
+          sourceImageQueryOptions(
+            host,
+            issue,
+            url,
+            undefined,
+            githubAuthScope,
+            client,
+          ),
+        ]
+      : [];
   });
 }
 
 export function usePresentationImagePrefetch(
   host: ArcoHost,
   issues: ConversationIssue[],
+  githubAuthScope?: string,
 ) {
+  const client = useQueryClient();
   const queries = useMemo(
-    () => presentationImageQueries(host, issues),
-    [host, issues],
+    () => presentationImageQueries(host, issues, githubAuthScope, client),
+    [host, issues, githubAuthScope, client],
   );
   // Keep only these image reads observed while the group is open. SourceImage
   // shares their cache, and the last observer leaving cancels queued reads.

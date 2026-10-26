@@ -1,6 +1,10 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ArcoHost, IssueDetail } from "../src/shared/contracts";
+import type {
+  ArcoHost,
+  Connection,
+  IssueDetail,
+} from "../src/shared/contracts";
 import type { ImageData } from "../src/shared/images";
 import type { LinearIssue } from "../src/shared/linear";
 import { createFixtureService } from "../src/server/fixture";
@@ -16,6 +20,7 @@ import {
 import { createToolQueue } from "../src/ui/tool-queue";
 
 const url = "https://example.com/first.png";
+const authScope = "fixture-github-session";
 const image: ImageData = {
   mimeType: "image/png",
   data: "dGVzdA==",
@@ -28,6 +33,13 @@ function github(number = 42, body = `![First](${url})`): IssueDetail {
 const clients: QueryClient[] = [];
 function queryClient() {
   const client = new QueryClient();
+  client.setQueryData(["connection"], {
+    mode: "fixture",
+    connected: true,
+    account: "fixture-user",
+    authGeneration: authScope,
+    message: "Fixture only",
+  } satisfies Connection);
   clients.push(client);
   return client;
 }
@@ -86,9 +98,9 @@ describe("leading presentation images", () => {
         `![First](${url})\n\n![Later](https://example.com/later.png)`,
       ),
     );
-    const options = presentationImageQueries(host, issues);
-    expect(options).toHaveLength(4);
     const client = queryClient();
+    const options = presentationImageQueries(host, issues, authScope, client);
+    expect(options).toHaveLength(4);
     await Promise.all(options.map((option) => client.prefetchQuery(option)));
     expect(host.readImage).toHaveBeenCalledTimes(4);
     for (const call of vi.mocked(host.readImage).mock.calls) {
@@ -100,25 +112,38 @@ describe("leading presentation images", () => {
     noBodyImage.comments = [
       { ...fixtureIssue.comments[0], body: `![Comment](${url})` },
     ];
-    expect(presentationImageQueries(host, [noBodyImage])).toEqual([]);
+    expect(
+      presentationImageQueries(host, [noBodyImage], authScope, client),
+    ).toEqual([]);
   });
 
   it("uses the same cache keys for visible previews and native provider scopes", async () => {
     const host = imageHost();
     const issue = github();
-    expect(presentationImageQueries(host, [issue])[0].queryKey).toEqual(
-      sourceImageQueryOptions(host, issue, url).queryKey,
+    const client = queryClient();
+    expect(
+      presentationImageQueries(host, [issue], authScope, client)[0].queryKey,
+    ).toEqual(
+      sourceImageQueryOptions(host, issue, url, undefined, authScope, client)
+        .queryKey,
     );
-    expect(sourceImageQueryOptions(host, issue, url).queryKey).toEqual([
+    expect(
+      sourceImageQueryOptions(host, issue, url, undefined, authScope, client)
+        .queryKey,
+    ).toEqual([
       "source-image",
       "github",
       "yu/Arco",
       42,
       undefined,
       url,
+      authScope,
     ]);
-    expect(sourceImageQueryOptions(host, issue, url, 9).queryKey).not.toEqual(
-      sourceImageQueryOptions(host, issue, url).queryKey,
+    expect(
+      sourceImageQueryOptions(host, issue, url, 9, authScope, client).queryKey,
+    ).not.toEqual(
+      sourceImageQueryOptions(host, issue, url, undefined, authScope, client)
+        .queryKey,
     );
     const linear = (await createLinearFixtureService().call(
       "linear_get_issue",
@@ -138,13 +163,23 @@ describe("leading presentation images", () => {
       undefined,
       url,
     ]);
+    const unscopedBatch = presentationImageQueries(host, [
+      issue,
+      { ...linear, body: `![First](${url})` },
+    ]);
+    expect(unscopedBatch).toHaveLength(1);
+    expect(unscopedBatch[0].queryKey).toEqual(key);
+    expect(unscopedBatch[0].enabled).toBe(true);
     expect(
       sourceImageQueryOptions(host, { ...linear, workspaceId: "other" }, url)
         .queryKey,
     ).not.toEqual(key);
-    const client = queryClient();
-    await client.prefetchQuery(presentationImageQueries(host, [issue])[0]);
-    await client.fetchQuery(sourceImageQueryOptions(host, issue, url));
+    await client.prefetchQuery(
+      presentationImageQueries(host, [issue], authScope, client)[0],
+    );
+    await client.fetchQuery(
+      sourceImageQueryOptions(host, issue, url, undefined, authScope, client),
+    );
     expect(host.readImage).toHaveBeenCalledTimes(1);
   });
 
@@ -159,7 +194,12 @@ describe("leading presentation images", () => {
       ),
     );
     const client = queryClient();
-    const options = presentationImageQueries(host, [github()])[0];
+    const options = presentationImageQueries(
+      host,
+      [github()],
+      authScope,
+      client,
+    )[0];
     const group = new QueryObserver(client, options);
     const stopGroup = group.subscribe(() => {});
     const signal = vi.mocked(host.readImage).mock.calls[0][3]!.signal!;
@@ -169,7 +209,14 @@ describe("leading presentation images", () => {
     expect(signal.aborted).toBe(false);
     const visible = new QueryObserver(
       client,
-      sourceImageQueryOptions(host, github(), url),
+      sourceImageQueryOptions(
+        host,
+        github(),
+        url,
+        undefined,
+        authScope,
+        client,
+      ),
     );
     const stopVisible = visible.subscribe(() => {});
     stopGroup();
@@ -197,12 +244,12 @@ describe("leading presentation images", () => {
       ),
     );
     const client = queryClient();
-    const options = presentationImageQueries(host, [
-      github(1),
-      github(2),
-      github(3),
-      github(4),
-    ]);
+    const options = presentationImageQueries(
+      host,
+      [github(1), github(2), github(3), github(4)],
+      authScope,
+      client,
+    );
     const stop = options.map((option) =>
       new QueryObserver(client, option).subscribe(() => {}),
     );
@@ -228,11 +275,69 @@ describe("leading presentation images", () => {
       ),
     );
     const client = queryClient();
-    const options = presentationImageQueries(host, [github(1), github(2)]);
+    const options = presentationImageQueries(
+      host,
+      [github(1), github(2)],
+      authScope,
+      client,
+    );
     await expect(
       Promise.all(options.map((option) => client.prefetchQuery(option))),
     ).resolves.toEqual([undefined, undefined]);
     expect(client.getQueryState(options[0].queryKey)?.status).toBe("error");
     expect(client.getQueryData(options[1].queryKey)).toEqual(image);
+  });
+
+  it("separates GitHub image generations and refuses old-scope dispatch", async () => {
+    const client = queryClient();
+    const host = imageHost();
+    const nextImage = { ...image, data: "bmV4dA==" };
+    host.readImage
+      .mockResolvedValueOnce(image)
+      .mockResolvedValueOnce(nextImage);
+    const issue = github();
+    const old = sourceImageQueryOptions(
+      host,
+      issue,
+      url,
+      undefined,
+      authScope,
+      client,
+    );
+    const nextScope = "fixture-next-session";
+    const current = sourceImageQueryOptions(
+      host,
+      issue,
+      url,
+      undefined,
+      nextScope,
+      client,
+    );
+    expect(current.queryKey).not.toEqual(old.queryKey);
+    await client.fetchQuery(old);
+    client.setQueryData<Connection>(["connection"], (previous) => ({
+      ...previous!,
+      authGeneration: nextScope,
+    }));
+    await expect(client.fetchQuery({ ...old, staleTime: 0 })).rejects.toThrow(
+      "GitHub authentication changed",
+    );
+    expect(host.readImage).toHaveBeenCalledTimes(1);
+    await client.fetchQuery(current);
+    expect(host.readImage).toHaveBeenCalledTimes(2);
+    expect(client.getQueryData(current.queryKey)).toEqual(nextImage);
+  });
+
+  it("skips GitHub prefetch without an authentication scope and blocks a forced unscoped read", async () => {
+    const client = queryClient();
+    const host = imageHost();
+    const issue = github();
+    expect(presentationImageQueries(host, [issue])).toEqual([]);
+    const options = sourceImageQueryOptions(host, issue, url);
+    expect(options.enabled).toBe(false);
+    await expect(client.fetchQuery(options)).rejects.toThrow(
+      "GitHub authentication changed",
+    );
+    expect(host.readImage).not.toHaveBeenCalled();
   });
 });

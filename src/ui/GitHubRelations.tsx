@@ -16,6 +16,7 @@ import {
 } from "./useDraftPersistence";
 import type { Draft, DraftKey } from "../shared/state";
 import { DisclosureSummary } from "./DisclosureSummary";
+import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 
 type RelationKind = "parent" | "child" | "blocked-by";
 export function GitHubRelations({
@@ -27,6 +28,8 @@ export function GitHubRelations({
   issue: IssueRef;
   onOpenLink: (url: string) => void;
 }) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<RelationKind>("blocked-by");
   const [repo, setRepo] = useState(issue.repo);
@@ -68,9 +71,9 @@ export function GitHubRelations({
   };
   const [createChild, setCreateChild] = useState(false);
   const query = useQuery({
-    queryKey: ["github", "relations", issue.repo, issue.number],
+    queryKey: ["github", "relations", issue.repo, issue.number, authScope],
     queryFn: () =>
-      host.call<IssueRelations>("arco_issue_relations", {
+      call<IssueRelations>("arco_issue_relations", {
         repo: issue.repo,
         number: issue.number,
       }),

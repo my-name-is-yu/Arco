@@ -18,13 +18,18 @@ import type {
   RepoMetadata,
 } from "../shared/contracts";
 import {
+  useGitHubAuthScope,
+  useGitHubCall,
+  isGitHubAuthScope,
+} from "./github-auth";
+import {
   commentsKey,
   commentPostsKey,
   mergeCommentPages,
 } from "./github-comments";
 
-export const githubIssueKey = (issue: IssueRef) =>
-  ["issue", issue.repo, issue.number] as const;
+export const githubIssueKey = (issue: IssueRef, scope: string) =>
+  ["issue", issue.repo, issue.number, scope] as const;
 type PageParam = { page: number; cursor?: string };
 
 export function useGitHubIssueList(
@@ -44,6 +49,8 @@ export function useGitHubIssueList(
     enabled: boolean;
   },
 ) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   return useInfiniteQuery<
     IssuePage,
     Error,
@@ -62,6 +69,7 @@ export function useGitHubIssueList(
       state,
       sort,
       order,
+      authScope,
     ],
     // Bound automatic refresh to one page. Explicit refresh updates every page.
     refetchInterval: (query) =>
@@ -72,12 +80,12 @@ export function useGitHubIssueList(
       query.state.data?.pages.length === 1 && query.state.status !== "error",
     queryFn: async ({ pageParam, signal }) => {
       const result = await (repo
-        ? host.call<IssuePage>(
+        ? call<IssuePage>(
             "arco_list_issues",
             { repo, query, state, sort, order, ...pageParam },
             { signal, priority: "background" },
           )
-        : host.call<AccountIssuePage>(
+        : call<AccountIssuePage>(
             "arco_account_issues",
             { filter: accountView, state, sort, order, page: pageParam.page },
             { signal, priority: "background" },
@@ -106,12 +114,16 @@ export function useGitHubIssue(
   enabled: boolean,
 ) {
   const client = useQueryClient();
-  const key = issue ? githubIssueKey(issue) : ["issue", "none"];
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
+  const key = issue
+    ? githubIssueKey(issue, authScope)
+    : ["issue", "none", authScope];
   return useQuery({
     queryKey: key,
     refetchInterval: 30_000,
     queryFn: ({ signal }) =>
-      host.call<IssueDetail>(
+      call<IssueDetail>(
         "arco_get_issue",
         { repo: issue!.repo, number: issue!.number },
         {
@@ -128,10 +140,12 @@ export function useGitHubMetadata(
   repo: string | undefined,
   enabled: boolean,
 ) {
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   return useQuery({
-    queryKey: ["metadata", repo],
+    queryKey: ["metadata", repo, authScope],
     queryFn: ({ signal }) =>
-      host.call<RepoMetadata>(
+      call<RepoMetadata>(
         "arco_repo_metadata",
         { repo },
         { signal, priority: "background" },
@@ -142,6 +156,8 @@ export function useGitHubMetadata(
 
 export function useGitHubIssueMutation(host: ArcoHost) {
   const client = useQueryClient();
+  const authScope = useGitHubAuthScope();
+  const call = useGitHubCall(host);
   return useMutation({
     mutationFn: ({
       name,
@@ -149,20 +165,23 @@ export function useGitHubIssueMutation(host: ArcoHost) {
     }: {
       name: string;
       args: Record<string, unknown>;
-    }) => host.call<IssueDetail>(name, args),
+    }) => call<IssueDetail>(name, args),
     onSuccess: async (result) => {
       if (result.postedComment)
         client.setQueryData<Comment[]>(
-          commentPostsKey(result),
+          commentPostsKey(result, authScope),
           (previous = []) =>
             mergeCommentPages([], [...previous, result.postedComment!]),
         );
-      client.setQueryData(githubIssueKey(result), result);
+      client.setQueryData(githubIssueKey(result, authScope), result);
+      if (!isGitHubAuthScope(client, authScope)) return;
       await Promise.all([
         client.invalidateQueries({ queryKey: ["issues"] }),
         client.invalidateQueries({ queryKey: ["issue-set"] }),
-        client.invalidateQueries({ queryKey: githubIssueKey(result) }),
-        client.invalidateQueries({ queryKey: commentsKey(result) }),
+        client.invalidateQueries({
+          queryKey: githubIssueKey(result, authScope),
+        }),
+        client.invalidateQueries({ queryKey: commentsKey(result, authScope) }),
       ]);
     },
   });

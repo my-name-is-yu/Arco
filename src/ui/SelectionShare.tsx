@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost, SelectionAnnotationContext } from "../shared/contracts";
 import { captureSelectionAnchor } from "./selection-anchor";
 import { SelectionAnnotation } from "./SelectionAnnotation";
@@ -7,13 +8,18 @@ import {
   sameAnnotations,
   annotationTarget,
   readSelection,
+  elementFor,
   type Selected,
 } from "./selection-context";
 import { useSharedAnnotations } from "./useSharedAnnotations";
 import { useAnnotationLayout } from "./useAnnotationLayout";
+import { isGitHubAuthScope } from "./github-auth";
+
+type CapturedSelection = Selected & { githubAuthScope?: string };
 
 export function SelectionShare({ host }: { host: ArcoHost }) {
-  const [selected, setSelected] = useState<Selected | null>(null);
+  const client = useQueryClient();
+  const [selected, setSelected] = useState<CapturedSelection | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const onSync = useCallback(() => {
     setSelected(null);
@@ -36,13 +42,33 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
   const capture = useCallback(() => {
     if (lock.current) return;
     // Save visible text before later layout reads can change Selection.toString().
-    setSelected(readSelection(selected ?? undefined));
+    const next = readSelection(selected ?? undefined);
+    const element =
+      next?.editable ?? elementFor(next?.range?.startContainer ?? null);
+    setSelected(
+      next
+        ? {
+            ...next,
+            githubAuthScope:
+              next.issue?.source === "github"
+                ? element?.closest<HTMLElement>(
+                    "[data-arco-github-auth-generation]",
+                  )?.dataset.arcoGithubAuthGeneration
+                : undefined,
+          }
+        : null,
+    );
     setError("");
   }, [lock, selected, setError]);
   useEffect(() => {
     const selectionchange = () => {
       if (!lock.current)
-        setSelected((previous) => (previous ? readSelection(previous) : null));
+        setSelected((previous) => {
+          const next = previous ? readSelection(previous) : null;
+          return next
+            ? { ...next, githubAuthScope: previous?.githubAuthScope }
+            : null;
+        });
     };
     const keyup = (event: KeyboardEvent) => {
       if (
@@ -82,7 +108,12 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
       if (!lock.current) setSelected(null);
     };
     const reposition = () =>
-      setSelected((previous) => (previous ? readSelection(previous) : null));
+      setSelected((previous) => {
+        const next = previous ? readSelection(previous) : null;
+        return next
+          ? { ...next, githubAuthScope: previous?.githubAuthScope }
+          : null;
+      });
     document.addEventListener("selectionchange", selectionchange);
     document.addEventListener("mouseup", capture);
     document.addEventListener("select", capture);
@@ -137,6 +168,18 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
   };
   const add = async () => {
     if (lock.current || !selected) return;
+    const canShare = () =>
+      selected.issue?.source !== "github" ||
+      Boolean(
+        selected.githubAuthScope &&
+        isGitHubAuthScope(client, selected.githubAuthScope),
+      );
+    if (!canShare()) {
+      setError(
+        "GitHub authentication changed. Select the text again before sharing it.",
+      );
+      return;
+    }
     const latest = readSelection(selected);
     if (!latest) {
       setSelected(null);
@@ -149,7 +192,7 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     };
     const target = annotationTarget(latest);
     const anchor = captureSelectionAnchor(target);
-    if (await share([...current.current, { context, target }])) {
+    if (await share([...current.current, { context, target }], canShare)) {
       if (anchor) anchors.current.set(context.number, anchor);
       nextNumber.current += 1;
       setEditing(context.number);

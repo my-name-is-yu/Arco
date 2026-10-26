@@ -1,4 +1,4 @@
-import { useId, useRef, type ReactNode } from "react";
+import { useContext, useId, useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
 import type {
@@ -10,6 +10,8 @@ import { isTextSelectionClick, selectionIssueData } from "./selection-context";
 import { seedPresentationCache } from "./presentation-cache";
 import { usePresentationImagePrefetch } from "./presentation-images";
 import { githubStatePresentation } from "./github-state";
+import { GitHubAuthScopeContext, isGitHubAuthScope } from "./github-auth";
+import { ToolCallError } from "../shared/errors";
 import "./inline-issue-tabs.css";
 
 export function presentationTarget(
@@ -60,45 +62,115 @@ export function InlineIssueTabs({
 }) {
   const prefix = useId();
   const client = useQueryClient();
+  const authScope = useContext(GitHubAuthScopeContext);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const targets = issues.map(presentationTarget);
   const activeKey = presentationIdentity(activeTarget);
+  const hasGitHub = issues.some((issue) => issue.source === "github");
+  const snapshot = host.presentationIssues?.();
+  const matchingSnapshot =
+    authScope !== null &&
+    snapshot?.githubAuthGeneration === authScope &&
+    snapshot.issues.length === targets.length &&
+    snapshot.issues.every(
+      (issue, index) =>
+        presentationIdentity(issue) === presentationIdentity(targets[index]),
+    )
+      ? snapshot
+      : undefined;
+  const initialIssues = !hasGitHub
+    ? issues
+    : matchingSnapshot?.issues.map((issue): IssuePresentationSummary =>
+        issue.source === "github"
+          ? {
+              source: issue.source,
+              repo: issue.repo,
+              number: issue.number,
+              id: issue.id,
+              title: issue.title,
+              url: issue.url,
+              state: issue.state,
+              stateReason: issue.stateReason,
+            }
+          : {
+              source: issue.source,
+              connectionId: issue.connectionId,
+              workspaceId: issue.workspaceId,
+              teamId: issue.teamId,
+              issueId: issue.issueId,
+              identifier: issue.identifier,
+              title: issue.title,
+              url: issue.url,
+              state: issue.state,
+            },
+      );
   const query = useQuery({
-    queryKey: ["issue-set", targets],
-    initialData: issues,
-    initialDataUpdatedAt: host.presentationIssues?.()?.receivedAt,
+    queryKey: ["issue-set", targets, ...(hasGitHub ? [authScope] : [])],
+    initialData: initialIssues,
+    initialDataUpdatedAt: initialIssues ? snapshot?.receivedAt : undefined,
     queryFn: async ({ signal }) => {
+      if (hasGitHub && (!authScope || !isGitHubAuthScope(client, authScope)))
+        throw new ToolCallError(
+          "auth",
+          "GitHub authentication changed. Refresh these issues.",
+        );
       const response = await host.call(
         "arco_show_issues",
         { targets },
         { signal },
       );
-      seedPresentationCache(client, host);
+      if (
+        hasGitHub &&
+        response.presentation?.githubAuthGeneration !== authScope
+      ) {
+        void client.invalidateQueries({ queryKey: ["connection"] });
+        throw new ToolCallError(
+          "auth",
+          "GitHub authentication changed. Refresh these issues.",
+        );
+      }
+      seedPresentationCache(
+        client,
+        host,
+        authScope ?? undefined,
+        response.presentation,
+      );
       return response.launch.issues;
     },
   });
   usePresentationImagePrefetch(
     host,
-    query.dataUpdatedAt ? (host.presentationIssues?.()?.issues ?? []) : [],
+    query.dataUpdatedAt ? (snapshot?.issues ?? []) : [],
+    snapshot?.githubAuthGeneration === authScope
+      ? (authScope ?? undefined)
+      : undefined,
   );
-  const activeIndex = query.data.findIndex(
+  const currentIssues = query.data ?? [];
+  const activeIndex = currentIssues.findIndex(
     (issue) => presentationIdentity(issue) === activeKey,
   );
   const panelId = `${prefix}-panel`;
   return (
-    <section className="arco inline-issue-tabs" aria-label="Issues">
+    <section
+      className="arco inline-issue-tabs"
+      aria-label="Issues"
+      data-arco-github-auth-generation={
+        hasGitHub ? (authScope ?? undefined) : undefined
+      }
+    >
       <div
         className="inline-issue-tablist"
         role="tablist"
         aria-label="Issues"
         data-motion="selection"
         onKeyDown={(event) => {
-          const last = query.data.length - 1;
+          if (!currentIssues.length) return;
+          const last = currentIssues.length - 1;
           const index =
             event.key === "ArrowLeft"
-              ? (activeIndex + last) % query.data.length
+              ? (activeIndex + last) % currentIssues.length
               : event.key === "ArrowRight"
-                ? (activeIndex + 1) % query.data.length
+                ? (activeIndex + 1) % currentIssues.length
                 : event.key === "Home"
                   ? 0
                   : event.key === "End"
@@ -106,14 +178,14 @@ export function InlineIssueTabs({
                     : -1;
           if (index < 0) return;
           event.preventDefault();
-          const issue = query.data[index];
+          const issue = currentIssues[index];
           onSelect(issue);
           buttons.current
             .get(presentationIdentity(issue))
             ?.focus({ preventScroll: true });
         }}
       >
-        {query.data.map((issue, index) => {
+        {currentIssues.map((issue, index) => {
           const key = presentationIdentity(issue);
           const selected = key === activeKey;
           const label = `${issue.source === "github" ? `${issue.repo} #${issue.number}` : issue.identifier} ${issue.title}`;
@@ -177,7 +249,10 @@ export function InlineIssueTabs({
       <div
         role="tabpanel"
         id={panelId}
-        aria-labelledby={`${prefix}-tab-${activeIndex}`}
+        aria-labelledby={
+          activeIndex >= 0 ? `${prefix}-tab-${activeIndex}` : undefined
+        }
+        aria-label={activeIndex < 0 ? "Issue details" : undefined}
         tabIndex={0}
       >
         {children}
