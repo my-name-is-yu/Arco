@@ -12,6 +12,7 @@ import { TemplatePicker, type TemplateDraft } from "./TemplatePicker";
 import { Notice, type NoticeValue } from "./Notice";
 export function GitHubCreateIssue({
   host,
+  ownerId,
   repo,
   open,
   busy,
@@ -22,6 +23,7 @@ export function GitHubCreateIssue({
   onCreated,
 }: {
   host: ArcoHost;
+  ownerId: string;
   repo: string;
   open: boolean;
   busy: boolean;
@@ -38,8 +40,8 @@ export function GitHubCreateIssue({
   const persistence = useDraftPersistence(host);
   const { load: loadDraft, schedule: scheduleDraft } = persistence;
   const createDraftKey = useMemo<DraftKey | null>(
-    () => (repo ? { source: "github", repo, issue: "new" } : null),
-    [repo],
+    () => (repo ? { source: "github", repo, issue: "new", ownerId } : null),
+    [repo, ownerId],
   );
   useEffect(() => {
     if (open && createDraftKey) void loadDraft(createDraftKey);

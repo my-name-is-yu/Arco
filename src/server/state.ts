@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
 import { z } from "zod";
@@ -16,10 +16,13 @@ import {
   settingsUpdateSchema,
   draftRecordSchema,
   draftKeySchema,
+  legacyDraftKeySchema,
   draftWriteSchema,
   draftDeleteSchema,
   defaultSettings,
   type DraftKey,
+  type DraftRecord,
+  type LegacyDraftKey,
 } from "../shared/state";
 
 export function stateDirectory(
@@ -125,22 +128,24 @@ export function createStateStore(directory = stateDirectory()) {
       { revision: 0, settings: { ...defaultSettings } },
       "settings",
     );
-  function draftFile(input: DraftKey) {
+  function draftFile(input: DraftKey | LegacyDraftKey) {
     return join(
       directory,
       "drafts",
       `${createHash("sha256")
-        .update(JSON.stringify(draftKeySchema.parse(input)))
+        .update(
+          JSON.stringify(
+            ("ownerId" in input ? draftKeySchema : legacyDraftKeySchema).parse(
+              input,
+            ),
+          ),
+        )
         .digest("hex")}.json`,
     );
   }
-  const readDraft = (key: DraftKey) =>
-    read(
-      draftFile(key),
-      draftRecordSchema,
-      { revision: 0, draft: null },
-      "draft",
-    );
+  const emptyDraft: DraftRecord = { revision: 0, draft: null };
+  const readDraft = (key: DraftKey | LegacyDraftKey) =>
+    read(draftFile(key), draftRecordSchema, emptyDraft, "draft");
   return {
     async readAnnotationSnapshot(id: string) {
       const key = annotationSnapshotIdSchema.parse(id);
@@ -186,7 +191,37 @@ export function createStateStore(directory = stateDirectory()) {
         return updated;
       });
     },
-    readDraft: (key: DraftKey) => locked(draftFile(key), () => readDraft(key)),
+    readDraft: (key: DraftKey | LegacyDraftKey) =>
+      locked(draftFile(key), async () => {
+        const record = await readDraft(key);
+        if (record !== emptyDraft || !("ownerId" in key)) return record;
+        const legacy = legacyDraftKeySchema.parse(
+          key.source === "github"
+            ? { source: key.source, repo: key.repo, issue: key.issue }
+            : {
+                source: key.source,
+                workspaceId: key.workspaceId,
+                teamId: key.teamId,
+                issue: key.issue,
+              },
+        );
+        try {
+          await stat(draftFile(legacy));
+          return { ...record, legacyAvailable: true };
+        } catch (error) {
+          if (
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            error.code === "ENOENT"
+          )
+            return record;
+          throw new OperationError(
+            "Could not check for an older draft. Your saved files have been kept unchanged.",
+            "storage",
+          );
+        }
+      }),
     async writeDraft(input: z.input<typeof draftWriteSchema>) {
       const data = draftWriteSchema.parse(input);
       return locked(draftFile(data.key), async () => {

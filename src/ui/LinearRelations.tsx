@@ -25,16 +25,18 @@ const ref = (issue: LinearIssue) => ({
 });
 export function LinearRelations({
   host,
+  ownerId,
   issue,
   busy,
   run,
 }: {
   host: ArcoHost;
+  ownerId: string;
   issue: LinearIssue;
   busy: boolean;
   run: LinearRun;
 }) {
-  const identity = `${issue.connectionId}:${issue.workspaceId}:${issue.teamId}:${issue.issueId}`;
+  const identity = `${ownerId}:${issue.connectionId}:${issue.workspaceId}:${issue.teamId}:${issue.issueId}`;
   const persistence = useDraftPersistence(host);
   const { load } = persistence;
   const [relationTarget, setRelationTarget] = useSessionState(
@@ -53,11 +55,12 @@ export function LinearRelations({
   const childKey = useMemo<DraftKey>(
     () => ({
       source: "linear",
+      ownerId,
       workspaceId: issue.workspaceId,
       teamId: issue.teamId,
       issue: `child:${issue.issueId}`,
     }),
-    [issue.workspaceId, issue.teamId, issue.issueId],
+    [issue.workspaceId, issue.teamId, issue.issueId, ownerId],
   );
   useEffect(() => {
     void load(childKey);

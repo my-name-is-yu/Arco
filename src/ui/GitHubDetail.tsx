@@ -53,6 +53,7 @@ type ContentProps = {
     after?: (result: IssueDetail) => void,
   ) => Promise<void>;
   host: ArcoHost;
+  ownerId: string;
   hostBusy: boolean;
   hostAction: (action: () => Promise<void>) => Promise<void>;
   shared: IssueRef | null;
@@ -70,6 +71,7 @@ export function GitHubDetail({
   busy,
   save,
   host,
+  ownerId,
   hostBusy,
   hostAction,
   shared,
@@ -353,7 +355,12 @@ export function GitHubDetail({
                       onOpen={openLink}
                     />
                   </div>
-                  <CommentActions host={host} issue={issue} comment={comment} />
+                  <CommentActions
+                    ownerId={ownerId}
+                    host={host}
+                    issue={issue}
+                    comment={comment}
+                  />
                 </article>
               ))}
               {!visibleComments.length && (
@@ -557,8 +564,9 @@ export function GitHubDetail({
             </section>
             <details className="property-advanced">
               <DisclosureSummary>More properties</DisclosureSummary>
-              <GitHubProperties host={host} issue={issue} />
+              <GitHubProperties ownerId={ownerId} host={host} issue={issue} />
               <GitHubRelations
+                ownerId={ownerId}
                 host={host}
                 issue={issue}
                 onOpenLink={openLink}

@@ -37,6 +37,8 @@ async function controlledSource(page: Page) {
             mode: "fixture",
             connected: phase.account !== null,
             account: phase.account,
+            userId:
+              phase.account === null ? null : `fictional-user-${phase.account}`,
             authGeneration: phase.scope,
             message: "Controlled fixture authentication",
           },
@@ -187,7 +189,12 @@ for (const change of ["account", "rotation", "disconnect"] as const) {
             session: state.session,
             name: "arco_read_draft",
             arguments: {
-              key: { source: "github", repo: "yu/Arco", issue: "42" },
+              key: {
+                source: "github",
+                repo: "yu/Arco",
+                issue: "42",
+                ownerId: "fictional-user-account-a",
+              },
             },
           },
         });

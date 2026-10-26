@@ -138,10 +138,12 @@ export function ReactionBar({
 
 export function CommentActions({
   host,
+  ownerId,
   issue,
   comment,
 }: {
   host: ArcoHost;
+  ownerId: string;
   issue: IssueRef;
   comment: Comment;
 }) {
@@ -154,10 +156,11 @@ export function CommentActions({
   const key = useMemo<DraftKey>(
     () => ({
       source: "github",
+      ownerId,
       repo: issue.repo,
       issue: `${issue.number}:comment:${comment.databaseId ?? comment.id}`,
     }),
-    [issue.repo, issue.number, comment.databaseId, comment.id],
+    [issue.repo, issue.number, comment.databaseId, comment.id, ownerId],
   );
   const touched = useRef(false);
   const status = persistence.statuses[draftStorageId(key)];

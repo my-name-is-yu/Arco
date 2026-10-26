@@ -21,10 +21,12 @@ import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
 type RelationKind = "parent" | "child" | "blocked-by";
 export function GitHubRelations({
   host,
+  ownerId,
   issue,
   onOpenLink,
 }: {
   host: ArcoHost;
+  ownerId: string;
   issue: IssueRef;
   onOpenLink: (url: string) => void;
 }) {
@@ -40,10 +42,11 @@ export function GitHubRelations({
   const childKey = useMemo<DraftKey>(
     () => ({
       source: "github",
+      ownerId,
       repo: issue.repo,
       issue: `child:${issue.number}`,
     }),
-    [issue.repo, issue.number],
+    [issue.repo, issue.number, ownerId],
   );
   const readChild = () => {
     const saved = childPersistence.value(childKey);

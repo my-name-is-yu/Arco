@@ -68,7 +68,12 @@ describe("local settings and drafts", () => {
   });
   it("keeps source/repository draft keys separate and deletion prevents stale revival", async () => {
     const store = createStateStore(await temporary());
-    const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
+    const key = {
+      source: "github" as const,
+      repo: "yu/Arco",
+      issue: "42",
+      ownerId: "owner-a",
+    };
     const draft = {
       title: "Draft",
       body: "unsaved Markdown",
@@ -131,12 +136,18 @@ describe("local settings and drafts", () => {
     );
   });
   it.each([
-    { source: "github" as const, repo: "yu/Arco", issue: "42" },
+    {
+      source: "github" as const,
+      repo: "yu/Arco",
+      issue: "42",
+      ownerId: "owner-a",
+    },
     {
       source: "linear" as const,
       workspaceId: "workspace",
       teamId: "team",
       issue: "issue",
+      ownerId: "owner-a",
     },
   ])(
     "reloads current drafts and rejects retired stored fields for $source",
@@ -171,7 +182,12 @@ describe("local settings and drafts", () => {
     async (kind) => {
       const dir = await temporary();
       const store = createStateStore(dir);
-      const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
+      const key = {
+        source: "github" as const,
+        repo: "yu/Arco",
+        issue: "42",
+        ownerId: "owner-a",
+      };
       const file =
         kind === "draft" ? draftFile(dir, key) : join(dir, `${kind}.json`);
       await mkdir(dirname(file), { recursive: true });
@@ -292,7 +308,12 @@ describe("local settings and drafts", () => {
       expectedRevision: 0,
       patch: { activeSource: "linear" },
     });
-    const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
+    const key = {
+      source: "github" as const,
+      repo: "yu/Arco",
+      issue: "42",
+      ownerId: "owner-a",
+    };
     await store.deleteDraft({ key, expectedRevision: 0 });
     const settingsFile = join(dir, "settings.json");
     const tombstoneFile = draftFile(dir, key);
@@ -307,7 +328,12 @@ describe("local settings and drafts", () => {
   it("rejects retired or unknown incoming fields without changing stored data", async () => {
     const dir = await temporary();
     const store = createStateStore(dir);
-    const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
+    const key = {
+      source: "github" as const,
+      repo: "yu/Arco",
+      issue: "42",
+      ownerId: "owner-a",
+    };
     const draft = { title: "Title", body: "Body", comment: "Comment" };
     await store.updateSettings({ expectedRevision: 0, patch: {} });
     await store.writeDraft({ key, expectedRevision: 0, draft });

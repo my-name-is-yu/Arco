@@ -245,7 +245,7 @@ export function createGitHubService(
       try {
         const authGeneration = await authSession.read();
         const user = parse(
-          z.object({ login: z.string() }),
+          z.object({ login: z.string(), id: z.number().int().positive() }),
           await api("read", "user"),
         );
         if (authGeneration !== (await authSession.read()))
@@ -258,6 +258,7 @@ export function createGitHubService(
           connected: true,
           account: user.login,
           authGeneration,
+          userId: String(user.id),
           message: "Connected using your existing GitHub CLI authentication.",
         };
       } catch (error) {
@@ -266,6 +267,7 @@ export function createGitHubService(
           connected: false,
           account: null,
           authGeneration: authSession.current(),
+          userId: null,
           message:
             error instanceof GitHubError
               ? error.message

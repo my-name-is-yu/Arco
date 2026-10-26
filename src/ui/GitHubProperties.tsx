@@ -36,9 +36,11 @@ type Memberships = {
 
 export function GitHubProperties({
   host,
+  ownerId,
   issue,
 }: {
   host: ArcoHost;
+  ownerId: string;
   issue: IssueDetail;
 }) {
   const [open, setOpen] = useState(false);
@@ -51,8 +53,8 @@ export function GitHubProperties({
       {open && (
         <>
           <Catalog host={host} issue={issue} />
-          <IssueFields host={host} issue={issue} />
-          <Projects host={host} issue={issue} />
+          <IssueFields ownerId={ownerId} host={host} issue={issue} />
+          <Projects ownerId={ownerId} host={host} issue={issue} />
         </>
       )}
     </details>
@@ -82,6 +84,7 @@ function fieldValueLabel(
 
 export function FieldEditor({
   host,
+  ownerId,
   draftScope,
   field,
   kind,
@@ -90,6 +93,7 @@ export function FieldEditor({
   saveLabel = "Save",
 }: {
   host: ArcoHost;
+  ownerId: string;
   draftScope: readonly (string | number)[];
   field: IssueField | ProjectField;
   kind: "issue" | "project";
@@ -99,7 +103,7 @@ export function FieldEditor({
 }) {
   const [draft, setDraft] = useSessionState(
     host,
-    `github:field-draft:${JSON.stringify(draftScope)}`,
+    `github:field-draft:${JSON.stringify([ownerId, ...draftScope])}`,
     {
       edited: false,
       value: field.value,
@@ -342,7 +346,15 @@ function Catalog({ host, issue }: { host: ArcoHost; issue: IssueDetail }) {
   );
 }
 
-function IssueFields({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
+function IssueFields({
+  host,
+  ownerId,
+  issue,
+}: {
+  host: ArcoHost;
+  ownerId: string;
+  issue: IssueRef;
+}) {
   const authScope = useGitHubAuthScope();
   const call = useGitHubCall(host);
   const client = useQueryClient();
@@ -383,6 +395,7 @@ function IssueFields({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
       {query.data?.fields.map((field) => (
         <FieldEditor
           key={field.id}
+          ownerId={ownerId}
           host={host}
           draftScope={[issue.repo, issue.number, "issue", field.id]}
           field={field}
@@ -428,11 +441,13 @@ function IssueFields({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
 
 function ProjectFields({
   host,
+  ownerId,
   issue,
   projectId,
   itemId,
 }: {
   host: ArcoHost;
+  ownerId: string;
   issue: IssueRef;
   projectId: string;
   itemId: string;
@@ -475,6 +490,7 @@ function ProjectFields({
       {query.data?.fields.map((field) => (
         <FieldEditor
           key={field.id}
+          ownerId={ownerId}
           host={host}
           draftScope={[
             issue.repo,
@@ -527,7 +543,15 @@ function ProjectFields({
   );
 }
 
-function Projects({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
+function Projects({
+  host,
+  ownerId,
+  issue,
+}: {
+  host: ArcoHost;
+  ownerId: string;
+  issue: IssueRef;
+}) {
   const authScope = useGitHubAuthScope();
   const call = useGitHubCall(host);
   const [ownerDraft, setOwnerDraft] = useState(issue.repo.split("/")[0]);
@@ -579,6 +603,7 @@ function Projects({ host, issue }: { host: ArcoHost; issue: IssueRef }) {
           <DisclosureSummary>{membership.title}</DisclosureSummary>
           <ProjectFields
             host={host}
+            ownerId={ownerId}
             issue={issue}
             projectId={membership.projectId}
             itemId={membership.itemId}

@@ -115,7 +115,7 @@ function stubRun(
             }
           : apiIssue())
       );
-    if (endpoint === "user") return { login: "test-user" };
+    if (endpoint === "user") return { login: "test-user", id: 123 };
     if (endpoint?.includes("/issues/42/comments")) return [];
     if (endpoint?.includes("/labels?"))
       return [
@@ -980,6 +980,33 @@ describe("reads and explicit fixtures", () => {
       account: null,
     });
     expect(JSON.stringify(await service.connection())).not.toContain("secret");
+  });
+
+  it("uses the stable public account ID rather than the mutable login name", async () => {
+    let user = { login: "original-name", id: 123 };
+    const service = createGitHubService({
+      credentialIdentity: async () => `fictional-credential-${user.id}`,
+      run: async (args) => {
+        if (args[3] === "user") return user;
+        throw new Error("Unexpected request");
+      },
+    });
+    expect(await service.connection()).toMatchObject({
+      connected: true,
+      userId: "123",
+      account: "original-name",
+    });
+    user = { login: "renamed-user", id: 123 };
+    expect(await service.connection()).toMatchObject({
+      connected: true,
+      userId: "123",
+      account: "renamed-user",
+    });
+    user = { login: "other-user", id: 456 };
+    expect(await service.connection()).toMatchObject({
+      connected: true,
+      userId: "456",
+    });
   });
 
   it("isolates fixture instances, exposes fixture mode, and coalesces create/comment writes", async () => {

@@ -13,6 +13,7 @@ import {
 import type { LinearRun } from "./linear-run";
 export function LinearCommentEditor({
   host,
+  ownerId,
   issue,
   comment,
   busy,
@@ -21,6 +22,7 @@ export function LinearCommentEditor({
   onError,
 }: {
   host: ArcoHost;
+  ownerId: string;
   issue: LinearIssue;
   comment: LinearComment;
   busy: boolean;
@@ -33,11 +35,12 @@ export function LinearCommentEditor({
   const key = useMemo<DraftKey>(
     () => ({
       source: "linear",
+      ownerId,
       workspaceId: issue.workspaceId,
       teamId: issue.teamId,
       issue: `${issue.issueId}:comment:${comment.id}`,
     }),
-    [issue.workspaceId, issue.teamId, issue.issueId, comment.id],
+    [issue.workspaceId, issue.teamId, issue.issueId, comment.id, ownerId],
   );
   // Older drafts can omit source baselines; freeze those fallbacks when editing starts.
   const [baseBody, setBaseBody] = useState(comment.body);

@@ -3,7 +3,12 @@ import { createLocalDrafts, LocalDraftConflict } from "../src/ui/local-drafts";
 import type { ArcoHost } from "../src/shared/contracts";
 import type { Draft, DraftRecord } from "../src/shared/state";
 
-const key = { source: "github" as const, repo: "yu/Arco", issue: "42" };
+const key = {
+  source: "github" as const,
+  repo: "yu/Arco",
+  issue: "42",
+  ownerId: "owner-a",
+};
 const draft = (body: string): Draft => ({ title: "Title", body, comment: "" });
 function endpoint() {
   let record: DraftRecord = { revision: 0, draft: null };

@@ -169,6 +169,7 @@ export function LinearDetail({
   onBack,
   onFullscreen,
   host,
+  ownerId,
   issue,
   metadata,
   metadataError,
@@ -182,6 +183,7 @@ export function LinearDetail({
   onBack: () => void;
   onFullscreen: () => void;
   host: ArcoHost;
+  ownerId: string;
   issue: LinearIssue;
   metadata?: LinearMetadata;
   metadataError: Error | null;
@@ -209,11 +211,12 @@ export function LinearDetail({
   const key: DraftKey = useMemo(
     () => ({
       source: "linear",
+      ownerId,
       workspaceId: issue.workspaceId,
       teamId: issue.teamId,
       issue: issue.issueId,
     }),
-    [issue.workspaceId, issue.teamId, issue.issueId],
+    [issue.workspaceId, issue.teamId, issue.issueId, ownerId],
   );
   useEffect(() => {
     let alive = true;
@@ -358,6 +361,7 @@ export function LinearDetail({
         )}
         {commentEdit?.id === comment.id ? (
           <LinearCommentEditor
+            ownerId={ownerId}
             host={host}
             issue={issue}
             comment={comment}
@@ -514,12 +518,16 @@ export function LinearDetail({
         <DraftStatus
           status={persistence.statuses[draftStorageId(key)]}
           onRetry={() => {
-            void persistence.retry(key, draft).then((saved) => {
+            void persistence.retry(key, draft, issue).then((saved) => {
               if (saved?.baseUpdatedAt) setEditing(true);
             });
           }}
           onResolve={(choice) => {
-            void persistence.resolve(key, choice, draft);
+            void persistence
+              .resolve(key, choice, draft, issue)
+              .then((saved) => {
+                if (choice === "import-legacy" && saved) setEditing(true);
+              });
           }}
         />
         <div className="issue-columns">
@@ -975,6 +983,7 @@ export function LinearDetail({
                 run={run}
               />
               <LinearRelations
+                ownerId={ownerId}
                 host={host}
                 issue={issue}
                 busy={busy}

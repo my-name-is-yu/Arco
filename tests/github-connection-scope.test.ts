@@ -9,7 +9,7 @@ describe("GitHub connection read scope", () => {
   it("retains one generation for the same credential and rotates even for the same account", async () => {
     let credential = "private-credential-a";
     const identity = vi.fn(async () => credential);
-    const run = vi.fn<GhRunner>(async () => ({ login: "same-account" }));
+    const run = vi.fn<GhRunner>(async () => ({ login: "same-account", id: 1 }));
     const service = createGitHubService({ run, credentialIdentity: identity });
     const first = await service.connection();
     expect(first.connected).toBe(true);
@@ -31,7 +31,7 @@ describe("GitHub connection read scope", () => {
     let credential = "credential-a";
     const run = vi.fn<GhRunner>(async () => {
       credential = "credential-b";
-      return { login: "old-account" };
+      return { login: "old-account", id: 1 };
     });
     const service = createGitHubService({
       run,
@@ -51,10 +51,11 @@ describe("GitHub connection read scope", () => {
       run: async () => {
         if (unavailable)
           throw new GitHubError("Temporarily unavailable", "unavailable");
-        return { login: "account" };
+        return { login: "account", id: 1 };
       },
     });
     const first = await service.connection();
+    expect(first.connected).toBe(true);
     unavailable = true;
     const failed = await service.connection();
     expect(failed.connected).toBe(false);

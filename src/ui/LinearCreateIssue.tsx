@@ -23,6 +23,7 @@ import { DisclosureSummary } from "./DisclosureSummary";
 import type { LinearRun } from "./linear-run";
 export function LinearCreateIssue({
   host,
+  ownerId,
   scope,
   open,
   busy,
@@ -36,6 +37,7 @@ export function LinearCreateIssue({
   onOpenLink,
 }: {
   host: ArcoHost;
+  ownerId: string;
   scope: LinearScope;
   open: boolean;
   busy: boolean;
@@ -59,11 +61,12 @@ export function LinearCreateIssue({
   const createKey = useMemo<DraftKey>(
     () => ({
       source: "linear",
+      ownerId,
       workspaceId: scope.workspaceId,
       teamId: scope.teamId,
       issue: "new",
     }),
-    [scope],
+    [scope, ownerId],
   );
   useEffect(() => {
     if (open) void load(createKey);
