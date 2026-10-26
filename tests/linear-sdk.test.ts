@@ -12,6 +12,7 @@ import { createLinearService } from "../src/server/linear/service";
 import type {
   LinearCommentPage,
   LinearIssue,
+  LinearMetadata,
   LinearPage,
   LinearSavedReceipt,
 } from "../src/shared/linear";
@@ -41,10 +42,13 @@ async function source() {
   const auth = createLinearAuth({
     directory,
     store: {
-      async read() {
+      async read(connectionId) {
         return {
           clientId: "fake-public-client",
-          accessToken: "fake-sdk-token",
+          accessToken:
+            connectionId === "other-test"
+              ? "fake-sdk-token-other"
+              : "fake-sdk-token",
           refreshToken: "fake-refresh",
           expiresAt: Date.now() + 86_400_000,
           scopes: ["read", "write"],
@@ -92,20 +96,30 @@ async function source() {
     rejectUpdate: false,
     mutationSuccess: true as unknown,
     commentCount: 0,
+    commentAuthorIds: [] as (string | null)[],
+    userName: "Test user",
+    userError: "" as "" | "forbidden" | "partial",
+    userErrorOnce: false,
+    teamParents: {} as Record<string, string>,
     commentIssueId: "issue",
   };
-  const sourceComment = (id: string) => ({
-    id,
-    body: "![Source image](https://uploads.linear.app/workspace/image.png)",
-    issueId: controls.commentIssueId,
-    issue: { id: controls.commentIssueId },
-    parentId: "unloaded-parent",
-    updatedAt: "2026-10-23T00:00:00.000Z",
-    createdAt: "2026-10-23T00:00:00.000Z",
-    url: `https://linear.app/fixture/issue/TST-1#${id}`,
-    reactions: [],
-    reactionData: {},
-  });
+  const sourceComment = (id: string) => {
+    const authorId =
+      controls.commentAuthorIds[Number(id.replace("comment-", ""))];
+    return {
+      id,
+      body: "![Source image](https://uploads.linear.app/workspace/image.png)",
+      issueId: controls.commentIssueId,
+      issue: { id: controls.commentIssueId },
+      parentId: "unloaded-parent",
+      updatedAt: "2026-10-23T00:00:00.000Z",
+      createdAt: "2026-10-23T00:00:00.000Z",
+      url: `https://linear.app/fixture/issue/TST-1#${id}`,
+      reactions: [],
+      reactionData: {},
+      ...(authorId ? { user: { id: authorId } } : {}),
+    };
+  };
   const server: Server = createServer(async (request, response) => {
     try {
       const input = JSON.parse(await text(request)) as {
@@ -120,7 +134,14 @@ async function source() {
         bearer: request.headers.authorization === "Bearer fake-sdk-token",
         query: input.query,
       });
-      if (operation === "updateIssue" && controls.rejectUpdate) {
+      if (
+        (operation === "updateIssue" && controls.rejectUpdate) ||
+        (operation === "user" &&
+          input.variables.id === "comment-author" &&
+          controls.userError === "forbidden")
+      ) {
+        if (operation === "user" && controls.userErrorOnce)
+          controls.userError = "";
         response.statusCode = 403;
         response.setHeader("Content-Type", "application/json");
         response.end(JSON.stringify({ errors: [{ message: "Forbidden" }] }));
@@ -132,13 +153,17 @@ async function source() {
         name: "Test workspace",
         projectStatuses: [],
       };
+      const teamId =
+        typeof input.variables.id === "string" ? input.variables.id : "team";
       const team = {
-        id:
-          typeof input.variables.id === "string" ? input.variables.id : "team",
+        id: teamId,
         name: "Test team",
         key: "TST",
         inheritIssueEstimation: false,
-        inheritWorkflowStatuses: false,
+        inheritWorkflowStatuses: Boolean(controls.teamParents[teamId]),
+        parent: controls.teamParents[teamId]
+          ? { id: controls.teamParents[teamId] }
+          : null,
         issueEstimationType: "fibonacci",
         issueEstimationAllowZero: true,
         issueEstimationExtended: false,
@@ -198,7 +223,15 @@ async function source() {
           data = { comment: sourceComment(String(input.variables.id)) };
           break;
         case "user":
-          data = { user: { id: "user", name: "Test user" } };
+          data = {
+            user: {
+              id: input.variables.id,
+              name:
+                request.headers.authorization === "Bearer fake-sdk-token-other"
+                  ? `${controls.userName} (other connection)`
+                  : controls.userName,
+            },
+          };
           break;
         case "workflowState":
           data = {
@@ -432,8 +465,12 @@ async function source() {
       response.end(
         JSON.stringify({
           data,
-          ...(controls.partialError &&
-          (operation === "updateIssue" || operation.startsWith("ArcoLinear"))
+          ...((controls.partialError &&
+            (operation === "updateIssue" ||
+              operation.startsWith("ArcoLinear"))) ||
+          (operation === "user" &&
+            input.variables.id === "comment-author" &&
+            controls.userError === "partial")
             ? {
                 errors: [
                   {
@@ -530,6 +567,155 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
     ]);
     expect(calls.some((call) => call.operation === "comment")).toBe(false);
   });
+
+  it("reads each distinct comment author once within a comment page", async () => {
+    const { service, calls, controls } = await source();
+    controls.commentCount = 30;
+    controls.commentAuthorIds = Array.from(
+      { length: 30 },
+      (_, index) => `author-${index % 3}`,
+    );
+    const page = (await service.call(
+      "linear_comments",
+      ref,
+    )) as LinearCommentPage;
+    expect(page.comments.map((comment) => comment.authorId)).toEqual(
+      controls.commentAuthorIds,
+    );
+    expect(
+      page.comments.every((comment) => comment.author === "Test user"),
+    ).toBe(true);
+    expect(
+      calls
+        .filter((call) => call.operation === "user")
+        .map((call) => call.variables.id)
+        .sort(),
+    ).toEqual(["author-0", "author-1", "author-2"]);
+  });
+
+  it("keeps the deleted author fallback without an author query", async () => {
+    const { service, calls, controls } = await source();
+    controls.commentCount = 3;
+    controls.commentAuthorIds = [null, null, null];
+    const page = (await service.call(
+      "linear_comments",
+      ref,
+    )) as LinearCommentPage;
+    expect(page.comments).toHaveLength(3);
+    expect(
+      page.comments.map((comment) => ({
+        author: comment.author,
+        authorId: comment.authorId,
+      })),
+    ).toEqual(Array(3).fill({ author: "Deleted user", authorId: "" }));
+    expect(calls.some((call) => call.operation === "user")).toBe(false);
+  });
+
+  it.each(["forbidden", "partial"] as const)(
+    "rejects a %s author read without substituting a deleted user",
+    async (failure) => {
+      const { service, calls, controls } = await source();
+      controls.commentCount = 2;
+      controls.commentAuthorIds = ["comment-author", "comment-author"];
+      controls.userError = failure;
+      await expect(service.call("linear_comments", ref)).rejects.toMatchObject({
+        code: failure === "forbidden" ? "forbidden" : "unavailable",
+        message: expect.not.stringContaining("Source rejected"),
+      });
+      controls.userError = "";
+      const page = (await service.call(
+        "linear_comments",
+        ref,
+      )) as LinearCommentPage;
+      expect(page.comments.map((comment) => comment.author)).toEqual([
+        "Test user",
+        "Test user",
+      ]);
+      expect(calls.filter((call) => call.operation === "user")).toHaveLength(2);
+    },
+  );
+
+  it("reads comment authors afresh for the next operation and connection", async () => {
+    const { service, calls, controls } = await source();
+    controls.commentCount = 2;
+    controls.commentAuthorIds = ["comment-author", "comment-author"];
+    controls.userName = "First name";
+    const first = (await service.call(
+      "linear_comments",
+      ref,
+    )) as LinearCommentPage;
+    expect(first.comments[0].author).toBe("First name");
+    controls.userName = "Changed name";
+    const next = (await service.call(
+      "linear_comments",
+      ref,
+    )) as LinearCommentPage;
+    expect(next.comments[0].author).toBe("Changed name");
+    const other = (await service.call("linear_comments", {
+      ...ref,
+      connectionId: "other-test",
+    })) as LinearCommentPage;
+    expect(other.comments[0].author).toBe("Changed name (other connection)");
+    expect(calls.filter((call) => call.operation === "user")).toHaveLength(3);
+  });
+
+  it.each([false, true])(
+    "shares successful author reads and recovers a failed author read between bulk members (failure: %s)",
+    async (failFirst) => {
+      const { service, calls, controls } = await source();
+      controls.commentCount = 2;
+      controls.commentAuthorIds = ["comment-author", "comment-author"];
+      if (failFirst) {
+        controls.userError = "forbidden";
+        controls.userErrorOnce = true;
+      }
+      const result = (await service.call("linear_bulk", {
+        ...scope,
+        requestId: randomUUID(),
+        issueIds: ["issue", "other"],
+        patch: { priority: 1 },
+      })) as {
+        results: {
+          success: boolean;
+          issue?: LinearIssue;
+          refreshError?: string;
+        }[];
+      };
+      expect(result.results.every((item) => item.success)).toBe(true);
+      expect(Boolean(result.results[0].refreshError)).toBe(failFirst);
+      expect(result.results[1].issue?.comments[0].author).toBe("Test user");
+      expect(
+        calls.filter(
+          (call) =>
+            call.operation === "user" && call.variables.id === "comment-author",
+        ),
+      ).toHaveLength(failFirst ? 2 : 1);
+    },
+  );
+
+  it.each([false, true])(
+    "reads each parent once while retaining inherited states and cycle detection (cycle: %s)",
+    async (cycle) => {
+      const { service, calls, controls } = await source();
+      controls.teamParents = {
+        team: "parent",
+        parent: cycle ? "team" : "root",
+      };
+      const metadata = (await service.call(
+        "linear_metadata",
+        scope,
+      )) as LinearMetadata;
+      expect(metadata.states).not.toHaveLength(0);
+      expect(
+        calls
+          .filter((call) => call.operation === "team")
+          .map((call) => call.variables.id),
+      ).toEqual(["team", "parent", cycle ? "team" : "root"]);
+      expect(
+        calls.find((call) => call.operation === "team_states")?.variables.id,
+      ).toBe(cycle ? "parent" : "root");
+    },
+  );
   it("reads images through a narrow authorized source lookup and rejects a foreign comment", async () => {
     const { service, calls, issue, controls } = await source();
     const url = "https://uploads.linear.app/workspace/image.png";
