@@ -127,6 +127,7 @@ function renderDetail(catalog?: LinearMetadata) {
     <QueryClientProvider client={client}>
       <GitHubAuthScopeContext.Provider value={authScope}>
         <LinearDetail
+          ownerId="fixture-linear-user"
           feedback={null}
           shared={null}
           onBack={() => {}}

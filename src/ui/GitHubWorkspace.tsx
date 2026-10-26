@@ -280,6 +280,14 @@ export function GitHubWorkspace({
     queryKey: ["connection"],
     queryFn: () => host.call<Connection>("arco_connection", {}),
   });
+  const lastDraftOwner = useRef<string | null>(null);
+  const verifiedDraftOwner = connection.data?.connected
+    ? connection.data.userId || null
+    : null;
+  if (verifiedDraftOwner) lastDraftOwner.current = verifiedDraftOwner;
+  const draftOwnerId = connection.data?.connected
+    ? verifiedDraftOwner
+    : lastDraftOwner.current;
   const repo =
     repoOverride ??
     (projectView && launch.projectKey
@@ -423,10 +431,15 @@ export function GitHubWorkspace({
   const activeNumber = activeRef?.number;
   const activeDraftKey = useMemo<DraftKey | null>(
     () =>
-      activeRepo && activeNumber
-        ? { source: "github", repo: activeRepo, issue: String(activeNumber) }
+      draftOwnerId && activeRepo && activeNumber
+        ? {
+            source: "github",
+            repo: activeRepo,
+            issue: String(activeNumber),
+            ownerId: draftOwnerId,
+          }
         : null,
-    [activeRepo, activeNumber],
+    [activeRepo, activeNumber, draftOwnerId],
   );
   useEffect(() => {
     if (activeDraftKey) void loadDraft(activeDraftKey);
@@ -532,18 +545,25 @@ export function GitHubWorkspace({
       await host.display(next);
     });
   const updateDraft = (issue: IssueDetail, patch: Partial<Draft>) => {
+    if (!draftOwnerId) return;
     const current = resolveContentDraft(
       issue,
       persistence.value({
         source: "github",
         repo: issue.repo,
         issue: String(issue.number),
+        ownerId: draftOwnerId,
       }),
     );
     const startsContentEdit =
       ("title" in patch || "body" in patch) && !current.baseUpdatedAt;
     persistence.schedule(
-      { source: "github", repo: issue.repo, issue: String(issue.number) },
+      {
+        source: "github",
+        repo: issue.repo,
+        issue: String(issue.number),
+        ownerId: draftOwnerId,
+      },
       {
         ...current,
         ...(startsContentEdit
@@ -635,13 +655,14 @@ export function GitHubWorkspace({
         shared.number === target.number)),
   );
   const toggleRetainedTask = async (line: number, checked: boolean) => {
-    if (!retainedIssue) return;
+    if (!retainedIssue || !draftOwnerId) return;
     const body = toggleMarkdownTask(retainedIssue.body, line, checked);
     if (body === retainedIssue.body) return;
     const key: DraftKey = {
       source: "github",
       repo: retainedIssue.repo,
       issue: String(retainedIssue.number),
+      ownerId: draftOwnerId,
     };
     const controller = draftController(host);
     const draft = resolveContentDraft(
@@ -734,6 +755,7 @@ export function GitHubWorkspace({
               activeDraftKey,
               persistence.value(activeDraftKey!) ??
                 resolveContentDraft(selectedDetail),
+              selectedDetail,
             )
           }
           onResolve={(choice) => {
@@ -742,6 +764,7 @@ export function GitHubWorkspace({
               choice,
               persistence.value(activeDraftKey!) ??
                 resolveContentDraft(selectedDetail),
+              selectedDetail,
             );
           }}
         />
@@ -1431,9 +1454,10 @@ export function GitHubWorkspace({
             </span>
           </AsyncState>
         )}
-        {selectedDetail && (
+        {selectedDetail && draftOwnerId && (
           <GitHubDetail
-            key={refKey(selectedDetail)}
+            key={`${draftOwnerId}:${refKey(selectedDetail)}`}
+            ownerId={draftOwnerId}
             issue={selectedDetail}
             feedback={detailFeedback}
             onBack={() => setShowDetail(false)}
@@ -1454,21 +1478,25 @@ export function GitHubWorkspace({
           />
         )}
       </section>
-      <GitHubCreateIssue
-        host={host}
-        repo={repo}
-        open={createOpen}
-        busy={commands.busy}
-        fixture={connection.data?.mode === "fixture"}
-        notice={notice}
-        save={save}
-        onClose={() => setCreateOpen(false)}
-        onCreated={(result) => {
-          setRepoOverride(result.repo);
-          setSelected({ repo: result.repo, number: result.number });
-          setShowDetail(true);
-        }}
-      />
+      {draftOwnerId && (
+        <GitHubCreateIssue
+          key={draftOwnerId}
+          ownerId={draftOwnerId}
+          host={host}
+          repo={repo}
+          open={createOpen}
+          busy={commands.busy}
+          fixture={connection.data?.mode === "fixture"}
+          notice={notice}
+          save={save}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(result) => {
+            setRepoOverride(result.repo);
+            setSelected({ repo: result.repo, number: result.number });
+            setShowDetail(true);
+          }}
+        />
+      )}
     </WorkspaceLayout>
   );
 }

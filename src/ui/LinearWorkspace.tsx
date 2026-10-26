@@ -207,6 +207,14 @@ export function LinearWorkspace({
       host.call<LinearConnection>("linear_connection", connectionInput),
     enabled: !disconnecting,
   });
+  const lastDraftOwner = useRef<string | null>(null);
+  const verifiedDraftOwner = connection.data?.connected
+    ? connection.data.userId
+    : null;
+  if (verifiedDraftOwner) lastDraftOwner.current = verifiedDraftOwner;
+  const draftOwnerId = connection.data?.connected
+    ? verifiedDraftOwner
+    : lastDraftOwner.current;
   const targetConnectionError =
     target &&
     connection.data?.connected &&
@@ -387,7 +395,7 @@ export function LinearWorkspace({
       )
     : undefined;
   const toggleRetainedTask = async (line: number, checked: boolean) => {
-    if (!retained) return;
+    if (!retained || !draftOwnerId) return;
     const body = toggleMarkdownTask(retained.body, line, checked);
     if (body === retained.body) return;
     const key: DraftKey = {
@@ -395,6 +403,7 @@ export function LinearWorkspace({
       workspaceId: retained.workspaceId,
       teamId: retained.teamId,
       issue: retained.issueId,
+      ownerId: draftOwnerId,
     };
     const controller = draftController(host);
     const draft = resolveContentDraft(retained, await controller.load(key));
@@ -1353,9 +1362,10 @@ export function LinearWorkspace({
         }
       >
         {(!connected || !detail.data) && detailFeedback}
-        {connected && detail.data ? (
+        {connected && detail.data && draftOwnerId ? (
           <LinearDetail
-            key={`${detail.data.connectionId}/${detail.data.issueId}`}
+            key={`${draftOwnerId}/${detail.data.connectionId}/${detail.data.issueId}`}
+            ownerId={draftOwnerId}
             host={host}
             issue={detail.data}
             feedback={detailFeedback}
@@ -1398,8 +1408,10 @@ export function LinearWorkspace({
           </div>
         )}
       </section>
-      {scope && (
+      {scope && draftOwnerId && (
         <LinearCreateIssue
+          key={`${draftOwnerId}/${scope.workspaceId}/${scope.teamId}`}
+          ownerId={draftOwnerId}
           host={host}
           scope={scope}
           open={createOpen}

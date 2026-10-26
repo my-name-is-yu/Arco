@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ArcoHost } from "../shared/contracts";
 import type { Draft, DraftKey, DraftRecord } from "../shared/state";
+import { draftKeySchema } from "../shared/state";
 import { createLocalDrafts, LocalDraftConflict } from "./local-drafts";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { sessionValue } from "./session-state";
@@ -17,9 +18,14 @@ type Status = {
   error?: string;
   remote?: DraftRecord;
   operation?: "load" | "save" | "delete";
-  retryChoice?: "keep-local" | "use-saved";
+  retryChoice?: "keep-local" | "use-saved" | "import-legacy";
+  legacy?: { record?: DraftRecord; error?: string; loading?: boolean };
 };
-export const draftStorageId = (key: DraftKey) => JSON.stringify(key);
+type DraftChoice =
+  "keep-local" | "use-saved" | "review-legacy" | "import-legacy";
+type SourceSnapshot = { title: string; body: string; updatedAt: string };
+export const draftStorageId = (key: DraftKey) =>
+  JSON.stringify(draftKeySchema.parse(key));
 export function draftController(host: ArcoHost) {
   return sessionValue(host, "draft-controller", () => {
     const store = createLocalDrafts(host);
@@ -39,7 +45,10 @@ export function draftController(host: ArcoHost) {
     const loading = new Map<string, Promise<Draft | undefined>>();
     const failedLoads = new Set<string>();
     const setStatus = (id: string, status: Status) => {
-      statuses = { ...statuses, [id]: status };
+      statuses = {
+        ...statuses,
+        [id]: { legacy: statuses[id]?.legacy, ...status },
+      };
       listeners.forEach((listener) => listener());
     };
     const report = (
@@ -109,7 +118,10 @@ export function draftController(host: ArcoHost) {
             return current.get(id) ?? undefined;
           failedLoads.delete(id);
           current.set(id, record.draft);
-          setStatus(id, { state: record.draft ? "saved" : "idle" });
+          setStatus(id, {
+            state: record.draft ? "saved" : "idle",
+            ...(record.legacyAvailable ? { legacy: {} } : {}),
+          });
           return record.draft ?? undefined;
         })
         .catch((error) => {
@@ -139,7 +151,8 @@ export function draftController(host: ArcoHost) {
       load,
       value: (key: DraftKey): Draft | undefined =>
         current.get(draftStorageId(key)) ?? undefined,
-      schedule(key: DraftKey, draft: Draft) {
+      schedule(input: DraftKey, draft: Draft) {
+        const key = draftKeySchema.parse(input);
         const id = draftStorageId(key);
         const version = advance(id);
         current.set(id, draft);
@@ -150,11 +163,15 @@ export function draftController(host: ArcoHost) {
         }, 250);
         pending.set(id, { key, draft, timer, version });
       },
-      retry(key: DraftKey, draft: Draft): Promise<Draft | null | undefined> {
+      retry(
+        key: DraftKey,
+        draft: Draft,
+        snapshot?: SourceSnapshot,
+      ): Promise<Draft | null | undefined> {
         const id = draftStorageId(key);
         const status = statuses[id];
         if (status?.retryChoice)
-          return controller.resolve(key, status.retryChoice, draft);
+          return controller.resolve(key, status.retryChoice, draft, snapshot);
         if (status?.operation === "load" || status?.state === "loading")
           return load(key);
         if (status?.operation === "delete") return controller.remove(key);
@@ -165,10 +182,76 @@ export function draftController(host: ArcoHost) {
       },
       async resolve(
         key: DraftKey,
-        choice: "keep-local" | "use-saved",
+        choice: DraftChoice,
         local: Draft,
+        snapshot?: SourceSnapshot,
       ): Promise<Draft | null | undefined> {
         const id = draftStorageId(key);
+        if (choice === "review-legacy") {
+          setStatus(id, {
+            ...statuses[id],
+            state: statuses[id]?.state ?? "idle",
+            legacy: { ...statuses[id]?.legacy, loading: true },
+          });
+          try {
+            const record = await store.reviewLegacy(key);
+            setStatus(id, {
+              ...statuses[id],
+              state: statuses[id]?.state ?? "idle",
+              legacy: { record },
+            });
+          } catch (error) {
+            setStatus(id, {
+              ...statuses[id],
+              state: statuses[id]?.state ?? "idle",
+              legacy: {
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "The older draft could not be read.",
+              },
+            });
+          }
+          return undefined;
+        }
+        if (choice === "import-legacy") {
+          const older = statuses[id]?.legacy?.record?.draft;
+          if (!older) return undefined;
+          if (current.get(id) || pending.has(id)) {
+            setStatus(id, {
+              ...statuses[id],
+              state: statuses[id]?.state ?? "idle",
+              legacy: {
+                ...statuses[id]?.legacy,
+                error:
+                  "This account already has input. Keep or remove its draft before importing the older draft.",
+              },
+            });
+            return undefined;
+          }
+          const version = advance(id);
+          setStatus(id, { state: "resolving" });
+          try {
+            const imported =
+              !older.baseUpdatedAt && snapshot
+                ? {
+                    ...older,
+                    baseTitle: older.baseTitle ?? snapshot.title,
+                    baseBody: older.baseBody ?? snapshot.body,
+                    baseUpdatedAt: snapshot.updatedAt,
+                  }
+                : older;
+            const result = await store.importLegacy(key, imported);
+            if (versions.get(id) !== version) return undefined;
+            current.set(id, result.draft);
+            setStatus(id, { state: "saved", legacy: undefined });
+            return result.draft;
+          } catch (error) {
+            if (versions.get(id) === version)
+              report(id, error, "save", "import-legacy");
+            return undefined;
+          }
+        }
         const version = advance(id);
         setStatus(id, { state: "resolving" });
         try {
@@ -220,6 +303,27 @@ export function useDraftPersistence(host: ArcoHost) {
   };
 }
 
+function SavedDraft({ draft }: { draft: Draft | null | undefined }) {
+  return draft ? (
+    <>
+      <label>
+        Saved title
+        <input readOnly value={draft.title} />
+      </label>
+      <label>
+        Saved body
+        <textarea rows={5} readOnly value={draft.body} />
+      </label>
+      <label>
+        Saved comment
+        <textarea rows={3} readOnly value={draft.comment} />
+      </label>
+    </>
+  ) : (
+    <p>There is no saved draft.</p>
+  );
+}
+
 export function DraftStatus({
   status,
   onRetry,
@@ -227,63 +331,86 @@ export function DraftStatus({
 }: {
   status?: Status;
   onRetry: () => void;
-  onResolve: (choice: "keep-local" | "use-saved") => void;
+  onResolve: (choice: DraftChoice) => void;
 }) {
-  if (!status || (status.state !== "error" && status.state !== "conflict"))
+  if (
+    !status ||
+    (!status.legacy && status.state !== "error" && status.state !== "conflict")
+  )
     return null;
   return (
     <section className="draft-storage-conflict" role="alert">
-      <p>{status.error}</p>
-      {status.state === "conflict" ? (
-        <details>
-          <DisclosureSummary>Compare saved draft</DisclosureSummary>
-          {status.remote?.draft ? (
-            <>
-              <label>
-                Saved title
-                <input readOnly value={status.remote.draft.title} />
-              </label>
-              <label>
-                Saved body
-                <textarea rows={5} readOnly value={status.remote.draft.body} />
-              </label>
-              <label>
-                Saved comment
-                <textarea
-                  rows={3}
-                  readOnly
-                  value={status.remote.draft.comment}
-                />
-              </label>
-            </>
-          ) : (
-            <p>There is no saved draft.</p>
+      {status.legacy && (
+        <div>
+          <p>
+            An older draft has no saved account identity. Review it before
+            copying it into this account. The original will be kept.
+          </p>
+          {status.legacy.error && <p>{status.legacy.error}</p>}
+          <button
+            type="button"
+            className="text-button"
+            disabled={status.legacy.loading}
+            onClick={() => onResolve("review-legacy")}
+          >
+            {status.legacy.loading
+              ? "Loading older draft…"
+              : "Review older draft"}
+          </button>
+          {status.legacy.record && (
+            <details open>
+              <DisclosureSummary>Compare older draft</DisclosureSummary>
+              <SavedDraft draft={status.legacy.record.draft} />
+              <button
+                type="button"
+                className="text-button"
+                disabled={
+                  !status.legacy.record.draft || status.state === "resolving"
+                }
+                onClick={() => onResolve("import-legacy")}
+              >
+                Import older draft into this account
+              </button>
+            </details>
           )}
-          <div className="editor-actions">
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => onResolve("keep-local")}
-            >
-              Save this screen’s draft
+        </div>
+      )}
+      {(status.state === "error" || status.state === "conflict") && (
+        <>
+          <p>{status.error}</p>
+          {status.state === "conflict" ? (
+            <details>
+              <DisclosureSummary>Compare saved draft</DisclosureSummary>
+              <SavedDraft draft={status.remote?.draft} />
+              <div className="editor-actions">
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => onResolve("keep-local")}
+                >
+                  Save this screen’s draft
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => onResolve("use-saved")}
+                >
+                  Use saved draft
+                </button>
+              </div>
+            </details>
+          ) : (
+            <button type="button" className="text-button" onClick={onRetry}>
+              {status.retryChoice === "import-legacy"
+                ? "Retry importing older draft"
+                : status.operation === "load"
+                  ? "Retry loading draft"
+                  : status.operation === "delete"
+                    ? "Retry removing draft"
+                    : "Retry saving draft"}
             </button>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => onResolve("use-saved")}
-            >
-              Use saved draft
-            </button>
-          </div>
-        </details>
-      ) : (
-        <button type="button" className="text-button" onClick={onRetry}>
-          {status.operation === "load"
-            ? "Retry loading draft"
-            : status.operation === "delete"
-              ? "Retry removing draft"
-              : "Retry saving draft"}
-        </button>
+          )}
+        </>
       )}
     </section>
   );

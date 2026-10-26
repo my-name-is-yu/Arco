@@ -78,7 +78,7 @@ export const settingsUpdateSchema = z
     patch: settingsSchema.partial(),
   })
   .strict();
-export const draftKeySchema = z.discriminatedUnion("source", [
+export const legacyDraftKeySchema = z.discriminatedUnion("source", [
   z
     .object({
       source: z.literal("github"),
@@ -94,6 +94,14 @@ export const draftKeySchema = z.discriminatedUnion("source", [
       issue: z.string().min(1).max(100),
     })
     .strict(),
+]);
+export const draftKeySchema = z.discriminatedUnion("source", [
+  legacyDraftKeySchema.options[0].extend({
+    ownerId: z.string().min(1).max(200),
+  }),
+  legacyDraftKeySchema.options[1].extend({
+    ownerId: z.string().min(1).max(200),
+  }),
 ]);
 export const draftSchema = z
   .object({
@@ -118,17 +126,29 @@ export const draftRecordSchema = z
     draft: draftSchema.nullable(),
   })
   .strict();
-export const draftReadSchema = z.object({ key: draftKeySchema }).strict();
-export const draftWriteSchema = draftReadSchema.extend({
-  expectedRevision: z.number().int().nonnegative(),
-  draft: draftSchema,
+export const draftReadResultSchema = draftRecordSchema.extend({
+  legacyAvailable: z.boolean().optional(),
 });
-export const draftDeleteSchema = draftReadSchema.extend({
-  expectedRevision: z.number().int().nonnegative(),
-});
+export const draftReadSchema = z
+  .object({ key: z.union([draftKeySchema, legacyDraftKeySchema]) })
+  .strict();
+export const draftWriteSchema = z
+  .object({
+    key: draftKeySchema,
+    expectedRevision: z.number().int().nonnegative(),
+    draft: draftSchema,
+  })
+  .strict();
+export const draftDeleteSchema = z
+  .object({
+    key: draftKeySchema,
+    expectedRevision: z.number().int().nonnegative(),
+  })
+  .strict();
 export type Settings = z.infer<typeof settingsSchema>;
 export type SettingsRecord = z.infer<typeof settingsRecordSchema>;
 export type DraftKey = z.infer<typeof draftKeySchema>;
+export type LegacyDraftKey = z.infer<typeof legacyDraftKeySchema>;
 export type Draft = z.infer<typeof draftSchema>;
 export type DraftRecord = z.infer<typeof draftRecordSchema>;
 export const defaultSettings: Settings = {

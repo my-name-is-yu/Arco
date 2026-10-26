@@ -1,10 +1,10 @@
 import type { ArcoHost } from "../shared/contracts";
 import type { Draft, DraftKey, DraftRecord } from "../shared/state";
-import { draftRecordSchema } from "../shared/state";
+import { draftKeySchema, draftReadResultSchema } from "../shared/state";
 import { ToolCallError } from "../shared/errors";
 
-function readDraftRecord(value: unknown): DraftRecord {
-  const parsed = draftRecordSchema.safeParse(value);
+function readDraftRecord(value: unknown) {
+  const parsed = draftReadResultSchema.safeParse(value);
   if (!parsed.success)
     throw new ToolCallError(
       "invalid-response",
@@ -15,7 +15,7 @@ function readDraftRecord(value: unknown): DraftRecord {
 
 type Entry = {
   key: DraftKey;
-  record: DraftRecord;
+  record: ReturnType<typeof readDraftRecord>;
   loaded: boolean;
   conflict: DraftRecord | null;
   tail: Promise<unknown>;
@@ -31,7 +31,8 @@ export class LocalDraftConflict extends Error {
 /** Small endpoint client. Unsent input stays in UI state; this owns only disk revisions. */
 export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
   const entries = new Map<string, Entry>();
-  const entryFor = (key: DraftKey) => {
+  const entryFor = (input: DraftKey) => {
+    const key = draftKeySchema.parse(input);
     const id = JSON.stringify(key);
     const existing = entries.get(id);
     if (existing) return existing;
@@ -62,18 +63,20 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
     entry.tail = next;
     return next;
   }
-  async function save(key: DraftKey, draft: Draft) {
+  async function save(key: DraftKey, draft: Draft, onlyIfEmpty = false) {
     const entry = entryFor(key);
     return queue(entry, async () => {
-      if (!entry.loaded) {
+      if (!entry.loaded || onlyIfEmpty) {
         entry.record = await read(entry);
         entry.loaded = true;
       }
       if (entry.conflict) throw new LocalDraftConflict(entry.conflict);
+      if (onlyIfEmpty && entry.record.draft)
+        throw new LocalDraftConflict(entry.record);
       try {
         entry.record = readDraftRecord(
           await host.call("arco_write_draft", {
-            key,
+            key: entry.key,
             expectedRevision: entry.record.revision,
             draft,
           }),
@@ -118,12 +121,32 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
       if (entry.conflict) throw new LocalDraftConflict(entry.conflict);
       entry.record = readDraftRecord(
         await host.call("arco_delete_draft", {
-          key,
+          key: entry.key,
           expectedRevision: entry.record.revision,
         }),
       );
       return entry.record;
     });
   }
-  return { load, save, resolve, remove };
+  return {
+    load,
+    save,
+    resolve,
+    remove,
+    async reviewLegacy(key: DraftKey) {
+      const legacy =
+        key.source === "github"
+          ? { source: key.source, repo: key.repo, issue: key.issue }
+          : {
+              source: key.source,
+              workspaceId: key.workspaceId,
+              teamId: key.teamId,
+              issue: key.issue,
+            };
+      return readDraftRecord(
+        await host.call("arco_read_draft", { key: legacy }),
+      );
+    },
+    importLegacy: (key: DraftKey, draft: Draft) => save(key, draft, true),
+  };
 }

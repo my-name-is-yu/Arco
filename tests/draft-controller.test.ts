@@ -14,12 +14,18 @@ import { createStateStore } from "../src/server/state";
 import type { ArcoHost } from "../src/shared/contracts";
 import type { Draft, DraftKey, DraftRecord } from "../src/shared/state";
 
-const github: DraftKey = { source: "github", repo: "yu/Arco", issue: "42" };
+const github: DraftKey = {
+  source: "github",
+  repo: "yu/Arco",
+  issue: "42",
+  ownerId: "owner-a",
+};
 const linear: DraftKey = {
   source: "linear",
   workspaceId: "workspace",
   teamId: "team",
   issue: "issue-42",
+  ownerId: "owner-a",
 };
 const draft = (comment: string): Draft => ({
   title: "Title",

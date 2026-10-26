@@ -219,6 +219,7 @@ export function createFixtureService(): FixtureGitHubService {
         connected: true,
         account: "fixture-user",
         authGeneration: "fixture-github-session",
+        userId: "fixture-github-user",
         message:
           "Local fixture. Changes are stored in memory and are not sent to GitHub.",
       };

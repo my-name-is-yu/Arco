@@ -193,6 +193,7 @@ export interface Connection {
   connected: boolean;
   account: string | null;
   authGeneration: string;
+  userId?: string | null;
   message: string;
 }
 export interface RepoMetadata {

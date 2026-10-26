@@ -406,12 +406,14 @@ for (const source of ["github", "linear"] as const) {
             source,
             repo: "yu/Arco",
             issue: `42:comment:${(form.original as Comment).databaseId}`,
+            ownerId: "fixture-github-user",
           }
         : {
             source,
             workspaceId: "fixture-linear-workspace",
             teamId: "fixture-linear-team",
             issue: `fixture-linear-42:comment:${form.original.id}`,
+            ownerId: "fixture-linear-user",
           },
     );
   });
