@@ -153,7 +153,7 @@ test("Retry save persists the failed filter after another preference succeeds", 
     .getByRole("button", { name: "Retry save", exact: true })
     .click();
   await expect(app(page).locator(".settings-error")).toBeHidden();
-  expect(filterWrites).toHaveLength(2);
+  await expect.poll(() => filterWrites).toHaveLength(2);
   expect(filterWrites[1].githubFilters).toMatchObject({
     "yu/Arco": { query: "preserve" },
   });

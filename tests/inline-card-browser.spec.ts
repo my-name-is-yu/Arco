@@ -1356,8 +1356,15 @@ for (const source of ["github", "linear"] as const) {
     await content.focus();
     await content.press("End");
     await expect
-      .poll(() => content.evaluate((element) => element.scrollTop))
-      .toBeGreaterThan(0);
+      .poll(() =>
+        content.evaluate(
+          (element) =>
+            element.scrollTop > 0 &&
+            element.scrollTop + element.clientHeight >=
+              element.scrollHeight - 1,
+        ),
+      )
+      .toBe(true);
     await expect(content).toHaveCSS("animation-name", "none");
     await expect(content).toHaveCSS("opacity", "1");
     await expect(content).toHaveCSS("transform", "none");

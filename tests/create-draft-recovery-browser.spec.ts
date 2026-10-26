@@ -82,12 +82,14 @@ for (const source of ["github", "linear"] as const) {
     fail = false;
     await dialog.getByRole("button", { name: "Retry saving draft" }).click();
     await expect(dialog.getByRole("alert")).toHaveCount(0);
-    expect(saved).toEqual({
-      title: "Edited creation draft",
-      body: "Retained body",
-      comment: "",
-      ...attributes,
-    });
+    await expect
+      .poll(() => saved)
+      .toEqual({
+        title: "Edited creation draft",
+        body: "Retained body",
+        comment: "",
+        ...attributes,
+      });
     expect(writes).toEqual([saved, saved]);
     expect(creates).toEqual([]);
 
@@ -108,12 +110,14 @@ for (const source of ["github", "linear"] as const) {
       .getByRole("button", { name: "Save this screen’s draft", exact: true })
       .click();
     await expect(dialog.getByRole("alert")).toHaveCount(0);
-    expect(saved).toEqual({
-      title: "Edited creation draft",
-      body: "Local body after conflict",
-      comment: "",
-      ...attributes,
-    });
+    await expect
+      .poll(() => saved)
+      .toEqual({
+        title: "Edited creation draft",
+        body: "Local body after conflict",
+        comment: "",
+        ...attributes,
+      });
     expect(writes.slice(2)).toEqual([saved, saved]);
     expect(creates).toEqual([]);
   });

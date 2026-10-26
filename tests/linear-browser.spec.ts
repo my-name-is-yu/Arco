@@ -1410,6 +1410,9 @@ test("Linear templates preserve source defaults, permit explicit empty bodies, a
     ),
   ).toHaveLength(creates.length);
   await choose(dialog, "Linear template", "linear-simple-template");
+  await expect(
+    dialog.getByRole("textbox", { name: "Markdown description", exact: true }),
+  ).toHaveValue(/Preserve this default body/);
   await dialog
     .getByRole("textbox", { name: "Title", exact: true })
     .fill("An explicitly empty description");

@@ -10,14 +10,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:4174",
     viewport: { width: 1440, height: 1000 },
-    trace: process.env.CI
-      ? {
-          mode: "retain-on-failure",
-          screenshots: false,
-          snapshots: false,
-          sources: false,
-        }
-      : "retain-on-failure",
+    trace: process.env.CI ? "off" : "retain-on-failure",
     screenshot: "only-on-failure",
   },
   webServer: {
