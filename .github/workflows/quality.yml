@@ -2,13 +2,6 @@ name: Quality
 
 on:
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "README.md"
-      - "CONTRIBUTING.md"
-      - "SECURITY.md"
-      - "LICENSE"
-      - ".github/**/*.md"
   push:
     branches: [main]
     paths-ignore:
