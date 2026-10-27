@@ -2,35 +2,15 @@
 
 An MIT-licensed Codex plugin for browsing and editing GitHub and Linear issues, and bringing selected issue context into your conversation.
 
+[Install](#install)
+
 ## Keep issues beside the conversation
 
 Read and compare issue cards inside your conversation, then open full details in the side panel.
 
 ![Browse inline issue cards in Codex and open the selected issue in its side panel](assets/readme/issue-tabs.gif)
 
-## Bring the right context into chat
-
-Select passages across issues and collect them as numbered context beside your next prompt.
-
-![Add selections from two issues to a grouped context attachment and prepare a message in Codex](assets/readme/share-context.gif)
-
-## Edit where you read
-
-Update Markdown and labels directly from the issue workspace.
-
-![Edit an issue's Markdown body, save changes, and update its labels](assets/readme/edit-issue.gif)
-
-## Work with Linear's own fields
-
-Read Linear issues and update their native workflow states and priorities.
-
-![Update a Linear issue's native workflow state and priority](assets/readme/linear-workflow.gif)
-
-_The first two clips show Arco in Codex with fictional demo issues. The editing and Linear clips use sample data in a browser preview. Typing is shown at 4× speed; waiting and some scrolling are also sped up._
-
-Arco runs a local Node.js MCP server and an embedded React interface. It connects directly to your issue providers, uses your existing GitHub CLI login, and stores Linear credentials in the operating system's credential store. There is no Arco account or hosted backend.
-
-GitHub and Linear remain the sources of truth. Arco preserves each provider's native fields and does not synchronize the two services.
+_This clip shows Arco in Codex with fictional demo issues. Typing is shown at 4× speed; waiting and some scrolling are also sped up._
 
 ## Install
 
@@ -85,6 +65,32 @@ For Linear:
 Linear tokens are stored in the OS credential store. Your application's access settings determine who can connect; the maintainer's development application is not a shared public connection.
 
 The first write after upgrading an older Linear sign-in adds a private grant ID to its stored credential. Routine token refresh preserves this ID; reconnecting replaces it. Earlier Arco versions with the old strict credential format cannot read the upgraded record and may require reconnecting after a downgrade.
+
+## Features
+
+Arco runs a local Node.js MCP server and an embedded React interface. It connects directly to your issue providers, uses your existing GitHub CLI login, and stores Linear credentials in the operating system's credential store. There is no Arco account or hosted backend.
+
+GitHub and Linear remain the sources of truth. Arco preserves each provider's native fields and does not synchronize the two services.
+
+### Bring the right context into chat
+
+Select passages across issues and collect them as numbered context beside your next prompt.
+
+![Add selections from two issues to a grouped context attachment and prepare a message in Codex](assets/readme/share-context.gif)
+
+### Edit where you read
+
+Update Markdown and labels directly from the issue workspace.
+
+![Edit an issue's Markdown body, save changes, and update its labels](assets/readme/edit-issue.gif)
+
+### Work with Linear's own fields
+
+Read Linear issues and update their native workflow states and priorities.
+
+![Update a Linear issue's native workflow state and priority](assets/readme/linear-workflow.gif)
+
+_The context clip shows Arco in Codex with fictional demo issues. The editing and Linear clips use sample data in a browser preview. Typing is shown at 4× speed; waiting and some scrolling are also sped up._
 
 ## Update or remove
 
