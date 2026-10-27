@@ -424,7 +424,6 @@ export function createArcoServer(backend: ArcoBackend) {
     search_mentions:
       "Search native Issue resources for composer @Arco. Use source:github repo:owner/name or source:linear team:key to choose a scope; otherwise use the saved Arco scope.",
   };
-  // Keep each schema intact while using the standard v1 registration API.
   (Object.keys(dataSchemas) as DataToolName[]).forEach((name) => {
     server.registerTool(
       name,

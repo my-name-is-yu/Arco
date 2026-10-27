@@ -11,8 +11,7 @@ import { GitHubError, parse } from "./transport";
 const pageSize = 100;
 const searchLimit = 1000;
 
-// Search uses the same lexical engine as the existing REST endpoint. Selecting
-// summary fields here also keeps issue bodies off the GitHub -> gh connection.
+// Select summary fields to keep issue bodies off the GitHub -> gh connection.
 const repositoryIssuesQuery = `query ArcoRepositoryIssues($query: String!, $after: String) {
   search(query: $query, type: ISSUE, first: 100, after: $after) {
     issueCount
@@ -106,8 +105,7 @@ function issueSummary(
     updatedAt: issue.updatedAt,
     url: issue.url,
     author: issue.author?.login ?? "ghost",
-    // Label IDs are opaque to list consumers. Detail and editing metadata keep
-    // their existing REST IDs and are fetched independently on selection.
+    // List label IDs are opaque; detail/editing fetch REST IDs independently.
     labels: issue.labels.nodes,
     assignees: issue.assignees.nodes.map((person) => person.login),
   };

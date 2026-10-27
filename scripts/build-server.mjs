@@ -65,7 +65,6 @@ for (const name of Object.keys(keyring.optionalDependencies ?? {})) {
     runtimePackages.push(name);
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
-    /* Other OS/arch packages are not installed here. */
   }
 }
 for (const name of runtimePackages)

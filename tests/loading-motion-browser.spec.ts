@@ -78,7 +78,6 @@ test("the HTML bootstrap already paints a fullscreen skeleton before JavaScript 
   browser,
   page,
 }) => {
-  // No application JavaScript can replace the HTML in this context.
   const context = await browser.newContext({ javaScriptEnabled: false });
   try {
     const staticPage = await context.newPage();
@@ -184,7 +183,6 @@ test("Linear waits for connection and scopes before showing provider content, th
     await route.continue();
   });
   try {
-    // The chosen source replaces this toolbar with its loading workspace.
     await app(page)
       .getByRole("group", { name: "Issue source", exact: true })
       .getByRole("button")

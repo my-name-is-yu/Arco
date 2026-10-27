@@ -135,7 +135,6 @@ async function run(script: string, scenario: string) {
   await mkdir(join(directory, "dist/plugin"), { recursive: true });
   const server = join(directory, "dist/plugin/server.mjs");
   await writeFile(server, fixture);
-  // Record the real close call, then delegate to the SDK's actual implementation.
   const runner = join(directory, "runner.mjs");
   const clientModule = new URL(
     "../node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js",

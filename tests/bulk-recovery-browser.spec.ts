@@ -291,7 +291,6 @@ for (const appliedBeforeFailure of [true, false]) {
       name: "Check current state",
       exact: true,
     });
-    // A failed read must retain the unknown attempt and must never submit a write.
     failNextCheck = true;
     await check.click();
     await expect(

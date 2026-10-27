@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-// Keep typing and IME composition local; provider searches use the settled text.
 export function useDebouncedSearch(value: string, scope: string) {
   const [settled, setSettled] = useState({ scope, value });
   const [composing, setComposing] = useState(false);
