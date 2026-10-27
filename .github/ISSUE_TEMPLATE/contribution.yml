@@ -6,7 +6,7 @@ body:
       value: |
         Read [CONTRIBUTING.md](https://github.com/my-name-is-yu/Arco/blob/main/CONTRIBUTING.md) and the [product requirements](https://github.com/my-name-is-yu/Arco/blob/main/docs/requirements.md) first.
 
-        Keep this short and write in your own words. Wait for explicit maintainer approval before opening a PR.
+        Keep this short and write in your own words. Issues from unapproved contributors are automatically closed for maintainer review. A maintainer may reopen them and approve future submissions. Wait for approval and agreement on scope before opening a PR.
   - type: textarea
     id: what
     attributes:
