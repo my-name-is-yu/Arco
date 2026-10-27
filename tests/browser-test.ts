@@ -9,7 +9,7 @@ export * from "@playwright/test";
 
 export const test = base.extend<{ fixtureSessions: void }>({
   fixtureSessions: [
-    async ({ context, request, baseURL }, runTest) => {
+    async ({ context, request, baseURL }, runTest, testInfo) => {
       const sessionUrl = new URL("/session", baseURL).href;
       const sessions = new Set<string>();
       const pending: Promise<void>[] = [];
@@ -65,6 +65,17 @@ export const test = base.extend<{ fixtureSessions: void }>({
       } catch (error) {
         failures.push(error);
       } finally {
+        // A failed test may leave a deliberately blocked route handler.
+        const behavior =
+          testInfo.status === "passed" && !failures.length
+            ? "wait"
+            : "ignoreErrors";
+        const routes = await Promise.allSettled([
+          ...context.pages().map((page) => page.unrouteAll({ behavior })),
+          context.unrouteAll({ behavior }),
+        ]);
+        for (const result of routes)
+          if (result.status === "rejected") failures.push(result.reason);
         context.off("response", onResponse);
         await Promise.all(pending);
         restore.forEach((restoreApi) => restoreApi());

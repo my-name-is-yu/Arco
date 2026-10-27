@@ -130,7 +130,7 @@ function issueContext(issue: ConversationIssue) {
 export async function connectHost(): Promise<ArcoHost> {
   z.config({ jitless: true });
   const app = new App(
-    { name: "Arco", version: "0.1.0" },
+    { name: "Arco", version: "0.2.0" },
     {},
     { autoResize: true },
   );
