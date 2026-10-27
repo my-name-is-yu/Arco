@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { OpenAIMentionSearchParamsSchema } from "@openai/mcp-extensions";
 import {
   OperationError,
   readToolFailure,
@@ -80,6 +81,21 @@ describe("public operation failures", () => {
       },
     });
     expect(JSON.stringify(result)).not.toContain("secret");
+  });
+
+  it("classifies invalid MCP extension inputs as invalid input", () => {
+    expect(OpenAIMentionSearchParamsSchema.parse({ query: "issue" })).toEqual({
+      query: "issue",
+    });
+    const parsed = OpenAIMentionSearchParamsSchema.safeParse({ query: 123 });
+    expect(parsed.success).toBe(false);
+    if (parsed.success) throw new Error("Expected invalid mention input.");
+    expect(failureResult(parsed.error).structuredContent).toEqual({
+      error: {
+        kind: "invalid-input",
+        message: "The supplied target or values are invalid.",
+      },
+    });
   });
 
   it.each([
