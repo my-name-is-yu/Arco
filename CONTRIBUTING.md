@@ -22,9 +22,11 @@ Keep `docs/` for specifications and contracts. Do not add work logs, test-result
 
 Search existing issues first. Use the **Bug report** template for reproducible problems or **Contribution proposal** for a change you want to make. Say whether you want to work on it.
 
-**Get explicit maintainer approval on the issue before opening a PR.** Agree on the problem and scope before investing in an implementation. Approval applies to that proposal; it is not a promise to merge any resulting code.
+New issues and PRs from unapproved contributors are automatically closed. Maintainers review closed issues and may reopen them; a response or review date is not guaranteed. Repository writers and Dependabot are exempt from the gate.
 
-Review is manual. Clear reports and focused proposals are welcome, but a response or review date is not guaranteed. Duplicate, out-of-scope, low-effort, or unapproved submissions may be closed without discussion. Repeated disregard for this guide or automated spam may lead to an account being blocked from the repository.
+A maintainer can reply on an issue with `lgtmi` to allow its author to open future issues, or `lgtm` to allow its author to open future issues and PRs. The command must appear at the start or end of the comment. To approve someone other than the issue author, mention them in the comment. These are standing permissions to submit, not approval of every proposed change. The approval record lives on the `arco-contributor-approvals` branch; it does not grant repository write access.
+
+Before opening a PR, agree with a maintainer on the issue's problem and scope. Approval is not a promise to merge the resulting code. Duplicate, out-of-scope, low-effort, or unapproved submissions may be closed without discussion. Repeated disregard for this guide or automated spam may lead to an account being blocked from the repository.
 
 ## Make issues useful
 
