@@ -13,6 +13,7 @@ function command(body, issueAuthor) {
   if (!match) return null;
   const targets = [...text.matchAll(MENTIONS)].map((item) => item[2].toLowerCase());
   if (targets.length === 0) targets.push(issueAuthor.toLowerCase());
+  if (targets.some((target) => !USERNAME.test(target))) return null;
   return { capability: match[1].toLowerCase() === "lgtmi" ? "issue" : "pr", targets: [...new Set(targets)] };
 }
 

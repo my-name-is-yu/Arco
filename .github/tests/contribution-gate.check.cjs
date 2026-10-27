@@ -57,11 +57,18 @@ test("only authorized human issue comments can grant capability without touching
 
 test("approval commands are bounded and issue approval cannot downgrade PR approval", async () => {
   assert.equal(command("I disagree with lgtm in the middle here", "a"), null);
+  assert.equal(command("lgtm", "github-actions[bot]"), null);
   assert.deepEqual(command("lgtmi", "Alice"), { capability: "issue", targets: ["alice"] });
   const f = fixture({ body: "lgtmi", commenterRole: "admin", users: { "new-user": "pr" } });
   await approve(f.github, f.context);
   assert.equal(f.calls.some(([name]) => name === "write"), false);
   assert.throws(() => parseState('{"version":1,"users":{"evil":"admin"}}'));
+});
+
+test("a bot issue author cannot corrupt the approval state", async () => {
+  const f = fixture({ login: "github-actions[bot]", type: "Bot", body: "lgtm", commenterRole: "admin" });
+  await approve(f.github, f.context);
+  assert.deepEqual(f.calls, []);
 });
 
 test("permission lookup errors do not close issues", async () => {
