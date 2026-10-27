@@ -1,6 +1,6 @@
 ## Approved issue
 
-Link the issue and the maintainer reply approving this scope.
+Link the issue and the maintainer reply approving this scope. Unapproved contributors' PRs are automatically closed; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Change
 

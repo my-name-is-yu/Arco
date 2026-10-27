@@ -6,6 +6,8 @@ body:
       value: |
         Read [CONTRIBUTING.md](https://github.com/my-name-is-yu/Arco/blob/main/CONTRIBUTING.md) first. Search existing issues and write a short report in your own words.
 
+        Issues from unapproved contributors are automatically closed for maintainer review. A maintainer may reopen them and approve future submissions.
+
         Use fictional or redacted data. Report vulnerabilities through [SECURITY.md](https://github.com/my-name-is-yu/Arco/blob/main/SECURITY.md).
   - type: textarea
     id: problem
