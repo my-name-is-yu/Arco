@@ -746,5 +746,24 @@ describe("grouped inline issue presentation", () => {
         body: "unexpected content",
       }).success,
     ).toBe(false);
+
+    const issue = await backend.service.get(github);
+    vi.spyOn(backend.service, "get").mockResolvedValue({ ...issue, title: "" });
+    const malformed = await client.callTool({
+      name: "arco_show_issues",
+      arguments: { targets: [github, linear] },
+    });
+    expect(malformed).toMatchObject({
+      isError: true,
+      structuredContent: {
+        error: {
+          kind: "invalid-response",
+          message:
+            "The source returned an invalid issue summary. Refresh to try again.",
+        },
+      },
+    });
+    expect(malformed.structuredContent).not.toHaveProperty("launch");
+    expect(malformed._meta).toBeUndefined();
   });
 });

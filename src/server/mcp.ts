@@ -36,6 +36,107 @@ import { createMentionSearch } from "./mentions";
 import { registerStateTools } from "./state-tools";
 import { failureResult, dataResult } from "./tool-results";
 import { callDataTool, dataSchemas, type DataToolName } from "./tools";
+async function readPresentationIssue(
+  backend: ArcoBackend,
+  target: NativeIssueTarget,
+) {
+  if (target.source === "github") {
+    const issue = await backend.service.get({
+      repo: target.repo,
+      number: target.number,
+    });
+    const canonical = z
+      .object({ source: z.literal("github"), ...issueRefSchema.shape })
+      .parse(issue);
+    if (
+      canonical.repo.toLowerCase() !== target.repo.toLowerCase() ||
+      canonical.number !== target.number
+    )
+      throw new OperationError(
+        "GitHub returned a different issue than the requested target.",
+        "invalid-response",
+      );
+    return { canonical, issue };
+  }
+  const issue = (await backend.linearService.call("linear_get_issue", {
+    connectionId: target.connectionId,
+    workspaceId: target.workspaceId,
+    teamId: target.teamId,
+    issueId: target.issueId,
+  })) as LinearIssue;
+  const canonical = z
+    .object({ source: z.literal("linear"), ...linearRefSchema.shape })
+    .parse(issue);
+  if (
+    canonical.connectionId !== target.connectionId ||
+    canonical.workspaceId !== target.workspaceId ||
+    canonical.teamId !== target.teamId ||
+    canonical.issueId !== target.issueId
+  )
+    throw new OperationError(
+      "Could not open the selected Linear issue. Open it again using its Linear link.",
+      "invalid-response",
+    );
+  return { canonical, issue };
+}
+
+async function readPresentationSet(
+  backend: ArcoBackend,
+  targets: NativeIssueTarget[],
+) {
+  const unique = new Map<string, NativeIssueTarget>();
+  for (const target of targets) {
+    const key =
+      target.source === "github"
+        ? JSON.stringify(["github", target.repo.toLowerCase(), target.number])
+        : JSON.stringify([
+            "linear",
+            target.connectionId,
+            target.workspaceId,
+            target.teamId,
+            target.issueId,
+          ]);
+    if (!unique.has(key)) unique.set(key, target);
+  }
+  if (unique.size < 2)
+    throw new OperationError(
+      "Choose at least two different issues, or use arco_show_issue for one issue.",
+      "invalid-input",
+    );
+  const issues: IssuePresentationSummary[] = [];
+  const issueDetails: ConversationIssue[] = [];
+  const githubAuthGeneration = [...unique.values()].some(
+    (target) => target.source === "github",
+  )
+    ? await backend.service.authGeneration?.()
+    : undefined;
+  for (const target of unique.values()) {
+    const { issue } = await readPresentationIssue(backend, target);
+    // Model-facing fields stay compact; fetched details are app-only.
+    const summarySchema =
+      issuePresentationSummarySchema.options[
+        target.source === "github" ? 0 : 1
+      ].strip();
+    const summary = summarySchema.safeParse(issue);
+    if (!summary.success)
+      throw new OperationError(
+        "The source returned an invalid issue summary. Refresh to try again.",
+        "invalid-response",
+      );
+    issues.push(summary.data);
+    issueDetails.push(issue);
+  }
+  if (
+    githubAuthGeneration !== undefined &&
+    githubAuthGeneration !== (await backend.service.authGeneration?.())
+  )
+    throw new OperationError(
+      "GitHub authentication changed while loading these issues. Refresh to try again.",
+      "auth",
+    );
+  return { issues, issueDetails, githubAuthGeneration };
+}
+
 export function createArcoServer(backend: ArcoBackend) {
   const server = new McpServer(
     {
@@ -129,50 +230,10 @@ export function createArcoServer(backend: ArcoBackend) {
   const issuePresentationInput = z
     .object({ target: nativeIssueTargetSchema })
     .strict();
-  const readPresentationIssue = async (target: NativeIssueTarget) => {
-    if (target.source === "github") {
-      const issue = await backend.service.get({
-        repo: target.repo,
-        number: target.number,
-      });
-      const canonical = z
-        .object({ source: z.literal("github"), ...issueRefSchema.shape })
-        .parse(issue);
-      if (
-        canonical.repo.toLowerCase() !== target.repo.toLowerCase() ||
-        canonical.number !== target.number
-      )
-        throw new OperationError(
-          "GitHub returned a different issue than the requested target.",
-          "invalid-response",
-        );
-      return { canonical, issue };
-    }
-    const issue = (await backend.linearService.call("linear_get_issue", {
-      connectionId: target.connectionId,
-      workspaceId: target.workspaceId,
-      teamId: target.teamId,
-      issueId: target.issueId,
-    })) as LinearIssue;
-    const canonical = z
-      .object({ source: z.literal("linear"), ...linearRefSchema.shape })
-      .parse(issue);
-    if (
-      canonical.connectionId !== target.connectionId ||
-      canonical.workspaceId !== target.workspaceId ||
-      canonical.teamId !== target.teamId ||
-      canonical.issueId !== target.issueId
-    )
-      throw new OperationError(
-        "Could not open the selected Linear issue. Open it again using its Linear link.",
-        "invalid-response",
-      );
-    return { canonical, issue };
-  };
   const presentIssue = async (raw: unknown) => {
     try {
       const { target } = issuePresentationInput.parse(raw);
-      const { canonical, issue } = await readPresentationIssue(target);
+      const { canonical, issue } = await readPresentationIssue(backend, target);
       return dataResult({
         launch: { ...personalLaunchContext, target: canonical },
         issue,
@@ -253,60 +314,8 @@ export function createArcoServer(backend: ArcoBackend) {
     async (raw) => {
       try {
         const { targets } = issuesPresentationInput.parse(raw);
-        const unique = new Map<string, NativeIssueTarget>();
-        for (const target of targets) {
-          const key =
-            target.source === "github"
-              ? JSON.stringify([
-                  "github",
-                  target.repo.toLowerCase(),
-                  target.number,
-                ])
-              : JSON.stringify([
-                  "linear",
-                  target.connectionId,
-                  target.workspaceId,
-                  target.teamId,
-                  target.issueId,
-                ]);
-          if (!unique.has(key)) unique.set(key, target);
-        }
-        if (unique.size < 2)
-          throw new OperationError(
-            "Choose at least two different issues, or use arco_show_issue for one issue.",
-            "invalid-input",
-          );
-        const issues: IssuePresentationSummary[] = [];
-        const issueDetails: ConversationIssue[] = [];
-        const githubAuthGeneration = [...unique.values()].some(
-          (target) => target.source === "github",
-        )
-          ? await backend.service.authGeneration?.()
-          : undefined;
-        for (const target of unique.values()) {
-          const { issue } = await readPresentationIssue(target);
-          // Model-facing fields stay compact; fetched details are app-only.
-          const summarySchema =
-            issuePresentationSummarySchema.options[
-              target.source === "github" ? 0 : 1
-            ].strip();
-          const summary = summarySchema.safeParse(issue);
-          if (!summary.success)
-            throw new OperationError(
-              "The source returned an invalid issue summary. Refresh to try again.",
-              "invalid-response",
-            );
-          issues.push(summary.data);
-          issueDetails.push(issue);
-        }
-        if (
-          githubAuthGeneration !== undefined &&
-          githubAuthGeneration !== (await backend.service.authGeneration?.())
-        )
-          throw new OperationError(
-            "GitHub authentication changed while loading these issues. Refresh to try again.",
-            "auth",
-          );
+        const { issues, issueDetails, githubAuthGeneration } =
+          await readPresentationSet(backend, targets);
         return {
           ...dataResult({ launch: { ...personalLaunchContext, issues } }),
           _meta: { issueDetails, githubAuthGeneration },
