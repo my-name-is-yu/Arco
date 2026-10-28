@@ -415,8 +415,9 @@ test("a single Linear page still refreshes automatically and on focus", async ({
   page,
 }) => {
   await page.clock.install();
+  let responseNumber = 0;
   const calls = await listFixture(page, () => ({
-    issues: [issue()],
+    issues: [{ ...issue(), title: `${firstTitle} (${++responseNumber})` }],
     hasMore: false,
     cursor: null,
   }));
@@ -425,6 +426,9 @@ test("a single Linear page still refreshes automatically and on focus", async ({
   expect(calls).toHaveLength(1);
   await page.clock.fastForward(31_000);
   await expect.poll(() => calls.length).toBe(2);
+  await expect(app(page).locator(".issue-row")).toContainText(
+    `${firstTitle} (2)`,
+  );
   await page.clock.fastForward(16_000);
   await restoreFocus(page);
   await expect.poll(() => calls.length).toBe(3);
