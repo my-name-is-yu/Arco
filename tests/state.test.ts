@@ -387,9 +387,15 @@ describe("local settings and drafts", () => {
             : reject(new Error("worker failed")),
         );
       });
-    expect(
-      (await Promise.all([run("yu/Arco"), run("other/Arco")])).sort(),
-    ).toEqual(["conflict", "saved"]);
+    const workers = [run("yu/Arco"), run("other/Arco")];
+    try {
+      expect((await Promise.all(workers)).sort()).toEqual([
+        "conflict",
+        "saved",
+      ]);
+    } finally {
+      await Promise.allSettled(workers);
+    }
     const record = await createStateStore(dir).readSettings();
     expect(record.revision).toBe(1);
     expect(["yu/Arco", "other/Arco"]).toContain(
