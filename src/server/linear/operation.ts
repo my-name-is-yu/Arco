@@ -6,6 +6,7 @@ import {
   type Comment,
   type Issue,
   type IssueLabel,
+  type IssueRelation,
   type Reaction,
   type Team,
   type Template,
@@ -185,6 +186,54 @@ export function describeTemplate(
       : {}),
   };
 }
+async function readRelationForIssue(
+  selectedIssueId: string,
+  relation: IssueRelation,
+): Promise<LinearIssue["relations"][number]> {
+  const { issueId, relatedIssueId } = relation;
+  if (
+    typeof relation.id !== "string" ||
+    !relation.id ||
+    typeof issueId !== "string" ||
+    !issueId ||
+    typeof relatedIssueId !== "string" ||
+    !relatedIssueId ||
+    (issueId !== selectedIssueId && relatedIssueId !== selectedIssueId)
+  )
+    throw new LinearServiceError(
+      "Linear returned an incomplete or mismatched issue relation.",
+      "invalid-response",
+    );
+  const other =
+    issueId === selectedIssueId
+      ? await relation.relatedIssue
+      : await relation.issue;
+  const otherId = issueId === selectedIssueId ? relatedIssueId : issueId;
+  if (
+    !other ||
+    other.id !== otherId ||
+    typeof other.identifier !== "string" ||
+    !other.identifier ||
+    typeof other.title !== "string" ||
+    !other.title
+  )
+    throw new LinearServiceError(
+      "Linear returned an incomplete or mismatched related issue.",
+      "invalid-response",
+    );
+  return {
+    id: relation.id,
+    type:
+      relation.type === "blocks" && relation.relatedIssueId === selectedIssueId
+        ? "blocked-by"
+        : relation.type,
+    issueId,
+    relatedIssueId,
+    identifier: other.identifier,
+    title: other.title,
+  };
+}
+
 export function createLinearOperation(options: {
   auth: LinearAuth;
   client: (accessToken: string) => LinearClient;
@@ -474,48 +523,7 @@ export function createLinearOperation(options: {
         ...new Map(
           [...outward, ...inward].map((item) => [item.id, item]),
         ).values(),
-      ].map(async (item) => {
-        const { issueId, relatedIssueId } = item;
-        if (
-          typeof item.id !== "string" ||
-          !item.id ||
-          typeof issueId !== "string" ||
-          !issueId ||
-          typeof relatedIssueId !== "string" ||
-          !relatedIssueId ||
-          (issueId !== issue.id && relatedIssueId !== issue.id)
-        )
-          throw new LinearServiceError(
-            "Linear returned an incomplete or mismatched issue relation.",
-            "invalid-response",
-          );
-        const other =
-          issueId === issue.id ? await item.relatedIssue : await item.issue;
-        const otherId = issueId === issue.id ? relatedIssueId : issueId;
-        if (
-          !other ||
-          other.id !== otherId ||
-          typeof other.identifier !== "string" ||
-          !other.identifier ||
-          typeof other.title !== "string" ||
-          !other.title
-        )
-          throw new LinearServiceError(
-            "Linear returned an incomplete or mismatched related issue.",
-            "invalid-response",
-          );
-        return {
-          id: item.id,
-          type:
-            item.type === "blocks" && item.relatedIssueId === issue.id
-              ? "blocked-by"
-              : item.type,
-          issueId,
-          relatedIssueId,
-          identifier: other.identifier,
-          title: other.title,
-        };
-      }),
+      ].map((relation) => readRelationForIssue(issue.id, relation)),
     );
     return {
       ...base,
