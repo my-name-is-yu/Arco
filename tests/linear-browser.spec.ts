@@ -2273,10 +2273,32 @@ test("Linear disconnect keeps local drafts, settings, and chat context while sto
       ].includes(call.name),
     );
   const before = await reads();
+  const externalUpdate = await ui.locator("html").evaluateHandle(() => {
+    const state = { received: false };
+    const receive = (event: MessageEvent) => {
+      const result = event.data?.params?.structuredContent;
+      if (
+        event.source !== window.parent ||
+        event.data?.method !== "ui/notifications/tool-result" ||
+        result?.repo !== "yu/Arco" ||
+        result?.number !== 42 ||
+        result?.title !== "Issue updated by a Codex tool"
+      )
+        return;
+      state.received = true;
+      window.removeEventListener("message", receive);
+    };
+    window.addEventListener("message", receive);
+    return state;
+  });
   await page
     .getByRole("button", { name: "Mock external update #42", exact: true })
     .click();
-  await expect.poll(() => events(page, "external-update")).toHaveLength(1);
+  await expect
+    .poll(() => externalUpdate.evaluate((state) => state.received))
+    .toBe(true);
+  await externalUpdate.dispose();
+  expect(await events(page, "external-update")).toHaveLength(1);
   await page.clock.fastForward(31_000);
   await page.bringToFront();
   await expect(ui.getByText("Connect Linear", { exact: true })).toBeVisible();
