@@ -198,13 +198,10 @@ export function LinearDetail({
     if (!commentsById.has(comment.id)) commentsById.set(comment.id, comment);
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState(false);
-  const [commentEdit, setCommentEdit] = useState<{
-    id: string;
-    text: string;
-  } | null>(null);
+  const [commentEditId, setCommentEditId] = useState<string | null>(null);
   const [hostBusy, setHostBusy] = useState(false);
 
-  const root = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
   const hostLock = useRef(false);
   const persistence = useDraftPersistence(host);
   const { load } = persistence;
@@ -359,7 +356,7 @@ export function LinearDetail({
         {comment.parentId && (
           <small>{parent ? `Reply to ${parent.author}` : "Reply"}</small>
         )}
-        {commentEdit?.id === comment.id ? (
+        {commentEditId === comment.id ? (
           <LinearCommentEditor
             ownerId={ownerId}
             host={host}
@@ -367,7 +364,7 @@ export function LinearDetail({
             comment={comment}
             busy={busy}
             run={run}
-            onClose={() => setCommentEdit(null)}
+            onClose={() => setCommentEditId(null)}
             onError={(text) => onNotice(text, "error")}
           />
         ) : (
@@ -387,9 +384,7 @@ export function LinearDetail({
             className="text-button"
             onClick={() => {
               setReplyTo(comment.id);
-              root.current
-                ?.querySelector<HTMLTextAreaElement>("[data-comment-composer]")
-                ?.focus();
+              composer.current?.focus();
             }}
           >
             Reply
@@ -399,9 +394,7 @@ export function LinearDetail({
               <button
                 className="text-button"
                 disabled={busy}
-                onClick={() =>
-                  setCommentEdit({ id: comment.id, text: comment.body })
-                }
+                onClick={() => setCommentEditId(comment.id)}
               >
                 Edit
               </button>
@@ -496,7 +489,7 @@ export function LinearDetail({
         }
       />
       {feedback}
-      <div className="detail-scroll motion-content" ref={root}>
+      <div className="detail-scroll motion-content">
         <div className="issue-heading">
           <div className="issue-kicker">
             <span className="state-pill" style={{ color: issue.state.color }}>
@@ -770,6 +763,7 @@ export function LinearDetail({
                     </span>
                   )}
                   <textarea
+                    ref={composer}
                     data-comment-composer
                     rows={4}
                     aria-label="Linear comment"
