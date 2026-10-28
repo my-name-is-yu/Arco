@@ -142,7 +142,6 @@ async function hoverFeedback(
       expect(after.paint.background).toBe(before.paint.background);
       expect(after.paint.color).toBe(before.paint.color);
     }
-    // Hover may enlarge an action visually, but must never reflow its layout.
     expect(after.layoutWidth).toBe(before.layoutWidth);
     expect(after.layoutHeight).toBe(before.layoutHeight);
     const scaleAfter = options.scaleTarget
@@ -236,7 +235,6 @@ async function auditVisibleActions(
       disabled: element.matches(
         ':disabled, [aria-disabled="true"], [data-disabled], [data-loading]',
       ),
-      // These are the selection and reading surfaces excluded by the agreed scope.
       selection:
         Boolean(
           element.closest(

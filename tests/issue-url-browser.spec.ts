@@ -149,7 +149,6 @@ test("invalid GitHub URLs remain visible without source lookup, and normal title
   }
   const calls = (await events(page, "tool")) as Input[];
   // The initial host result can independently refresh the already-open issue.
-  // Invalid URL targets must never become source lookups.
   expect(
     new Set(
       calls

@@ -227,7 +227,6 @@ function rejectedWrite(error: unknown) {
 }
 
 type Access = "read" | "write";
-// Preserve the two existing API contracts. A version migration is separate from transport reuse.
 export const githubApiPolicies = {
   core: { version: undefined },
   extended: { version: "2026-03-10" },
@@ -327,7 +326,6 @@ export function createGitHubTransport(options: {
     body?: unknown,
     paginate = false,
   ) => send(access, endpoint, method, body, paginate);
-  // Project only explicit reads; detail, comment, and write responses stay intact.
   const read = (endpoint: string, projection: string) =>
     send("read", endpoint, "GET", undefined, false, projection);
   async function query(query: string, variables: Record<string, unknown>) {

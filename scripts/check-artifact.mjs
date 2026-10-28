@@ -58,7 +58,7 @@ const guardedDependencyProbes = [];
             : undefined;
       // Shipped dependencies retain a global-object fallback and a JIT capability
       // probe. No user input reaches these; jitless mode and the browser CSP test
-      // verify neither executes. Keep them visible in the report.
+      // verify neither executes.
       assert(
         node.callee.name === "Function" &&
           node.arguments.length === 1 &&

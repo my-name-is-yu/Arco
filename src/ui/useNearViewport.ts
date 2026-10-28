@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-// Start previews just before they enter the scroll viewport. Unmounting their
-// query consumes its AbortSignal and removes reads still waiting in the queue.
 export function useNearViewport<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [near, setNear] = useState(false);

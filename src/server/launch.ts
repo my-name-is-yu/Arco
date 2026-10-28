@@ -87,7 +87,6 @@ async function readGitRemotes(directory: string): Promise<string[]> {
       )
         return [];
     }
-    // Never propagate subprocess errors: they can contain credential-bearing URLs.
     // eslint-disable-next-line preserve-caught-error -- The cause could expose Git credentials.
     throw new Error("Git remotes could not be read.");
   }

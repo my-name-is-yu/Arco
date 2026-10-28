@@ -8,7 +8,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost, Comment, IssueRef } from "../shared/contracts";
 import { useCommandSession, useSessionState } from "./session-state";
 
-// Shared request bookkeeping; the operation schemas and service semantics remain explicit at each caller.
 export function useGitHubOperation(
   host: ArcoHost,
   scope: readonly (string | number)[],

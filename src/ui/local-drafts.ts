@@ -28,7 +28,7 @@ export class LocalDraftConflict extends Error {
   }
 }
 
-/** Small endpoint client. Unsent input stays in UI state; this owns only disk revisions. */
+/** Unsent input stays in UI state; this owns only disk revisions. */
 export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
   const entries = new Map<string, Entry>();
   const entryFor = (input: DraftKey) => {

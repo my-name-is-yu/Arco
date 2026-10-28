@@ -6,7 +6,6 @@ const sessionKey = 'github:bulk:["public:yu",["yu/arco#42","yu/arco#43"]]';
 describe("GitHub bulk operation identity", () => {
   it("continues an unchanged pending operation after custom-field draft values are removed", () => {
     const current = JSON.stringify([sessionKey, "milestone", "2"]);
-    // Old supported operations could retain drafts from earlier field editing.
     const legacy = JSON.stringify([
       sessionKey,
       "milestone",
