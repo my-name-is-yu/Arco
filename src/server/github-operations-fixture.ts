@@ -871,8 +871,7 @@ export function createFixtureGitHubOperations(options: {
               ok: false,
               errorCode:
                 error instanceof GitHubError ? error.code : "unavailable",
-              needsConfirmation:
-                applied || isGitHubWriteOutcomeError(error),
+              needsConfirmation: applied || isGitHubWriteOutcomeError(error),
               error:
                 error instanceof GitHubError
                   ? error.message
