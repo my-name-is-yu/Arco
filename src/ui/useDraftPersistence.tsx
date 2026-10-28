@@ -2,7 +2,11 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ArcoHost } from "../shared/contracts";
 import type { Draft, DraftKey, DraftRecord } from "../shared/state";
 import { draftKeySchema } from "../shared/state";
-import { createLocalDrafts, LocalDraftConflict } from "./local-drafts";
+import {
+  createLocalDrafts,
+  LocalDraftConflict,
+  sameDraft,
+} from "./local-drafts";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { sessionValue } from "./session-state";
 
@@ -88,10 +92,7 @@ export function draftController(host: ArcoHost) {
         await loading.get(id);
         if (failedLoads.has(id)) {
           const recovered = await store.load(key);
-          if (
-            recovered.draft &&
-            JSON.stringify(recovered.draft) !== JSON.stringify(draft)
-          )
+          if (recovered.draft && !sameDraft(recovered.draft, draft))
             throw new LocalDraftConflict(recovered);
         }
         await store.save(key, draft);

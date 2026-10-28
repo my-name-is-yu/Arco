@@ -86,32 +86,54 @@ describe("host-lifetime draft controller", () => {
     });
   });
 
-  it("keeps edits made after a failed load and compares recovered saved content before writing", async () => {
-    const source = recoveringSource({
-      revision: 3,
-      draft: draft("Saved text"),
-    });
-    source.controls.readFails = true;
-    const controller = draftController(source.host);
-    await controller.load(github);
-    controller.schedule(github, draft("New input"));
-    source.controls.readFails = false;
-    controller.flush();
-    await vi.waitFor(() =>
-      expect(controller.get()[draftStorageId(github)]).toMatchObject({
-        state: "conflict",
-        remote: { revision: 3, draft: draft("Saved text") },
-      }),
-    );
-    expect(controller.value(github)).toEqual(draft("New input"));
-    expect(source.record().draft).toEqual(draft("Saved text"));
-    expect(
-      source.call.mock.calls.every(([name]) => name === "arco_read_draft"),
-    ).toBe(true);
-    await controller.resolve(github, "keep-local", draft("New input"));
-    expect(source.record()).toEqual({ revision: 4, draft: draft("New input") });
-    expect(controller.get()[draftStorageId(github)]?.state).toBe("saved");
-  });
+  it.each([false, true])(
+    "keeps edits made after a failed load and compares recovered saved content before writing (matching content: %s)",
+    async (matching) => {
+      const input: Draft = matching
+        ? {
+            ...draft("Saved text"),
+            baseUpdatedAt: "2026-10-28T00:00:00Z",
+            baseTitle: "Title",
+            baseBody: "Body",
+          }
+        : draft("New input");
+      const source = recoveringSource({
+        revision: 3,
+        draft: matching ? input : draft("Saved text"),
+      });
+      source.controls.readFails = true;
+      const controller = draftController(source.host);
+      await controller.load(github);
+      controller.schedule(github, input);
+      source.controls.readFails = false;
+      controller.flush();
+      await vi.waitFor(() =>
+        expect(controller.get()[draftStorageId(github)]).toMatchObject({
+          state: matching ? "saved" : "conflict",
+        }),
+      );
+      expect(controller.value(github)).toEqual(input);
+      if (matching) {
+        expect(
+          source.call.mock.calls.filter(
+            ([name]) => name === "arco_write_draft",
+          ),
+        ).toHaveLength(1);
+      } else {
+        expect(controller.get()[draftStorageId(github)]?.remote).toEqual({
+          revision: 3,
+          draft: draft("Saved text"),
+        });
+        expect(source.record().draft).toEqual(draft("Saved text"));
+        expect(
+          source.call.mock.calls.every(([name]) => name === "arco_read_draft"),
+        ).toBe(true);
+        await controller.resolve(github, "keep-local", input);
+      }
+      expect(source.record()).toEqual({ revision: 4, draft: input });
+      expect(controller.get()[draftStorageId(github)]?.state).toBe("saved");
+    },
+  );
 
   it("does not replace newer input when a retried load finishes late", async () => {
     const source = recoveringSource({
