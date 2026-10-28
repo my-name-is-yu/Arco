@@ -215,6 +215,7 @@ test("Linear automatic paging has a budget that resets with team, search, filter
     await expect.poll(() => calls.length).toBe(previousCalls + 4);
     await page.waitForTimeout(200);
     const fresh = calls.slice(previousCalls);
+    expect(fresh).toHaveLength(4);
     expect(fresh[0]).not.toHaveProperty("cursor");
     expect(fresh.map((call) => call.cursor)).toEqual([
       undefined,
