@@ -34,6 +34,7 @@ const bundled = await build({
 });
 const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Arco — Mock MCP Apps host</title><style>*{box-sizing:border-box}body{margin:0;background:#121212;color:#ddd;font:12px system-ui}header{display:flex;align-items:center;gap:10px;padding:10px;flex-wrap:wrap}header strong{margin-right:auto}button,input{font:inherit}iframe{display:block;width:100%;height:calc(100vh - 115px);border:0;background:#191919}details{padding:4px 10px}pre{white-space:pre-wrap;max-height:180px;overflow:auto}#harness-error{color:#ffacac}</style><header><strong>MOCK HOST · fixture only · Not the Codex app</strong><span id="bridge-status">connecting</span><button id="mode-inline">Mock inline</button><button id="mode-fullscreen">Mock fullscreen</button><button id="external-update">Mock external update #42</button><button id="linear-external-update">Mock Linear external update YU-42</button><form id="mention-form"><input id="mention-query" aria-label="Mock @Arco search" value="repo:yu/Arco"><button>Mock @Arco search</button></form></header><div id="harness-error" role="alert"></div><details><summary>Mock host events</summary><button id="host-context-burst">Mock presentation updates</button><pre id="events">[]</pre></details><iframe id="arco" title="Arco fixture application"></iframe><script type="module" src="/host.js"></script></html>`;
 const sessions = new Map();
+let shuttingDown = false;
 const toolInput = z.object({
   session: z.string().uuid(),
   name: z.string(),
@@ -62,6 +63,8 @@ const server = createServer(async (request, response) => {
       return json(response, { error: "Same origin requests only" }, 403);
     const path = new URL(request.url ?? "/", origin).pathname;
     if (request.method === "POST" && path === "/session") {
+      if (shuttingDown)
+        return json(response, { error: "Mock host is shutting down" }, 503);
       if (sessions.size >= 256)
         return json(
           response,
@@ -76,27 +79,33 @@ const server = createServer(async (request, response) => {
         name: "Arco browser fixture host",
         version: "0.1.0",
       });
-      await client.connect(
-        new StdioClientTransport({
-          command: process.execPath,
-          args: [fixtureServer],
-          stderr: "pipe",
-        }),
-      );
-      if (
-        (
-          await client.callTool({
-            name: "arco_connection",
-            arguments: {},
-          })
-        ).structuredContent?.mode !== "fixture"
-      ) {
-        await client.close();
-        throw new Error("Mock host refuses a non-fixture MCP");
+      let retained = false;
+      try {
+        await client.connect(
+          new StdioClientTransport({
+            command: process.execPath,
+            args: [fixtureServer],
+            stderr: "pipe",
+          }),
+        );
+        if (
+          (
+            await client.callTool({
+              name: "arco_connection",
+              arguments: {},
+            })
+          ).structuredContent?.mode !== "fixture"
+        )
+          throw new Error("Mock host refuses a non-fixture MCP");
+        if (shuttingDown)
+          return json(response, { error: "Mock host is shutting down" }, 503);
+        const session = randomUUID();
+        sessions.set(session, client);
+        retained = true;
+        return json(response, { session });
+      } finally {
+        if (!retained) await client.close();
       }
-      const session = randomUUID();
-      sessions.set(session, client);
-      return json(response, { session });
     }
     if (request.method === "DELETE" && path.startsWith("/session/")) {
       const session = z
@@ -182,6 +191,7 @@ server.listen(port, "127.0.0.1", () =>
   console.log(`Arco mock host (fixture only): ${origin}`),
 );
 async function shutdown() {
+  shuttingDown = true;
   server.close();
   await Promise.allSettled(
     [...sessions.values()].map((client) => client.close()),
