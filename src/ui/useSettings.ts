@@ -10,7 +10,6 @@ import {
   type Settings,
   type SettingsRecord,
 } from "../shared/state";
-import { enqueueSettingsWrite } from "./settings-queue";
 import { sessionValue } from "./session-state";
 import { ToolCallError } from "../shared/errors";
 type Patch = (latest: Settings) => Partial<Settings>;
@@ -30,6 +29,7 @@ export function settingsController(host: ArcoHost, client: QueryClient) {
       pending: false,
     };
     let writes = 0;
+    let queue = Promise.resolve();
     const failed = new Map<string, { build: Patch; error: string }>();
     const versions = new Map<string, number>();
     const listeners = new Set<() => void>();
@@ -56,7 +56,8 @@ export function settingsController(host: ArcoHost, client: QueryClient) {
     const write = (key: string, build: Patch, version: number) => {
       writes += 1;
       publishStatus();
-      void enqueueSettingsWrite(host, async () => {
+      queue = queue.catch(() => undefined);
+      queue = queue.then(async () => {
         try {
           const latest = readSettings(
             await host.call<SettingsRecord>("arco_get_settings", {}),
