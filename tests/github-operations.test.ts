@@ -546,9 +546,12 @@ describe("explicit additional GitHub operations", () => {
       commentId: 101,
       body: "@file\n$(never)",
     });
-    expect("changedComment" in edited && edited.changedComment).toMatchObject({
+    expect("changedComment" in edited && edited.changedComment).toEqual({
+      id: "IC_101",
       databaseId: 101,
       body: "@file\n$(never)",
+      author: "fixture-user",
+      url: `https://github.com/${FIXTURE_REPO}/issues/42#issuecomment-101`,
       updatedAt: "2026-10-22T01:00:00Z",
     });
     expect(writes()).toHaveLength(1);
