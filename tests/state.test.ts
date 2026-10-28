@@ -89,6 +89,29 @@ describe("local settings and drafts", () => {
     ).rejects.toBeInstanceOf(StateConflict);
     expect((await store.readDraft(key)).draft).toBeNull();
   });
+  it("allows only one concurrent draft write or deletion at the same revision", async () => {
+    const dir = await temporary();
+    const key: DraftKey = {
+      source: "github",
+      repo: "yu/Arco",
+      issue: "42",
+      ownerId: "owner-a",
+    };
+    const draft = { title: "Title", body: "New input", comment: "" };
+    const outcomes = await Promise.allSettled([
+      createStateStore(dir).writeDraft({ key, expectedRevision: 0, draft }),
+      createStateStore(dir).deleteDraft({ key, expectedRevision: 0 }),
+    ]);
+    const saved = outcomes.filter((outcome) => outcome.status === "fulfilled");
+    const rejected = outcomes.filter(
+      (outcome) => outcome.status === "rejected",
+    );
+    expect(saved).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]!.reason).toBeInstanceOf(StateConflict);
+    expect(saved[0]!.value.revision).toBe(1);
+    expect(await createStateStore(dir).readDraft(key)).toEqual(saved[0]!.value);
+  });
   it("persists bounded account filters separately and preserves repositories and revision conflicts", async () => {
     const dir = await temporary();
     const store = createStateStore(dir);

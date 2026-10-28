@@ -146,6 +146,20 @@ export function createStateStore(directory = stateDirectory()) {
   const emptyDraft: DraftRecord = { revision: 0, draft: null };
   const readDraft = (key: DraftKey | LegacyDraftKey) =>
     read(draftFile(key), draftRecordSchema, emptyDraft, "draft");
+  function writeDraftRecord(
+    key: DraftKey,
+    expectedRevision: number,
+    draft: DraftRecord["draft"],
+  ) {
+    const file = draftFile(key);
+    return locked(file, async () => {
+      const current = await readDraft(key);
+      if (current.revision !== expectedRevision) throw new StateConflict();
+      const updated = { revision: current.revision + 1, draft };
+      await writeAtomic(file, updated);
+      return updated;
+    });
+  }
   return {
     async readAnnotationSnapshot(id: string) {
       const key = annotationSnapshotIdSchema.parse(id);
@@ -224,25 +238,11 @@ export function createStateStore(directory = stateDirectory()) {
       }),
     async writeDraft(input: z.input<typeof draftWriteSchema>) {
       const data = draftWriteSchema.parse(input);
-      return locked(draftFile(data.key), async () => {
-        const current = await readDraft(data.key);
-        if (current.revision !== data.expectedRevision)
-          throw new StateConflict();
-        const updated = { revision: current.revision + 1, draft: data.draft };
-        await writeAtomic(draftFile(data.key), updated);
-        return updated;
-      });
+      return writeDraftRecord(data.key, data.expectedRevision, data.draft);
     },
     async deleteDraft(input: z.input<typeof draftDeleteSchema>) {
       const data = draftDeleteSchema.parse(input);
-      return locked(draftFile(data.key), async () => {
-        const current = await readDraft(data.key);
-        if (current.revision !== data.expectedRevision)
-          throw new StateConflict();
-        const updated = { revision: current.revision + 1, draft: null };
-        await writeAtomic(draftFile(data.key), updated);
-        return updated;
-      });
+      return writeDraftRecord(data.key, data.expectedRevision, null);
     },
   };
 }
