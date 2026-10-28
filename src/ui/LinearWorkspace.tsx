@@ -295,22 +295,6 @@ export function LinearWorkspace({
     setLocalFilters(filtersRef.current);
     if (scope) settings.saveFilter(scope, next);
   };
-  const setFilters = (
-    update: (
-      current: Omit<LinearFilter, "query">,
-    ) => Omit<LinearFilter, "query">,
-  ) => {
-    const current = filtersRef.current[scopeId] ?? currentFilter;
-    updateFilter(
-      update({
-        stateId: current.stateId,
-        assigneeId: current.assigneeId,
-        labelId: current.labelId,
-        projectId: current.projectId,
-        order: current.order,
-      }),
-    );
-  };
   const metadata = useLinearMetadata(
     host,
     scope,
@@ -1124,10 +1108,7 @@ export function LinearWorkspace({
                       ]}
                       onChange={(value) => {
                         capturePosition();
-                        setFilters((previous) => ({
-                          ...previous,
-                          stateId: value,
-                        }));
+                        updateFilter({ stateId: value });
                       }}
                     />
                   </label>
@@ -1195,10 +1176,7 @@ export function LinearWorkspace({
                           ]}
                           onChange={(value) => {
                             capturePosition();
-                            setFilters((previous) => ({
-                              ...previous,
-                              [key]: value,
-                            }));
+                            updateFilter({ [key]: value });
                           }}
                         />
                       </label>
@@ -1215,11 +1193,10 @@ export function LinearWorkspace({
                       ]}
                       onChange={(value) => {
                         capturePosition();
-                        setFilters((previous) => ({
-                          ...previous,
+                        updateFilter({
                           order:
                             value === "createdAt" ? "createdAt" : "updatedAt",
-                        }));
+                        });
                       }}
                     />
                   </label>
