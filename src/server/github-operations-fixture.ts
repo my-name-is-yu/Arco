@@ -23,7 +23,10 @@ import {
   checkFieldValue,
   type createGitHubOperations,
 } from "./github-operations";
-import { createGitHubWriteGuard } from "./github/transport";
+import {
+  createGitHubWriteGuard,
+  isGitHubWriteOutcomeError,
+} from "./github/transport";
 
 interface Membership {
   projectId: string;
@@ -868,12 +871,7 @@ export function createFixtureGitHubOperations(options: {
               ok: false,
               errorCode:
                 error instanceof GitHubError ? error.code : "unavailable",
-              needsConfirmation:
-                applied ||
-                (error instanceof GitHubError &&
-                  ["refresh", "partial", "not-applied", "uncertain"].includes(
-                    error.code,
-                  )),
+              needsConfirmation: applied || isGitHubWriteOutcomeError(error),
               error:
                 error instanceof GitHubError
                   ? error.message

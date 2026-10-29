@@ -8,7 +8,11 @@ import {
   type Input,
 } from "./operations-context";
 import type { createProjectsOperations } from "./projects";
-import { createGitHubWriteGuard, GitHubError } from "./transport";
+import {
+  createGitHubWriteGuard,
+  GitHubError,
+  isGitHubWriteOutcomeError,
+} from "./transport";
 import { getWriteProgress } from "../write-guard";
 export function createBulkOperations(
   context: GitHubOperationContext,
@@ -115,13 +119,7 @@ export function createBulkOperations(
                   needsConfirmation:
                     progress.confirmed ||
                     progress.uncertain ||
-                    (error instanceof GitHubError &&
-                      [
-                        "refresh",
-                        "partial",
-                        "not-applied",
-                        "uncertain",
-                      ].includes(error.code)),
+                    isGitHubWriteOutcomeError(error),
                   error:
                     error instanceof GitHubError
                       ? error.message

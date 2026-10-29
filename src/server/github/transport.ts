@@ -15,6 +15,13 @@ export class GitHubError extends OperationError {
   }
 }
 
+export function isGitHubWriteOutcomeError(error: unknown) {
+  return (
+    error instanceof GitHubError &&
+    ["refresh", "partial", "not-applied", "uncertain"].includes(error.code)
+  );
+}
+
 export function commandError(stderr: string): GitHubError {
   if (/HTTP 429|(?:secondary |API )?rate limit|abuse detection/i.test(stderr))
     return new GitHubError(
@@ -195,10 +202,7 @@ export function createGitHubWriteGuard<T>(readScope: () => Promise<string>) {
         const progress = getWriteProgress();
         if (
           (!progress.confirmed && !progress.uncertain) ||
-          (error instanceof GitHubError &&
-            ["refresh", "partial", "not-applied", "uncertain"].includes(
-              error.code,
-            ))
+          isGitHubWriteOutcomeError(error)
         )
           throw error;
         throw new GitHubError(
