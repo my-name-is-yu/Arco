@@ -859,18 +859,18 @@ describe("reads and explicit fixtures", () => {
       credentialIdentity: async () => "test-credential",
       run,
     });
-    expect(await service.get(ref)).toMatchObject({
+    const initial = await service.get(ref);
+    expect(initial).toMatchObject({
       commentsHasMore: true,
       commentsNextPage: 2,
     });
-    expect((await service.get(ref)).comments).toHaveLength(30);
-    expect(await service.comments({ ...ref, page: 2 })).toMatchObject({
+    expect(initial.comments).toHaveLength(30);
+    const secondPage = await service.comments({ ...ref, page: 2 });
+    expect(secondPage).toMatchObject({
       hasMore: true,
       nextPage: 3,
     });
-    expect(
-      (await service.comments({ ...ref, page: 2 })).comments[0].databaseId,
-    ).toBe(31);
+    expect(secondPage.comments[0].databaseId).toBe(31);
     const saved = await service.comment({
       ...ref,
       requestId: "comment-after-one-hundred",
