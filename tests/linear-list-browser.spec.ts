@@ -216,7 +216,6 @@ test("Linear automatic paging has a budget that resets with team, search, filter
     await page.waitForTimeout(200);
     const fresh = calls.slice(previousCalls);
     expect(fresh).toHaveLength(4);
-    expect(fresh[0]).toMatchObject(expected);
     expect(fresh[0]).not.toHaveProperty("cursor");
     expect(fresh.map((call) => call.cursor)).toEqual([
       undefined,
@@ -224,13 +223,7 @@ test("Linear automatic paging has a budget that resets with team, search, filter
       nextCursor(3),
       nextCursor(4),
     ]);
-    expect(
-      fresh.every((call) =>
-        Object.entries(expected).every(
-          ([key, value]) => call[key as keyof ListCall] === value,
-        ),
-      ),
-    ).toBe(true);
+    for (const call of fresh) expect(call).toMatchObject(expected);
     previousCalls += 4;
   }
   await freshScope({
