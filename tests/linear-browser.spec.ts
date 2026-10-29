@@ -115,6 +115,7 @@ test("Linear comment pages load explicitly and retain drafts and an acknowledged
     .first()
     .getByRole("button", { name: "Reply", exact: true })
     .click();
+  await expect(composer).toBeFocused();
   await composer.fill("A newly acknowledged reply beyond the loaded pages");
   await ui.getByRole("button", { name: "Comment", exact: true }).click();
   const reply = ui.locator(
