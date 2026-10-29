@@ -126,7 +126,6 @@ function linePosition(node: Record<string, unknown>): number | undefined {
 }
 
 type MarkdownContextValue = {
-  body: string;
   onOpen: (url: string) => void;
   onToggleTask?: (line: number, checked: boolean) => void;
   busy?: boolean;
@@ -203,10 +202,11 @@ export function IssueMarkdown({
   onToggleTask,
   busy = false,
   image,
-}: MarkdownContextValue) {
-  const tasks = useMemo(() => markdownTasks(body), [body]);
+}: MarkdownContextValue & { body: string }) {
+  const taskBody = onToggleTask ? body : "";
+  const tasks = useMemo(() => markdownTasks(taskBody), [taskBody]);
   return (
-    <MarkdownContext value={{ body, onOpen, onToggleTask, busy, image, tasks }}>
+    <MarkdownContext value={{ onOpen, onToggleTask, busy, image, tasks }}>
       <Markdown
         className="issue-markdown"
         includeMath={false}
