@@ -13,6 +13,19 @@ function readDraftRecord(value: unknown) {
   return parsed.data;
 }
 
+export function sameDraft(left: Draft | null, right: Draft | null) {
+  if (left === null || right === null) return left === right;
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every((key) => {
+    const leftValue = left[key as keyof Draft];
+    const rightValue = right[key as keyof Draft];
+    return Array.isArray(leftValue) && Array.isArray(rightValue)
+      ? leftValue.length === rightValue.length &&
+          leftValue.every((value, index) => value === rightValue[index])
+      : leftValue === rightValue;
+  });
+}
+
 type Entry = {
   key: DraftKey;
   record: ReturnType<typeof readDraftRecord>;
@@ -85,7 +98,7 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
       } catch (error) {
         // A response can be lost after the atomic write. Read, never replay blindly.
         const latest = await read(entry).catch(() => null);
-        if (latest && JSON.stringify(latest.draft) === JSON.stringify(draft)) {
+        if (latest && sameDraft(latest.draft, draft)) {
           entry.record = latest;
           return latest;
         }

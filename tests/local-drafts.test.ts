@@ -13,10 +13,14 @@ const draft = (body: string): Draft => ({ title: "Title", body, comment: "" });
 function endpoint() {
   let record: DraftRecord = { revision: 0, draft: null };
   let writes = 0;
+  let reads = 0;
   let loseResponse = false;
   const host: Pick<ArcoHost, "call"> = {
     async call<T>(name: string, args: Record<string, unknown>): Promise<T> {
-      if (name === "arco_read_draft") return structuredClone(record) as T;
+      if (name === "arco_read_draft") {
+        reads++;
+        return structuredClone(record) as T;
+      }
       if (args.expectedRevision !== record.revision)
         throw new Error("revision conflict");
       writes++;
@@ -35,6 +39,7 @@ function endpoint() {
     host,
     record: () => record,
     writes: () => writes,
+    reads: () => reads,
     loseNextResponse() {
       loseResponse = true;
     },
@@ -89,15 +94,20 @@ describe("UI draft revisions across independent views", () => {
     const server = endpoint();
     const first = createLocalDrafts(server.host);
     const second = createLocalDrafts(server.host);
+    const firstDraft = {
+      ...draft("Shared text"),
+      githubLabels: ["first", "second"],
+    };
+    const secondDraft = { ...firstDraft, githubLabels: ["second", "first"] };
     await Promise.all([first.load(key), second.load(key)]);
-    await first.save(key, draft("first view"));
-    await expect(second.save(key, draft("second view"))).rejects.toBeInstanceOf(
+    await first.save(key, firstDraft);
+    await expect(second.save(key, secondDraft)).rejects.toBeInstanceOf(
       LocalDraftConflict,
     );
     await expect(second.save(key, draft("more typing"))).rejects.toBeInstanceOf(
       LocalDraftConflict,
     );
-    expect(server.record().draft?.body).toBe("first view");
+    expect(server.record().draft).toEqual(firstDraft);
     await second.resolve(key, "keep-local", draft("second explicit choice"));
     expect(server.record().draft?.body).toBe("second explicit choice");
   });
@@ -105,9 +115,24 @@ describe("UI draft revisions across independent views", () => {
     const server = endpoint();
     server.loseNextResponse();
     const local = createLocalDrafts(server.host);
-    const result = await local.save(key, draft("saved once"));
+    const input: Draft = {
+      ...draft("saved once"),
+      baseUpdatedAt: "2026-10-28T00:00:00Z",
+      baseTitle: "Original title",
+      baseBody: "Original body",
+      githubLabels: [],
+      githubAssignees: ["first", "second"],
+      githubChildRepo: "",
+      githubIssueTypeName: "Bug",
+      linearTemplateId: "template",
+      linearDescriptionTouched: false,
+      linearReplyTo: undefined,
+    };
+    const result = await local.save(key, input);
     expect(result.revision).toBe(1);
+    expect(result.draft).toEqual(input);
     expect(server.writes()).toBe(1);
+    expect(server.reads()).toBe(2);
   });
   it("serializes rapid input snapshots and saves the newest text", async () => {
     const server = endpoint();
