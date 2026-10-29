@@ -141,7 +141,7 @@ export function createArcoServer(backend: ArcoBackend) {
   const server = new McpServer(
     {
       name: "Arco",
-      version: "0.2.0",
+      version: "0.3.0",
       icons: [
         {
           src: `data:image/svg+xml,${encodeURIComponent(iconLight)}`,
