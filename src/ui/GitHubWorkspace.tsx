@@ -503,14 +503,10 @@ export function GitHubWorkspace({
     commands.lock.current = true;
     commands.setBusy(true);
     setNotice(null);
-    const operationKey = JSON.stringify([name, args]);
-    const operationId =
-      commands.requests.get(operationKey) ?? crypto.randomUUID();
-    commands.requests.set(operationKey, operationId);
     try {
       const result = await mutation.mutateAsync({
         name,
-        args: { ...args, requestId: operationId },
+        args: { ...args, requestId: crypto.randomUUID() },
       });
       if (isGitHubAuthScope(queryClient, authScope)) {
         after?.(result);

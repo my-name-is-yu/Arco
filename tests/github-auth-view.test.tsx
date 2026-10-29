@@ -57,16 +57,28 @@ describe("GitHub view authentication lifetime", () => {
   it("rejects an old view before dispatch when the same account has a new generation", async () => {
     const client = clientFor(scopeA);
     const dispatch = vi.fn<ArcoHost["call"]>();
-    const call = captureCall(
-      client,
-      { call: dispatch } as unknown as ArcoHost,
-      scopeA,
-    );
+    const host = { call: dispatch } as unknown as ArcoHost;
+    const call = captureCall(client, host, scopeA);
+    const input = {
+      repo: issue.repo,
+      number: issue.number,
+      patch: { title: "Rejected stale-view change" },
+    };
+    const requests = getCommandRequests(host, "github");
     changeScope(client, scopeB);
     await expect(
-      call("arco_get_issue", { repo: issue.repo, number: issue.number }),
+      call("arco_update_issue", { ...input, requestId: "never-dispatched" }),
     ).rejects.toMatchObject({ code: "auth" });
     expect(dispatch).not.toHaveBeenCalled();
+    expect(requests.size).toBe(0);
+
+    const key = JSON.stringify(["arco_update_issue", input]);
+    requests.set(key, "previous-unknown-request");
+    await expect(
+      call("arco_update_issue", { ...input, requestId: "new-candidate" }),
+    ).rejects.toMatchObject({ code: "auth" });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect([...requests]).toEqual([[key, "previous-unknown-request"]]);
   });
 
   it("settles a definite mutation acknowledgement after the generation changes so a deliberate repeat uses a new ID", async () => {

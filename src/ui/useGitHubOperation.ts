@@ -31,9 +31,6 @@ export function useGitHubOperation(
     commands.lock.current = true;
     commands.setBusy(true);
     setError(null);
-    const key = JSON.stringify([name, args]);
-    const requestId = commands.requests.get(key) ?? crypto.randomUUID();
-    commands.requests.set(key, requestId);
     const reaction =
       name === "arco_add_reaction" || name === "arco_remove_reaction";
     const reactionKey = [
@@ -64,7 +61,10 @@ export function useGitHubOperation(
       ]);
     };
     try {
-      const result = await call<T>(name, { ...args, requestId });
+      const result = await call<T>(name, {
+        ...args,
+        requestId: crypto.randomUUID(),
+      });
       if (
         issue &&
         (name === "arco_edit_comment" || name === "arco_delete_comment")
