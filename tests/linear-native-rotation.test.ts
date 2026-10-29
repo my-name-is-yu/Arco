@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   createCredentialStore,
   type CredentialStore,
+  type LinearCredential,
 } from "../src/server/linear/auth";
 
 async function rotateNativeCredential(store: CredentialStore) {
@@ -15,7 +16,6 @@ async function rotateNativeCredential(store: CredentialStore) {
     join(process.cwd(), "test-results", "linear-native-rotation-"),
   );
   const connectionId = `arco-native-test-${randomUUID()}`;
-  let stored = false;
   try {
     await store.write(connectionId, {
       clientId: "fake-test-client",
@@ -24,7 +24,6 @@ async function rotateNativeCredential(store: CredentialStore) {
       expiresAt: 0,
       scopes: ["read", "write"],
     });
-    stored = true;
     const { build } = await import("esbuild");
     const worker = join(directory, "worker.mjs");
     await build({
@@ -54,18 +53,26 @@ async function rotateNativeCredential(store: CredentialStore) {
     });
     const record = join(directory, "refresh-count");
     const run = promisify(execFile);
-    await Promise.all([
+    const workers = [
       run(process.execPath, [worker, directory, record, connectionId]),
       run(process.execPath, [worker, directory, record, connectionId]),
-    ]);
+    ];
+    try {
+      await Promise.all(workers);
+    } finally {
+      await Promise.allSettled(workers);
+    }
     expect(await readFile(record, "utf8")).toBe("refresh\n");
     expect(await store.read(connectionId)).toMatchObject({
       accessToken: "fake-new-access",
       refreshToken: "fake-new-refresh",
     });
   } finally {
-    if (stored) await store.remove(connectionId);
-    await rm(directory, { recursive: true, force: true });
+    try {
+      await store.remove(connectionId);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 }
 
@@ -76,13 +83,22 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
   20_000,
 );
 
-it("fails native verification when credential storage unexpectedly rejects a write", async () => {
+it("cleans up a fake credential when storage saves it and then rejects", async () => {
   const failure = new Error("Unexpected credential-store failure");
+  const saved = new Map<string, LinearCredential>();
   const store: CredentialStore = {
     read: vi.fn(),
-    write: vi.fn().mockRejectedValue(failure),
-    remove: vi.fn(),
+    write: vi.fn(async (id, value) => {
+      saved.set(id, value);
+      throw failure;
+    }),
+    remove: vi.fn(async (id) => {
+      saved.delete(id);
+    }),
   };
   await expect(rotateNativeCredential(store)).rejects.toBe(failure);
-  expect(store.remove).not.toHaveBeenCalled();
+  expect(store.remove).toHaveBeenCalledExactlyOnceWith(
+    vi.mocked(store.write).mock.calls[0][0],
+  );
+  expect(saved.size).toBe(0);
 });
