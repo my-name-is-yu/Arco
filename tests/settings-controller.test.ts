@@ -44,6 +44,59 @@ const filter = {
 };
 
 describe("settings recovery", () => {
+  it("serializes settings writes per host across a source change", async () => {
+    let saved: SettingsRecord = {
+      revision: 0,
+      settings: structuredClone(defaultSettings),
+    };
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const call = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      if (name === "arco_get_settings") return structuredClone(saved);
+      if (saved.revision === 0) await pending;
+      if (args.expectedRevision !== saved.revision)
+        throw new Error("Stale settings revision");
+      saved = {
+        revision: saved.revision + 1,
+        settings: settingsSchema.parse({
+          ...saved.settings,
+          ...(args.patch as object),
+        }),
+      };
+      return structuredClone(saved);
+    });
+    const host = { call } as unknown as ArcoHost;
+    const client = new QueryClient();
+    const outgoing = settingsController(host, client);
+    const incoming = settingsController(host, client);
+    outgoing.schedule("github:yu/Arco", (latest) => ({
+      githubFilters: { ...latest.githubFilters, "yu/Arco": filter },
+    }));
+    outgoing.flush();
+    incoming.update("source", () => ({ activeSource: "linear" }));
+    try {
+      await vi.waitFor(() => expect(call).toHaveBeenCalledTimes(2));
+      expect(incoming.get().pending).toBe(true);
+      const other = fixture();
+      other.recover();
+      other.controller.update("source", () => ({ activeSource: "linear" }));
+      await vi.waitFor(() =>
+        expect(other.controller.get().pending).toBe(false),
+      );
+      expect(other.saved().settings.activeSource).toBe("linear");
+    } finally {
+      release();
+    }
+    await vi.waitFor(() =>
+      expect(incoming.get()).toEqual({ pending: false, error: null }),
+    );
+    expect(saved.revision).toBe(2);
+    expect(saved.settings.githubFilters["yu/Arco"]).toEqual(filter);
+    expect(saved.settings.activeSource).toBe("linear");
+  });
+
   it("rejects malformed saved settings before writing and keeps the preference for explicit retry", async () => {
     let malformed = true;
     const record = { revision: 0, settings: structuredClone(defaultSettings) };
