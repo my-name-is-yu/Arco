@@ -125,7 +125,10 @@ export function settingsController(host: ArcoHost, client: QueryClient) {
     };
   });
 }
-export function useSettings(host: ArcoHost) {
+export function useSettings(
+  host: ArcoHost,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   const client = useQueryClient();
   const controller = useMemo(
     () => settingsController(host, client),
@@ -134,6 +137,7 @@ export function useSettings(host: ArcoHost) {
   const status = useSyncExternalStore(controller.subscribe, controller.get);
   const query = useQuery({
     queryKey: ["settings"],
+    enabled,
     queryFn: async () =>
       readSettings(await host.call<SettingsRecord>("arco_get_settings", {})),
   });

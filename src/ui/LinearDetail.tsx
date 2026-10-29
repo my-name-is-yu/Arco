@@ -44,6 +44,7 @@ import type { Draft, DraftKey } from "../shared/state";
 import { isSavedReceipt, type LinearRun } from "./linear-run";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { useLinearComments } from "./linear-comments";
+import { useDetailReadingPosition } from "./useListInteraction";
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const ref = (issue: LinearIssue) => ({
@@ -192,6 +193,10 @@ export function LinearDetail({
   run: LinearRun;
   onNotice: (message: string, kind?: "error" | "info") => void;
 }) {
+  const readingPosition = useDetailReadingPosition(
+    host,
+    `${ownerId}:${issue.connectionId}:${issue.url}`,
+  );
   const discussion = useLinearComments(host, issue);
   const commentsById = new Map<string, LinearComment>();
   for (const comment of discussion.comments)
@@ -489,7 +494,13 @@ export function LinearDetail({
         }
       />
       {feedback}
-      <div className="detail-scroll motion-content">
+      <div
+        className="detail-scroll motion-content"
+        {...readingPosition}
+        tabIndex={0}
+        role="region"
+        aria-label="Issue content"
+      >
         <div className="issue-heading">
           <div className="issue-kicker">
             <span className="state-pill" style={{ color: issue.state.color }}>

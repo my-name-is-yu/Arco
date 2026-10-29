@@ -3,6 +3,12 @@ import {
   ArrowLeft,
   DotsHorizontalMoreMenu,
 } from "@openai/apps-sdk-ui/components/Icon";
+import {
+  IssueNavigationButtons,
+  ShortcutMenuItems,
+  useShortcuts,
+} from "./keyboard-shortcuts";
+import { ShortcutTooltip } from "./ShortcutUI";
 
 export function closeDetailUtility(button: HTMLElement) {
   const menu = button.closest<HTMLDetailsElement>("details.detail-utilities");
@@ -26,20 +32,28 @@ export function DetailToolbar({
   backLabel: string;
   onBack: () => void;
 }) {
+  const shortcuts = useShortcuts();
   return (
     <header className="detail-toolbar">
       <div className="toolbar-left">
-        <button
-          className="icon-button mobile-back"
-          aria-label={backLabel}
-          onClick={onBack}
+        <ShortcutTooltip
+          label={backLabel}
+          keys={shortcuts?.enabled ? ["G", "I"] : undefined}
+          sequence
         >
-          <ArrowLeft aria-hidden="true" />
-        </button>
+          <button
+            className="icon-button mobile-back"
+            aria-label={backLabel}
+            onClick={onBack}
+          >
+            <ArrowLeft aria-hidden="true" />
+          </button>
+        </ShortcutTooltip>
         <span className="toolbar-target" title={target}>
           {target}
         </span>
         {shared}
+        <IssueNavigationButtons />
       </div>
       <div className="detail-primary-actions">{primary}</div>
       <details
@@ -61,7 +75,10 @@ export function DetailToolbar({
         <summary aria-label="Issue actions" title="Issue actions">
           <DotsHorizontalMoreMenu aria-hidden="true" />
         </summary>
-        <div className="detail-utility-menu">{utilities}</div>
+        <div className="detail-utility-menu">
+          {utilities}
+          <ShortcutMenuItems />
+        </div>
       </details>
     </header>
   );

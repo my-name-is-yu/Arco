@@ -26,6 +26,7 @@ export const settingsSchema = z
       .refine((value) => Object.keys(value).length <= SETTINGS_HISTORY_LIMIT),
     githubAccountFilter: githubAccountFilterSchema,
     activeSource: z.enum(["github", "linear"]),
+    characterShortcutsEnabled: z.boolean(),
     linearTeams: z
       .array(
         z.object({
@@ -69,7 +70,10 @@ export const settingsSchema = z
 export const settingsRecordSchema = z
   .object({
     revision: z.number().int().nonnegative(),
-    settings: settingsSchema,
+    settings: settingsSchema.extend({
+      characterShortcutsEnabled:
+        settingsSchema.shape.characterShortcutsEnabled.default(true),
+    }),
   })
   .strict();
 export const settingsUpdateSchema = z
@@ -157,6 +161,7 @@ export const defaultSettings: Settings = {
   projectGithubRepos: {},
   githubAccountFilter: defaultGithubAccountFilter,
   activeSource: "github",
+  characterShortcutsEnabled: true,
   linearTeams: [],
   activeLinearTeam: null,
   githubFilters: {},

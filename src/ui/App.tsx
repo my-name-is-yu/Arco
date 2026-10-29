@@ -16,6 +16,7 @@ import { useSettings } from "./useSettings";
 import { InlineIssueTabs, presentationTarget } from "./InlineIssueTabs";
 import { seedPresentationCache } from "./presentation-cache";
 import { GitHubAuthBoundary } from "./github-auth";
+import { KeyboardShortcutsProvider } from "./keyboard-shortcuts";
 function Workspace({
   host,
   launch,
@@ -149,8 +150,10 @@ export function App({ host }: { host: ArcoHost }) {
   return (
     <QueryClientProvider client={client}>
       <HostProvider host={host}>
-        <LaunchWorkspace host={host} />
-        <SelectionShare host={host} />
+        <KeyboardShortcutsProvider host={host}>
+          <LaunchWorkspace host={host} />
+          <SelectionShare host={host} />
+        </KeyboardShortcutsProvider>
       </HostProvider>
     </QueryClientProvider>
   );

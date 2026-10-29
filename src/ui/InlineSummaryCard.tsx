@@ -18,6 +18,10 @@ import { CopyValue } from "./CopyValue";
 import { closeDetailUtility } from "./DetailToolbar";
 import { useSessionRef } from "./session-state";
 import { GitHubAuthScopeContext } from "./github-auth";
+import {
+  IssueNavigationButtons,
+  ShortcutMenuItems,
+} from "./keyboard-shortcuts";
 export function InlineSummaryCard({
   issue,
   host,
@@ -91,6 +95,7 @@ export function InlineSummaryCard({
       <div className="inline-card-top">
         <span className="muted">{identifier}</span>
         <div className="inline-card-actions">
+          <IssueNavigationButtons />
           <Button color="secondary" variant="ghost" size="sm" onClick={onOpen}>
             Open details <ArrowUpRight aria-hidden="true" />
           </Button>
@@ -137,6 +142,7 @@ export function InlineSummaryCard({
                   ? "Open on GitHub"
                   : "Open in Linear"}
               </button>
+              <ShortcutMenuItems />
             </div>
           </details>
         </div>

@@ -7,6 +7,7 @@ import {
 import { Plus } from "@openai/apps-sdk-ui/components/Icon";
 import { SingleSelect } from "./SingleSelect";
 import { GitHubAuthScopeContext } from "./github-auth";
+import { ShortcutHelpButton } from "./keyboard-shortcuts";
 export function WorkspaceLayout({
   source,
   detailOpen,
@@ -51,6 +52,7 @@ export function WorkspaceIssueList({
       <div
         className={`issue-list${refreshing ? " refreshing" : ""}`}
         ref={ref}
+        tabIndex={-1}
         aria-busy={busy}
         onScroll={onScroll}
       >
@@ -96,6 +98,7 @@ export function WorkspaceHeader({
         />
       </div>
       <div>
+        <ShortcutHelpButton />
         <button
           type="button"
           className="icon-button"

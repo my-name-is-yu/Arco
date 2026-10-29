@@ -84,6 +84,7 @@ import {
 import { useListScroll, useListKeyboard } from "./useListInteraction";
 import { useIssueListContinuation } from "./useIssueListContinuation";
 import { useDebouncedSearch } from "./useDebouncedSearch";
+import { useShortcuts } from "./keyboard-shortcuts";
 
 const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
 const errorText = (error: unknown) =>
@@ -482,7 +483,8 @@ export function GitHubWorkspace({
     mode,
     ready: issues.isSuccess,
   });
-  useListKeyboard({
+  const shortcuts = useShortcuts();
+  const { goToList: focusIssueList, selectIssue } = useListKeyboard({
     rows,
     activeKey: activeRef ? refKey(activeRef) : null,
     keyForRow: refKey,
@@ -491,7 +493,14 @@ export function GitHubWorkspace({
       setShowDetail(true);
     },
     onClose: () => setShowDetail(false),
+    onGoToList: () => {
+      if (mode === "inline") openRetainedDetails();
+      setShowDetail(false);
+    },
+    mode,
+    listRef,
     searchRef,
+    searchEnabled: Boolean(repo),
   });
 
   const save = async (
@@ -1147,7 +1156,7 @@ export function GitHubWorkspace({
                   : "Paste a GitHub issue URL…"
               }
             />
-            {repo && <kbd>/</kbd>}
+            {repo && shortcuts?.enabled && <kbd>/</kbd>}
           </div>
         )}
         {searchError && (
@@ -1361,10 +1370,7 @@ export function GitHubWorkspace({
                 selected={Boolean(
                   activeRef && refKey(issue) === refKey(activeRef),
                 )}
-                onSelect={() => {
-                  setSelected({ repo: issue.repo, number: issue.number });
-                  setShowDetail(true);
-                }}
+                onSelect={() => selectIssue(issue)}
               />
             </div>
           ))}
@@ -1415,6 +1421,7 @@ export function GitHubWorkspace({
       </aside>
       <section
         className={`detail-pane${detail.isFetching && !detail.isPending ? " refreshing" : ""}`}
+        tabIndex={-1}
         aria-label="Issue details"
         aria-busy={detail.isFetching || detailLoading}
         data-arco-issue={
@@ -1445,9 +1452,6 @@ export function GitHubWorkspace({
               <br />
               You can review the target before sharing it with a chat.
             </p>
-            <span className="keyboard-hint">
-              <kbd>/</kbd> Search <kbd>j</kbd> <kbd>k</kbd> Select
-            </span>
           </AsyncState>
         )}
         {selectedDetail && draftOwnerId && (
@@ -1456,7 +1460,7 @@ export function GitHubWorkspace({
             ownerId={draftOwnerId}
             issue={selectedDetail}
             feedback={detailFeedback}
-            onBack={() => setShowDetail(false)}
+            onBack={focusIssueList}
             onFullscreen={() => void switchMode("fullscreen")}
             draft={resolveContentDraft(
               selectedDetail,
