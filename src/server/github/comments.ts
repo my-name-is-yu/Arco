@@ -4,6 +4,7 @@ import {
   reactionContentSchema,
   type ReactionList,
 } from "../../shared/github-operations";
+import { commentDto } from "./issue-model";
 import {
   invalid,
   issuePath,
@@ -76,14 +77,7 @@ export function createCommentsOperations(context: GitHubOperationContext) {
         return invalid("GitHub returned a different comment after editing.");
       return {
         ...(await context.refresh(input)),
-        changedComment: {
-          id: changed.node_id,
-          databaseId: changed.id,
-          body: changed.body,
-          author: changed.user?.login ?? "ghost",
-          url: changed.html_url,
-          updatedAt: changed.updated_at,
-        },
+        changedComment: commentDto(changed),
       };
     });
   }
