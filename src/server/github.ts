@@ -3,7 +3,6 @@ import {
   accountIssuesInputSchema,
   commentsInputSchema,
   issueRefSchema,
-  listInputSchema,
   repoSchema,
   repositoriesInputSchema,
   type CommentPage,
@@ -276,7 +275,7 @@ export function createGitHubService(
       }
     },
     async list(raw) {
-      return repositoryIssues.list(listInputSchema.parse(raw));
+      return repositoryIssues.list(raw);
     },
     async accountIssues(raw) {
       const input = accountIssuesInputSchema.parse(raw);
