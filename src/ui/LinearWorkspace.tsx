@@ -525,7 +525,11 @@ export function LinearWorkspace({
       message: "",
     });
     cache.removeQueries({
-      predicate: (entry) => linearDataKeys.has(String(entry.queryKey[0])),
+      predicate: ({ queryKey }) =>
+        linearDataKeys.has(String(queryKey[0])) ||
+        (queryKey[0] === "source-image" &&
+          queryKey[1] === "linear" &&
+          queryKey[2] === connectionId),
     });
     setAuthPending(false);
     setTeamOverride("");

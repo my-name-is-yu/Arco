@@ -2210,6 +2210,28 @@ test("Linear disconnect keeps local drafts, settings, and chat context while sto
   await expect(
     ui.getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
+  const preview = ui.getByRole("img", {
+    name: "Fixture illustration",
+    exact: true,
+  });
+  await expect(preview).toBeVisible();
+  const originalPreview = await preview.getAttribute("src");
+  const refreshedImage =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg==";
+  const refreshedPreview = `data:image/png;base64,${refreshedImage}`;
+  expect(originalPreview).not.toBe(refreshedPreview);
+  let imageReads = 0;
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+    };
+    if (input.name !== "linear_read_image") return route.fallback();
+    imageReads++;
+    const response = await route.fetch();
+    const result = await response.json();
+    result._meta.image.data = refreshedImage;
+    return route.fulfill({ response, json: result });
+  });
   await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
   await expect.poll(() => events(page, "context")).toHaveLength(1);
   const contexts = await events(page, "context");
@@ -2236,6 +2258,8 @@ test("Linear disconnect keeps local drafts, settings, and chat context while sto
   await ui
     .getByRole("button", { name: "Close and keep draft", exact: true })
     .click();
+  await expect(preview).toHaveAttribute("src", originalPreview!);
+  expect(imageReads).toBe(0);
   await ui
     .getByRole("button", { name: "Create Linear Issue", exact: true })
     .click();
@@ -2271,6 +2295,7 @@ test("Linear disconnect keeps local drafts, settings, and chat context while sto
         "linear_templates",
         "linear_list_issues",
         "linear_get_issue",
+        "linear_read_image",
       ].includes(call.name),
     );
   const before = await reads();
@@ -2335,6 +2360,12 @@ test("Linear disconnect keeps local drafts, settings, and chat context while sto
   await expect(
     dialog.getByRole("textbox", { name: "Markdown description", exact: true }),
   ).toHaveValue("A new description kept locally");
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await ui
+    .getByRole("button", { name: "Close and keep draft", exact: true })
+    .click();
+  await expect(preview).toHaveAttribute("src", refreshedPreview);
+  expect(imageReads).toBe(1);
   expect(await events(page, "context")).toEqual(contexts);
   const calls = (await events(page, "tool")) as { name: string }[];
   expect(
