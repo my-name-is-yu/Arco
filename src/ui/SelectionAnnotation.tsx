@@ -115,14 +115,14 @@ export interface AnnotationLayout {
 export function measureSelectionAnnotation(
   target: AnnotationTarget,
   badgeOffsetFor: (rect: DOMRect) => number,
-  editorHeight = 28,
+  editorHeight = 46,
 ): AnnotationLayout | null {
   const rect = targetRect(target);
   if (!rect) return null;
   const badgeOffset = badgeOffsetFor(rect);
   const input = target.editable?.element;
   const width = Math.min(300, window.innerWidth - 16);
-  const height = editorHeight + 18;
+  const height = editorHeight;
   return {
     rect,
     ...(input
@@ -165,11 +165,13 @@ export function measureSelectionAnnotation(
 }
 
 export function SelectionAnnotation({
+  annotationId,
   number,
   target,
   layout,
   comment,
   editing,
+  initial,
   onEdit,
   onDismiss,
   busy,
@@ -178,11 +180,13 @@ export function SelectionAnnotation({
   onRemove,
   onLayoutChange,
 }: {
+  annotationId: number;
   number: number;
   target: AnnotationTarget;
   layout: AnnotationLayout | null;
   comment: string;
   editing: boolean;
+  initial: boolean;
   onEdit: () => void;
   onDismiss: () => void;
   busy: boolean;
@@ -192,7 +196,9 @@ export function SelectionAnnotation({
   onLayoutChange: () => void;
 }) {
   const [draft, setDraft] = useState(comment);
+  const [attention, setAttention] = useState(false);
   const editor = useRef<HTMLTextAreaElement>(null);
+  const editorShell = useRef<HTMLDivElement>(null);
   const badge = useRef<HTMLButtonElement>(null);
   const input = target.editable;
   const visible = Boolean(
@@ -200,7 +206,10 @@ export function SelectionAnnotation({
   );
 
   useEffect(() => {
-    if (editing) setDraft(comment);
+    if (editing) {
+      setDraft(comment);
+      setAttention(false);
+    }
   }, [editing, comment]);
   useEffect(() => {
     if (editing && visible) {
@@ -208,13 +217,56 @@ export function SelectionAnnotation({
       onLayoutChange();
     }
   }, [editing, visible, onLayoutChange]);
+  useEffect(() => {
+    const field = editor.current;
+    if (!editing || !visible || !field) return;
+    field.style.height = "auto";
+    field.style.height = `${Math.min(120, field.scrollHeight)}px`;
+    onLayoutChange();
+  }, [draft, editing, visible, onLayoutChange]);
+  useEffect(() => {
+    if (!editing || !visible) return;
+    const outside = (event: PointerEvent | MouseEvent) => {
+      if (!editorShell.current?.isConnected || !editor.current?.isConnected)
+        return;
+      if (
+        event.target instanceof Node &&
+        (editorShell.current?.contains(event.target) ||
+          badge.current?.contains(event.target))
+      )
+        return;
+      if (busy || (initial && draft.trim())) {
+        event.preventDefault();
+        event.stopPropagation();
+        editor.current?.focus({ preventScroll: true });
+        if (!busy) setAttention(true);
+        return;
+      }
+      onDismiss();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("click", outside, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("click", outside, true);
+    };
+  }, [editing, visible, initial, draft, busy, onDismiss]);
+  const save = () => {
+    if (busy) return;
+    void onSave(annotationId, draft).then((saved) => {
+      if (saved) {
+        onDismiss();
+        badge.current?.focus({ preventScroll: true });
+      }
+    });
+  };
 
   if (!layout) return null;
   const { rect, field } = layout;
   const fieldRect = field?.rect;
   return (
     <>
-      {input && field && fieldRect && visible && (
+      {editing && input && field && fieldRect && visible && (
         <div
           className="selection-retained-input"
           aria-hidden="true"
@@ -241,7 +293,7 @@ export function SelectionAnnotation({
       <div
         className="arco"
         data-arco-selection-toolbar
-        data-arco-annotation={number}
+        data-arco-annotation={annotationId}
         style={{ visibility: visible ? "visible" : "hidden" }}
       >
         <button
@@ -251,6 +303,7 @@ export function SelectionAnnotation({
           aria-expanded={editing}
           style={layout.badge}
           onClick={() => {
+            if (editing) return;
             setDraft(comment);
             onEdit();
           }}
@@ -259,15 +312,28 @@ export function SelectionAnnotation({
         </button>
         {editing && (
           <div
+            ref={editorShell}
             role="dialog"
             aria-label="Selection comment"
-            className="selection-comment"
+            className={`selection-comment selection-comment-${initial ? "new" : "edit"}`}
+            data-attention={attention || undefined}
             style={layout.editor}
+            onAnimationEnd={() => setAttention(false)}
             onKeyDown={(event) => {
-              if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === "Escape") {
                 event.stopPropagation();
                 if (!busy) onDismiss();
                 badge.current?.focus({ preventScroll: true });
+              } else if (
+                event.key === "Enter" &&
+                (event.metaKey || event.ctrlKey) &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!event.repeat) save();
               }
             }}
           >
@@ -278,43 +344,58 @@ export function SelectionAnnotation({
               rows={1}
               value={draft}
               disabled={busy}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                event.target.style.height = "auto";
-                event.target.style.height = `${Math.min(120, event.target.scrollHeight)}px`;
-                onLayoutChange();
-              }}
+              onChange={(event) => setDraft(event.target.value)}
             />
-            <Button
-              aria-label={`Remove annotation ${number}`}
-              color="secondary"
-              variant="ghost"
-              size="sm"
-              pill
-              className="selection-comment-remove"
-              disabled={busy}
-              onClick={() => void onRemove(number)}
-            >
-              <Trash aria-hidden="true" />
-            </Button>
-            <Button
-              aria-label="Save comment"
-              color="primary"
-              variant="solid"
-              size="sm"
-              pill
-              disabled={busy}
-              onClick={() => {
-                void onSave(number, draft).then((saved) => {
-                  if (saved) {
+            {initial ? (
+              <Button
+                aria-label="Save comment"
+                color="primary"
+                variant="solid"
+                size="sm"
+                pill
+                disabled={busy}
+                onClick={save}
+              >
+                <Check aria-hidden="true" />
+              </Button>
+            ) : (
+              <div className="selection-comment-actions">
+                <Button
+                  aria-label={`Remove annotation ${number}`}
+                  color="secondary"
+                  variant="ghost"
+                  size="sm"
+                  pill
+                  className="selection-comment-remove"
+                  disabled={busy}
+                  onClick={() => void onRemove(annotationId)}
+                >
+                  <Trash aria-hidden="true" />
+                </Button>
+                <Button
+                  color="secondary"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => {
                     onDismiss();
                     badge.current?.focus({ preventScroll: true });
-                  }
-                });
-              }}
-            >
-              <Check aria-hidden="true" />
-            </Button>
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  aria-label="Save comment"
+                  color="primary"
+                  variant="solid"
+                  size="sm"
+                  disabled={busy}
+                  onClick={save}
+                >
+                  Save
+                </Button>
+              </div>
+            )}
             {error && (
               <span className="selection-share-error" role="alert">
                 {error}

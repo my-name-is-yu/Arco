@@ -20,7 +20,10 @@ type CapturedSelection = Selected & { githubAuthScope?: string };
 export function SelectionShare({ host }: { host: ArcoHost }) {
   const client = useQueryClient();
   const [selected, setSelected] = useState<CapturedSelection | null>(null);
-  const [editing, setEditing] = useState<number | null>(null);
+  const [editing, setEditing] = useState<{
+    number: number;
+    initial: boolean;
+  } | null>(null);
   const onSync = useCallback(() => {
     setSelected(null);
     setEditing(null);
@@ -37,7 +40,10 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     lock,
     share,
   } = controller;
-  const { layouts, repositionAnnotations } = useAnnotationLayout(controller);
+  const { layouts, repositionAnnotations } = useAnnotationLayout(
+    controller,
+    editing?.number ?? null,
+  );
   const addButton = useRef<HTMLButtonElement>(null);
   const capture = useCallback(() => {
     if (lock.current) return;
@@ -101,7 +107,6 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
         !event.target.closest("[data-arco-selection-toolbar]")
       ) {
         setSelected(null);
-        if (!lock.current) setEditing(null);
       }
     };
     const scroll = () => {
@@ -195,7 +200,7 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
     if (await share([...current.current, { context, target }], canShare)) {
       if (anchor) anchors.current.set(context.number, anchor);
       nextNumber.current += 1;
-      setEditing(context.number);
+      setEditing({ number: context.number, initial: true });
       setSelected(null);
       window.getSelection()?.removeAllRanges();
       const active = latest.editable;
@@ -205,19 +210,21 @@ export function SelectionShare({ host }: { host: ArcoHost }) {
   };
   return (
     <>
-      {annotations.map(({ context, target }) => {
+      {annotations.map(({ context, target }, index) => {
         if (!target) return null;
         return (
           <SelectionAnnotation
             key={context.number}
-            number={context.number}
+            annotationId={context.number}
+            number={index + 1}
             target={target}
             layout={layouts.get(context.number) ?? null}
             comment={context.selection.comment ?? ""}
-            editing={editing === context.number}
+            editing={editing?.number === context.number}
+            initial={editing?.number === context.number && editing.initial}
             onEdit={() => {
               setError("");
-              setEditing(context.number);
+              setEditing({ number: context.number, initial: false });
             }}
             onDismiss={dismiss}
             busy={busy}

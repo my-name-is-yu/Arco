@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { readSharedContext } from "../src/ui/shared-context";
+import { readModelContext, readSharedContext } from "../src/ui/shared-context";
+import { annotationAttachment } from "../src/ui/context-attachment";
+import type { SelectionAnnotationContext } from "../src/shared/contracts";
 
 const sharedRefFromContext = (value: unknown) => readSharedContext(value).issue;
 const sharedAnnotationsFromContext = (value: unknown) =>
@@ -118,5 +120,197 @@ describe("restoring shared app context", () => {
     expect(
       sharedAnnotationsFromContext({ source: "arco", annotations: [] }),
     ).toEqual([]);
+  });
+});
+
+const snapshotId = "d849445f-dbf3-4988-847b-81d2966dc0a2";
+const annotationFor = (
+  number: number,
+  text = `Selected passage ${number}`,
+): SelectionAnnotationContext => ({
+  number,
+  issue: {
+    source: "github",
+    repo: "yu/Arco",
+    number: 42,
+    id: "native-42",
+    title: "Issue title",
+    url: "https://github.com/yu/Arco/issues/42",
+    state: "open",
+  },
+  selection: { text, origin: "body", comment: `Note ${number}` },
+});
+
+describe("restoring removable model context", () => {
+  it("uses the remaining blocks rather than stale structured data after individual removal", () => {
+    const first = annotationFor(2);
+    const second = annotationFor(7);
+    const payload = annotationAttachment([first, second], snapshotId);
+    expect(readModelContext(payload)).toEqual({
+      issue: null,
+      annotations: [first, second],
+      snapshotId,
+      legacy: false,
+    });
+    expect(
+      readModelContext({ ...payload, content: payload.content.slice(1) }),
+    ).toEqual({
+      issue: { source: "github", repo: "yu/Arco", number: 42 },
+      annotations: [second],
+      snapshotId,
+      legacy: false,
+    });
+    expect(readModelContext({ ...payload, content: [] })).toEqual({
+      issue: null,
+      annotations: [],
+      snapshotId: null,
+      legacy: false,
+    });
+  });
+
+  it("does not restore annotations from snapshots, missing blocks, hidden blocks or invalid metadata", () => {
+    const payload = annotationAttachment([annotationFor(1)], snapshotId);
+    for (const content of [
+      undefined,
+      "not blocks",
+      [{ ...payload.content[0], annotations: { audience: ["assistant"] } }],
+      [{ ...payload.content[0], _meta: { "arco/annotation": { number: 1 } } }],
+    ]) {
+      expect(readModelContext({ ...payload, content })).toEqual({
+        issue: null,
+        annotations: [],
+        snapshotId: null,
+        legacy: false,
+      });
+    }
+    for (const value of [null, undefined])
+      expect(readModelContext(value)).toEqual({
+        issue: null,
+        annotations: null,
+        snapshotId: null,
+        legacy: false,
+      });
+    expect(
+      readModelContext({
+        ...payload,
+        structuredContent: {
+          ...payload.structuredContent,
+          arcoAnnotationFormat: 3,
+        },
+      }).annotations,
+    ).toBeNull();
+    expect(
+      readModelContext({
+        ...payload,
+        content: [...payload.content, ...payload.content],
+      }).annotations,
+    ).toBeNull();
+  });
+
+  it("restores Linear and generic selections without guessing a shared issue", () => {
+    const linear: SelectionAnnotationContext = {
+      number: 9,
+      issue: {
+        source: "linear",
+        connectionId: "default",
+        workspaceId: "workspace",
+        teamId: "team",
+        id: "native-linear",
+        identifier: "ARC-1",
+        title: "Linear title",
+        url: "https://linear.app/team/issue/ARC-1",
+        state: { id: "state", name: "Todo", type: "unstarted", color: "gray" },
+      },
+      selection: {
+        text: "Linear passage",
+        origin: "comment",
+        commentId: "comment",
+      },
+    };
+    expect(readModelContext(annotationAttachment([linear])).issue).toEqual({
+      source: "linear",
+      connectionId: "default",
+      workspaceId: "workspace",
+      teamId: "team",
+      issueId: "native-linear",
+    });
+    expect(
+      readModelContext(
+        annotationAttachment([
+          { number: 3, selection: { text: "UI", origin: "ui" } },
+        ]),
+      ).issue,
+    ).toBeNull();
+  });
+
+  it("intersects legacy metadata with exact visible blocks before migration", () => {
+    const first = annotationFor(1);
+    const second = annotationFor(3);
+    const structuredContent = {
+      source: "arco",
+      annotations: [first, second],
+      arcoAnnotationSnapshotId: snapshotId,
+    };
+    const visible = {
+      type: "text",
+      text: `3. yu/Arco #42\n${second.selection.text}\n\nComment: ${second.selection.comment}`,
+      _meta: { "openai/title": `#3 ${second.selection.text}` },
+    };
+    const hidden = {
+      type: "text",
+      text: `Issue context (source data):\n${JSON.stringify(structuredContent)}`,
+      annotations: { audience: ["assistant"] },
+    };
+    expect(
+      readModelContext({ content: [visible, hidden], structuredContent }),
+    ).toEqual({
+      issue: { source: "github", repo: "yu/Arco", number: 42 },
+      annotations: [second],
+      snapshotId,
+      legacy: true,
+    });
+    for (const content of [
+      [],
+      [hidden],
+      [{ ...visible, text: `${visible.text} changed` }],
+      [{ ...visible, annotations: { audience: ["assistant"] } }],
+      [{ ...visible, _meta: { "openai/title": "#1 different selection" } }],
+    ])
+      expect(readModelContext({ content, structuredContent })).toEqual({
+        issue: null,
+        annotations: [],
+        snapshotId: null,
+        legacy: true,
+      });
+    expect(readModelContext({ structuredContent })).toEqual({
+      issue: null,
+      annotations: null,
+      snapshotId: null,
+      legacy: false,
+    });
+  });
+
+  it("keeps marked whole-Issue context compatible", () => {
+    const structuredContent = {
+      source: "github",
+      repo: "yu/Arco",
+      number: 42,
+      arcoSharedIssue: 1,
+    };
+    expect(readModelContext({ structuredContent })).toEqual({
+      issue: { source: "github", repo: "yu/Arco", number: 42 },
+      annotations: null,
+      snapshotId: null,
+      legacy: false,
+    });
+  });
+
+  it("does not let restored UI edits mutate the host metadata snapshot", () => {
+    const payload = annotationAttachment([annotationFor(1)]);
+    const restored = readModelContext(payload);
+    restored.annotations![0]!.selection.comment = "Unsaved UI edit";
+    expect(payload.content[0]!._meta["arco/annotation"].selection.comment).toBe(
+      "Note 1",
+    );
   });
 });

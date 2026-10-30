@@ -6,6 +6,7 @@ import {
   type LaunchContext,
 } from "../src/shared/launch";
 import { connectHost } from "../src/ui/host";
+import { annotationAttachment } from "../src/ui/context-attachment";
 import { ToolCallError } from "../src/shared/errors";
 import { toolFailure } from "./tool-failure";
 import { createFixtureService } from "../src/server/fixture";
@@ -724,6 +725,62 @@ describe("host operation failures", () => {
   );
 });
 
+function nativeAnnotations(
+  annotations: SelectionAnnotationContext[],
+  updateId = "native-annotations",
+  snapshotId?: string,
+) {
+  return { ...annotationAttachment(annotations, snapshotId), updateId };
+}
+
+function legacyAnnotations(
+  annotations: SelectionAnnotationContext[],
+  snapshotId?: string,
+) {
+  const first = annotations[0]!;
+  const context = {
+    ...(annotations.length === 1
+      ? { ...(first.issue ?? { source: "arco" }), selection: first.selection }
+      : { source: "arco" }),
+    annotations,
+    ...(snapshotId ? { arcoAnnotationSnapshotId: snapshotId } : {}),
+  };
+  const title = `${annotations.length} annotation${annotations.length === 1 ? "" : "s"}`;
+  const content = annotations.map((annotation) => {
+    const identifier = annotation.issue
+      ? annotation.issue.source === "github"
+        ? `${annotation.issue.repo} #${annotation.issue.number}`
+        : annotation.issue.identifier
+      : "Arco";
+    return {
+      type: "text" as const,
+      text: `${annotation.number}. ${identifier}\n${annotation.selection.text}${annotation.selection.comment ? `\n\nComment: ${annotation.selection.comment}` : ""}`,
+      _meta: {
+        "openai/title": `#${annotation.number} ${annotation.selection.text}`,
+        "openai/group": { title },
+      },
+    };
+  });
+  return {
+    updateId: "legacy-annotations",
+    content: [
+      ...content,
+      {
+        type: "text" as const,
+        text: `Issue context (source data):\n${JSON.stringify(context)}`,
+        annotations: { audience: ["assistant" as const] },
+        _meta: { "openai/group": { title } },
+      },
+    ],
+    structuredContent: {
+      ...context,
+      ...("source" in context && context.source !== "arco"
+        ? { arcoSharedIssue: 1 }
+        : {}),
+    },
+  };
+}
+
 describe("host attachment context lifecycle", () => {
   it("refuses sharing without synchronized model context support and leaves the attachment unchanged", async () => {
     fixture.modelContextSupported = false;
@@ -737,30 +794,25 @@ describe("host attachment context lifecycle", () => {
     expect(host.sharedIssue()).toBeNull();
   });
 
-  it("applies the native attachment as one snapshot and ignores unsupported selection-only context", async () => {
+  it("applies a complete native attachment snapshot and ignores unsupported selection-only context", async () => {
     const host = await connectHost();
     const observed: unknown[] = [];
     host.subscribe((event) => {
       if (event === "context")
         observed.push({
-          issue: host.sharedIssue?.(),
-          annotations: host.sharedAnnotations?.(),
-          snapshotId: host.annotationSnapshotId?.(),
+          issue: host.sharedIssue(),
+          annotations: host.sharedAnnotations(),
+          snapshotId: host.annotationSnapshotId(),
         });
     });
     const annotation = annotationFor(1);
     const id = "d849445f-dbf3-4988-847b-81d2966dc0a2";
     changed({
-      "openai/modelContext": {
-        updateId: "native-current",
-        structuredContent: {
-          ...annotation.issue,
-          arcoSharedIssue: 1,
-          selection: annotation.selection,
-          annotations: [annotation],
-          arcoAnnotationSnapshotId: id,
-        },
-      },
+      "openai/modelContext": nativeAnnotations(
+        [annotation],
+        "native-current",
+        id,
+      ),
     });
     changed({
       "openai/modelContext": {
@@ -789,128 +841,109 @@ describe("host attachment context lifecycle", () => {
     const host = await connectHost();
     await host.shareAnnotations([annotationFor(1)], id);
     const params = fixture.update.mock.calls[0][0];
-    expect(params.structuredContent).toMatchObject({
+    expect(params.structuredContent).toEqual({
+      source: "arco",
+      arcoAnnotationFormat: 2,
       arcoAnnotationSnapshotId: id,
     });
-    expect(host.annotationSnapshotId?.()).toBe(id);
+    expect(host.annotationSnapshotId()).toBe(id);
     fixture.context = {
       "openai/modelContext": { ...params, updateId: "with-positions" },
     };
     const restored = await connectHost();
-    expect(restored.annotationSnapshotId?.()).toBe(id);
-    expect(restored.sharedAnnotations?.()).toEqual([annotationFor(1)]);
+    expect(restored.annotationSnapshotId()).toBe(id);
+    expect(restored.sharedAnnotations()).toEqual([annotationFor(1)]);
     changed({ "openai/modelContext": null });
-    expect(restored.annotationSnapshotId?.()).toBeNull();
-    expect(restored.sharedAnnotations?.()).toBeNull();
+    expect(restored.annotationSnapshotId()).toBeNull();
+    expect(restored.sharedAnnotations()).toBeNull();
     await expect(
       restored.shareAnnotations([annotationFor(1)], "../settings"),
     ).rejects.toThrow();
     expect(fixture.update).toHaveBeenCalledTimes(1);
   });
-  it("removes acknowledged context without requiring an echo and ignores presentation changes", async () => {
+
+  it("removes acknowledged context without an echo and ignores presentation changes", async () => {
     fixture.update.mockResolvedValue(acknowledged("own-update"));
     const host = await connectHost();
     const events: string[] = [];
     host.subscribe((event) => events.push(event));
     await host.shareAnnotations([annotationFor(1)]);
-    expect(host.sharedIssue?.()).toEqual({
+    expect(host.sharedIssue()).toEqual({
       source: "github",
       repo: "yu/Arco",
       number: 1,
     });
-    expect(host.sharedAnnotations?.()).toEqual([annotationFor(1)]);
+    expect(host.sharedAnnotations()).toEqual([annotationFor(1)]);
     changed({ theme: "dark", containerDimensions: { width: 390 } });
-    expect(host.sharedIssue?.()?.source).toBe("github");
+    expect(host.sharedIssue()?.source).toBe("github");
     expect(events).toEqual(["context"]);
-    changed({ "openai/modelContext": null });
-    expect(host.sharedIssue?.()).toBeNull();
-    expect(host.sharedAnnotations?.()).toBeNull();
-    expect(events).toEqual(["context", "context"]);
-
     const params = fixture.update.mock.calls[0]![0];
-    expect(params.structuredContent).toMatchObject({
-      source: "github",
-      number: 1,
-      selection: { text: "Selected words 1", origin: "ui" },
-      arcoSharedIssue: 1,
-      annotations: [annotationFor(1)],
+    expect(params.structuredContent).toEqual({
+      source: "arco",
+      arcoAnnotationFormat: 2,
     });
-    expect(params.structuredContent).not.toHaveProperty("body");
-    expect(params.content).toEqual([
-      {
-        type: "text",
-        text: "1. yu/Arco #1\nSelected words 1",
-        _meta: {
-          "openai/title": "#1 Selected words 1",
-          "openai/group": { title: "1 annotation" },
-        },
+    const content = params.content as {
+      text: string;
+      _meta: Record<string, unknown>;
+      annotations?: unknown;
+    }[];
+    expect(content).toHaveLength(1);
+    expect(content[0]).toMatchObject({
+      type: "text",
+      _meta: {
+        "openai/title": "Selected words 1",
+        "openai/group": { title: "Annotations" },
+        "arco/annotation": annotationFor(1),
       },
-      expect.objectContaining({
-        type: "text",
-        annotations: { audience: ["assistant"] },
-        _meta: { "openai/group": { title: "1 annotation" } },
-      }),
-    ]);
+    });
+    expect(content[0]!.annotations).toBeUndefined();
+    expect(content[0]!.text).toContain("Selected text:\nSelected words 1");
+    changed({ "openai/modelContext": null });
+    expect(host.sharedIssue()).toBeNull();
+    expect(host.sharedAnnotations()).toBeNull();
+    expect(events).toEqual(["context", "context"]);
   });
 
-  it("groups separate numbered GitHub and Linear items and edits one note without replacing the other annotation", async () => {
+  it("groups self-contained GitHub and Linear items and edits one note without replacing the other annotation", async () => {
     fixture.update.mockResolvedValue(acknowledged("collection"));
     const host = await connectHost();
     const github = annotationFor(1, "GitHub note");
     const linear = linearAnnotation(2);
     await host.shareAnnotations([github, linear]);
-    expect(host.sharedIssue?.()).toBeNull();
-    expect(host.sharedAnnotations?.()).toEqual([github, linear]);
+    expect(host.sharedIssue()).toBeNull();
+    expect(host.sharedAnnotations()).toEqual([github, linear]);
     const first = fixture.update.mock.calls[0]![0];
     expect(first.structuredContent).toEqual({
       source: "arco",
-      annotations: [github, linear],
+      arcoAnnotationFormat: 2,
     });
-    const content = first.content as { text: string }[];
-    expect(content).toEqual([
-      {
-        type: "text",
-        text: "1. yu/Arco #1\nSelected words 1\n\nComment: GitHub note",
-        _meta: {
-          "openai/title": "#1 Selected words 1",
-          "openai/group": { title: "2 annotations" },
-        },
-      },
-      {
-        type: "text",
-        text: "2. YU-2\nLinear words 2\n\nComment: Linear note",
-        _meta: {
-          "openai/title": "#2 Linear words 2",
-          "openai/group": { title: "2 annotations" },
-        },
-      },
-      expect.objectContaining({
-        type: "text",
-        annotations: { audience: ["assistant"] },
-        _meta: { "openai/group": { title: "2 annotations" } },
-      }),
-    ]);
-    expect(
-      JSON.parse(
-        content[2]!.text.slice("Issue context (source data):\n".length),
-      ),
-    ).toEqual(first.structuredContent);
-    expect(first.structuredContent).not.toHaveProperty("selection");
-    expect(first.structuredContent).not.toHaveProperty("body");
+    const content = first.content as {
+      text: string;
+      _meta: Record<string, unknown>;
+    }[];
+    expect(content).toHaveLength(2);
+    expect(content[0]!.text).toContain(
+      "Selected text:\nSelected words 1\n\nUser comment:\nGitHub note",
+    );
+    expect(content[0]!.text).toContain("https://github.com/yu/Arco/issues/1");
+    expect(content[0]!.text).not.toContain("Linear words 2");
+    expect(content[1]!.text).toContain(
+      "Selected text:\nLinear words 2\n\nUser comment:\nLinear note",
+    );
+    expect(content[1]!.text).not.toContain("Selected words 1");
+    for (const block of content)
+      expect(block._meta["openai/group"]).toEqual({ title: "Annotations" });
     const edited = annotationFor(1, "Edited GitHub note");
     await host.shareAnnotations([edited, linear]);
-    expect(host.sharedAnnotations?.()).toEqual([edited, linear]);
-    const saved = fixture.update.mock.calls[1]![0].structuredContent;
-    expect(saved).toEqual({ source: "arco", annotations: [edited, linear] });
+    expect(host.sharedAnnotations()).toEqual([edited, linear]);
+    const saved = fixture.update.mock.calls[1]![0];
+    expect((saved.content as unknown[])[1]).toEqual(content[1]);
     fixture.context = {
-      "openai/modelContext": {
-        updateId: "restored-collection",
-        structuredContent: saved,
-      },
+      "openai/modelContext": { ...saved, updateId: "restored-collection" },
     };
     const restored = await connectHost();
-    expect(restored.sharedAnnotations?.()).toEqual([edited, linear]);
-    expect(restored.sharedIssue?.()).toBeNull();
+    expect(restored.sharedAnnotations()).toEqual([edited, linear]);
+    expect(restored.sharedIssue()).toBeNull();
   });
 
   it("shortens only the annotation title while preserving the complete selected text", async () => {
@@ -920,22 +953,22 @@ describe("host attachment context lifecycle", () => {
     annotation.selection.text = `  Preserve\n\t${"x".repeat(80)}  `;
     await host.shareAnnotations([annotation]);
     const params = fixture.update.mock.calls[0]![0];
-    const content = params.content as { text: string }[];
-    expect(content[0]).toEqual({
-      type: "text",
-      text: `1. yu/Arco #1\n${annotation.selection.text}`,
-      _meta: {
-        "openai/title": `#1 Preserve ${"x".repeat(55)}…`,
-        "openai/group": { title: "1 annotation" },
-      },
-    });
-    expect(params.structuredContent).toMatchObject({
-      selection: annotation.selection,
-      annotations: [annotation],
-    });
+    const content = params.content as {
+      text: string;
+      _meta: Record<string, unknown>;
+    }[];
+    expect(content).toHaveLength(1);
+    expect(content[0]!._meta["openai/title"]).toBe(
+      `Preserve ${"x".repeat(55)}…`,
+    );
+    expect(content[0]!.text).toContain(
+      `Selected text:\n${annotation.selection.text}`,
+    );
+    expect(content[0]!._meta["arco/annotation"]).toEqual(annotation);
+    expect(JSON.stringify(params.structuredContent)).not.toContain("Preserve");
   });
 
-  it("clears the last annotation with empty content and rejects invalid or duplicate numbers before sending", async () => {
+  it("clears the last annotation and rejects invalid or duplicate internal keys before sending", async () => {
     fixture.update.mockResolvedValue(acknowledged("own-update"));
     const host = await connectHost();
     for (const annotations of [
@@ -951,24 +984,177 @@ describe("host attachment context lifecycle", () => {
     await host.shareAnnotations([]);
     expect(fixture.update.mock.calls.at(-1)![0]).toEqual({
       content: [],
-      structuredContent: { source: "arco", annotations: [] },
+      structuredContent: { source: "arco", arcoAnnotationFormat: 2 },
     });
-    expect(host.sharedAnnotations?.()).toEqual([]);
-    expect(host.sharedIssue?.()).toBeNull();
+    expect(host.sharedAnnotations()).toEqual([]);
+    expect(host.sharedIssue()).toBeNull();
   });
+
+  it("takes native individual content removal as authoritative without changing background metadata", async () => {
+    const annotations = [
+      annotationFor(1, "first note"),
+      annotationFor(2, "remove this note"),
+      linearAnnotation(3),
+    ];
+    const id = "d849445f-dbf3-4988-847b-81d2966dc0a2";
+    const initial = nativeAnnotations(annotations, "three-annotations", id);
+    fixture.context = { "openai/modelContext": initial };
+    const host = await connectHost();
+    const remaining = {
+      ...initial,
+      content: [initial.content[0]!, initial.content[2]!],
+      updateId: "native-delete-middle",
+    };
+    changed({ "openai/modelContext": remaining });
+    expect(host.sharedAnnotations()).toEqual([annotations[0], annotations[2]]);
+    expect(host.annotationSnapshotId()).toBe(id);
+    const modelInput = JSON.stringify({
+      content: remaining.content,
+      structuredContent: remaining.structuredContent,
+    });
+    expect(modelInput).not.toContain("Selected words 2");
+    expect(modelInput).not.toContain("remove this note");
+    expect(modelInput).toContain("Linear words 3");
+    changed({
+      "openai/modelContext": {
+        ...remaining,
+        content: [],
+        updateId: "native-delete-last-items",
+      },
+    });
+    expect(host.sharedAnnotations()).toEqual([]);
+    expect(host.annotationSnapshotId()).toBeNull();
+    expect(host.sharedIssue()).toBeNull();
+    expect(fixture.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps host titles independent of display numbers when editing after a native deletion", async () => {
+    fixture.update.mockResolvedValue(acknowledged("renumbered"));
+    const second = annotationFor(2, "keep second");
+    const third = linearAnnotation(3);
+    fixture.context = {
+      "openai/modelContext": nativeAnnotations([second, third]),
+    };
+    const host = await connectHost();
+    await host.shareAnnotations([
+      second,
+      { ...third, selection: { ...third.selection, comment: "edited third" } },
+    ]);
+    const content = fixture.update.mock.calls[0]![0].content as {
+      text: string;
+      _meta: Record<string, unknown>;
+    }[];
+    expect(content[0]!._meta["openai/title"]).toBe("Selected words 2");
+    expect(content[0]!.text.startsWith("yu/Arco #2\n")).toBe(true);
+    expect(content[0]!._meta["arco/annotation"]).toEqual(second);
+    expect(content[1]!._meta["openai/title"]).toBe("Linear words 3");
+    expect(content[1]!.text.startsWith("YU-3\n")).toBe(true);
+    expect(content[1]!.text).toContain("User comment:\nedited third");
+  });
+
+  it("normalizes only still-visible legacy blocks and drops deleted source copies", async () => {
+    fixture.update.mockResolvedValue(acknowledged("normalized"));
+    const removed = annotationFor(1, "deleted old note");
+    const kept = linearAnnotation(2);
+    const id = "d849445f-dbf3-4988-847b-81d2966dc0a2";
+    const legacy = legacyAnnotations([removed, kept], id);
+    legacy.content.splice(0, 1);
+    fixture.context = { "openai/modelContext": legacy };
+    const host = await connectHost();
+    await vi.waitFor(() => expect(fixture.update).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(host.sharedAnnotations()).toEqual([kept]));
+    expect(host.annotationSnapshotId()).toBe(id);
+    const normalized = fixture.update.mock.calls[0]![0];
+    const content = normalized.content as {
+      text: string;
+      _meta: Record<string, unknown>;
+    }[];
+    expect(content).toHaveLength(1);
+    expect(content[0]!._meta["arco/annotation"]).toEqual(kept);
+    expect(content[0]!._meta["openai/title"]).toBe("Linear words 2");
+    expect(normalized.structuredContent).toEqual({
+      source: "arco",
+      arcoAnnotationFormat: 2,
+      arcoAnnotationSnapshotId: id,
+    });
+    expect(JSON.stringify(normalized)).not.toContain("Selected words 1");
+    expect(JSON.stringify(normalized)).not.toContain("deleted old note");
+    expect(JSON.stringify(normalized)).not.toContain(
+      "Issue context (source data)",
+    );
+  });
+
+  it("clears a legacy attachment with only hidden duplicates and does not restore it from positions", async () => {
+    fixture.update.mockResolvedValue(acknowledged("cleared-legacy"));
+    const legacy = legacyAnnotations(
+      [annotationFor(1)],
+      "d849445f-dbf3-4988-847b-81d2966dc0a2",
+    );
+    legacy.content.splice(0, 1);
+    fixture.context = { "openai/modelContext": legacy };
+    const host = await connectHost();
+    await vi.waitFor(() => expect(fixture.update).toHaveBeenCalledTimes(1));
+    expect(fixture.update.mock.calls[0]![0]).toEqual({
+      content: [],
+      structuredContent: { source: "arco", arcoAnnotationFormat: 2 },
+    });
+    expect(host.sharedAnnotations()).toEqual([]);
+    expect(host.annotationSnapshotId()).toBeNull();
+  });
+
+  it("does not expose a connected host when legacy normalization is unconfirmed", async () => {
+    fixture.update.mockResolvedValue({});
+    fixture.context = {
+      "openai/modelContext": legacyAnnotations([annotationFor(1)]),
+    };
+    await expect(connectHost()).rejects.toThrow(
+      "did not confirm the context attachment",
+    );
+    expect(fixture.update).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    null,
+    {
+      updateId: "replacement",
+      structuredContent: {
+        source: "github",
+        repo: "yu/Arco",
+        number: 42,
+        arcoSharedIssue: 1,
+      },
+    },
+  ])(
+    "keeps native removal or replacement over a delayed legacy normalization ACK: %j",
+    async (native) => {
+      const pending = deferred();
+      fixture.update.mockReturnValue(pending.promise);
+      fixture.context = {
+        "openai/modelContext": legacyAnnotations([annotationFor(1)]),
+      };
+      const connecting = connectHost();
+      await vi.waitFor(() => expect(fixture.update).toHaveBeenCalledTimes(1));
+      changed({ "openai/modelContext": native });
+      pending.resolve(acknowledged("normalized-legacy"));
+      const host = await connecting;
+      expect(host.sharedAnnotations()).toBeNull();
+      expect(host.sharedIssue()).toEqual(
+        native ? { source: "github", repo: "yu/Arco", number: 42 } : null,
+      );
+      await Promise.resolve();
+      expect(fixture.update).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("does not restore a pending collection after a native removal", async () => {
     const saved = [annotationFor(1), linearAnnotation(2)];
     fixture.context = {
-      "openai/modelContext": {
-        updateId: "existing-collection",
-        structuredContent: { source: "arco", annotations: saved },
-      },
+      "openai/modelContext": nativeAnnotations(saved, "existing-collection"),
     };
     const pending = deferred();
     fixture.update.mockReturnValue(pending.promise);
     const host = await connectHost();
-    expect(host.sharedAnnotations?.()).toEqual(saved);
+    expect(host.sharedAnnotations()).toEqual(saved);
     const editing = host.shareAnnotations([
       annotationFor(1, "Pending edit"),
       saved[1]!,
@@ -976,11 +1162,11 @@ describe("host attachment context lifecycle", () => {
     changed({ "openai/modelContext": null });
     pending.resolve(acknowledged("pending-edit"));
     await editing;
-    expect(host.sharedAnnotations?.()).toBeNull();
-    expect(host.sharedIssue?.()).toBeNull();
+    expect(host.sharedAnnotations()).toBeNull();
+    expect(host.sharedIssue()).toBeNull();
   });
 
-  it("keeps the optional user comment separate from source selection text in the visible and structured attachment", async () => {
+  it("keeps optional comments separate from source selection text in one removable block", async () => {
     fixture.update.mockResolvedValue(acknowledged("commented-selection"));
     const host = await connectHost();
     const context = annotationFor(
@@ -988,60 +1174,43 @@ describe("host attachment context lifecycle", () => {
       "Explain this paragraph.\nKeep the native ID.",
     );
     await host.shareAnnotations([context]);
-    expect(host.sharedAnnotations?.()).toEqual([context]);
+    expect(host.sharedAnnotations()).toEqual([context]);
     const params = fixture.update.mock.calls[0]![0];
-    const content = params.content as { text: string }[];
-    expect(content[0]!.text).toBe(
-      "1. yu/Arco #1\nSelected words 1\n\nComment: Explain this paragraph.\nKeep the native ID.",
+    const content = params.content as {
+      text: string;
+      _meta: Record<string, unknown>;
+    }[];
+    expect(content).toHaveLength(1);
+    expect(content[0]!.text).toContain(
+      "Selected text:\nSelected words 1\n\nUser comment:\nExplain this paragraph.\nKeep the native ID.",
     );
-    const hidden = JSON.parse(
-      content[1]!.text.slice("Issue context (source data):\n".length),
+    expect(content[0]!._meta["arco/annotation"]).toEqual(context);
+    expect(JSON.stringify(params.structuredContent)).not.toContain(
+      context.selection.text,
     );
-    expect(hidden.selection).toEqual(context.selection);
-    expect(params.structuredContent).toMatchObject({
-      selection: {
-        text: "Selected words 1",
-        comment: "Explain this paragraph.\nKeep the native ID.",
-      },
-    });
-    expect(hidden).not.toHaveProperty("body");
+    expect(JSON.stringify(params.structuredContent)).not.toContain(
+      context.selection.comment,
+    );
     changed({ "openai/modelContext": null });
-    expect(host.sharedAnnotations?.()).toBeNull();
+    expect(host.sharedAnnotations()).toBeNull();
   });
 
   it("restores a native selected comment and clears it when replaced by whole-Issue context", async () => {
-    const selection = {
+    const annotation = linearAnnotation(1);
+    annotation.selection = {
       text: "Original comment fragment",
-      origin: "comment" as const,
+      origin: "comment",
       commentId: "native-comment",
       comment: "My separate question",
     };
-    const issue: NonNullable<SelectionAnnotationContext["issue"]> = {
-      source: "linear",
-      connectionId: "default",
-      workspaceId: "workspace",
-      teamId: "team",
-      id: "native-issue",
-      identifier: "YU-1",
-      title: "Native issue",
-      url: "https://linear.app/yu/issue/YU-1/native-issue",
-      state: { id: "state", name: "Open", type: "unstarted", color: "#000000" },
-    };
     fixture.context = {
-      "openai/modelContext": {
-        updateId: "restored-selection",
-        structuredContent: {
-          ...issue,
-          arcoSharedIssue: 1,
-          selection,
-          annotations: [{ number: 1, issue, selection }],
-        },
-      },
+      "openai/modelContext": nativeAnnotations(
+        [annotation],
+        "restored-selection",
+      ),
     };
     const host = await connectHost();
-    expect(host.sharedAnnotations?.()).toEqual([
-      { number: 1, issue, selection },
-    ]);
+    expect(host.sharedAnnotations()).toEqual([annotation]);
     changed({
       "openai/modelContext": {
         updateId: "whole-issue",
@@ -1053,15 +1222,15 @@ describe("host attachment context lifecycle", () => {
         },
       },
     });
-    expect(host.sharedAnnotations?.()).toBeNull();
-    expect(host.sharedIssue?.()).toEqual({
+    expect(host.sharedAnnotations()).toBeNull();
+    expect(host.sharedIssue()).toEqual({
       source: "github",
       repo: "yu/Arco",
       number: 2,
     });
   });
 
-  it("ignores unchanged model context included in presentation snapshots, including while awaiting an ACK", async () => {
+  it("ignores unchanged model context in presentation snapshots, including while awaiting an ACK", async () => {
     const pending = deferred();
     fixture.update.mockReturnValue(pending.promise);
     const host = await connectHost();
@@ -1077,8 +1246,8 @@ describe("host attachment context lifecycle", () => {
     pending.resolve(acknowledged("own-update"));
     await sharing;
     const echoed = {
+      ...fixture.update.mock.calls[0]![0],
       updateId: "own-update",
-      structuredContent: fixture.update.mock.calls[0]![0].structuredContent,
     };
     changed({ "openai/modelContext": echoed });
     changed({
@@ -1088,14 +1257,14 @@ describe("host attachment context lifecycle", () => {
     });
     changed({ "openai/modelContext": echoed });
     expect(events).toEqual(["context"]);
-    expect(host.sharedIssue?.()).toEqual({
+    expect(host.sharedIssue()).toEqual({
       source: "github",
       repo: "yu/Arco",
       number: 1,
     });
   });
 
-  it("reports an unconfirmed attachment instead of applying a local success without ACK metadata", async () => {
+  it("reports an unconfirmed attachment instead of applying local success without ACK metadata", async () => {
     fixture.update.mockResolvedValue({});
     const host = await connectHost();
     const events: string[] = [];
@@ -1105,10 +1274,10 @@ describe("host attachment context lifecycle", () => {
         { number: 1, selection: { text: "Arco", origin: "ui" } },
       ]),
     ).rejects.toThrow("did not confirm the context attachment");
-    expect(host.sharedIssue?.()).toBeNull();
+    expect(host.sharedIssue()).toBeNull();
     expect(host.sharedAnnotations()).toBeNull();
     changed({ "openai/modelContext": null });
-    expect(host.sharedAnnotations?.()).toBeNull();
+    expect(host.sharedAnnotations()).toBeNull();
     expect(events).toEqual([]);
     changed({ theme: "dark", "openai/modelContext": null });
     expect(events).toEqual([]);
@@ -1125,17 +1294,12 @@ describe("host attachment context lifecycle", () => {
         arcoSharedIssue: 1,
       },
     },
-    {
-      updateId: "native-selection-replacement",
-      structuredContent: {
-        ...annotationFor(2).issue,
-        arcoSharedIssue: 1,
-        selection: annotationFor(1).selection,
-        annotations: [{ ...annotationFor(1), issue: annotationFor(2).issue }],
-      },
-    },
+    nativeAnnotations(
+      [{ ...annotationFor(1), issue: annotationFor(2).issue }],
+      "native-selection-replacement",
+    ),
   ])(
-    "keeps a native removal or replacement received before the ACK: %j",
+    "keeps native removal or replacement received before the ACK: %j",
     async (native) => {
       const pending = deferred();
       fixture.update.mockReturnValue(pending.promise);
@@ -1146,11 +1310,11 @@ describe("host attachment context lifecycle", () => {
       changed({ "openai/modelContext": native });
       pending.resolve(acknowledged("own-update"));
       await sharing;
-      expect(host.sharedIssue?.()).toEqual(
+      expect(host.sharedIssue()).toEqual(
         native ? { source: "github", repo: "yu/Arco", number: 2 } : null,
       );
-      expect(host.sharedAnnotations?.()).toEqual(
-        native && "selection" in native.structuredContent
+      expect(host.sharedAnnotations()).toEqual(
+        native && "content" in native
           ? [
               {
                 number: 1,
@@ -1164,7 +1328,7 @@ describe("host attachment context lifecycle", () => {
     },
   );
 
-  it("accepts its own echo before the ACK and refuses concurrent attachment writes until explicit retry", async () => {
+  it("accepts its own echo before the ACK and refuses concurrent writes until explicit retry", async () => {
     const pending = deferred();
     fixture.update.mockReturnValueOnce(pending.promise);
     const host = await connectHost();
@@ -1176,40 +1340,32 @@ describe("host attachment context lifecycle", () => {
     expect(fixture.update).toHaveBeenCalledTimes(1);
     changed({
       "openai/modelContext": {
+        ...fixture.update.mock.calls[0]![0],
         updateId: "own-update",
-        structuredContent: fixture.update.mock.calls[0]![0].structuredContent,
       },
     });
     pending.resolve(acknowledged("own-update"));
     await first;
-    expect(host.sharedIssue?.()).toEqual({
+    expect(host.sharedIssue()).toEqual({
       source: "github",
       repo: "yu/Arco",
       number: 1,
     });
-    expect(host.sharedAnnotations?.()).toEqual([original]);
+    expect(host.sharedAnnotations()).toEqual([original]);
     const revised = annotationFor(1, "A different note on the same words");
     changed({
-      "openai/modelContext": {
-        updateId: "native-edited-note",
-        structuredContent: {
-          ...revised.issue,
-          arcoSharedIssue: 1,
-          selection: revised.selection,
-          annotations: [revised],
-        },
-      },
+      "openai/modelContext": nativeAnnotations([revised], "native-edited-note"),
     });
-    expect(host.sharedAnnotations?.()).toEqual([revised]);
+    expect(host.sharedAnnotations()).toEqual([revised]);
     fixture.update.mockResolvedValueOnce(acknowledged("explicit-retry"));
     await host.shareAnnotations([annotationFor(2)]);
     expect(fixture.update).toHaveBeenCalledTimes(2);
-    expect(host.sharedIssue?.()).toEqual({
+    expect(host.sharedIssue()).toEqual({
       source: "github",
       repo: "yu/Arco",
       number: 2,
     });
-    expect(host.sharedAnnotations?.()).toEqual([annotationFor(2)]);
+    expect(host.sharedAnnotations()).toEqual([annotationFor(2)]);
   });
 
   it("releases a rejected attachment without replacing context or retrying automatically", async () => {
@@ -1220,8 +1376,8 @@ describe("host attachment context lifecycle", () => {
     await expect(host.shareAnnotations([annotationFor(1)])).rejects.toThrow(
       "Host rejected attachment",
     );
-    expect(host.sharedIssue?.()).toBeNull();
-    expect(host.sharedAnnotations?.()).toBeNull();
+    expect(host.sharedIssue()).toBeNull();
+    expect(host.sharedAnnotations()).toBeNull();
     expect(events).toEqual([]);
     expect(fixture.update).toHaveBeenCalledTimes(1);
     fixture.update.mockResolvedValueOnce(acknowledged("explicit-retry"));

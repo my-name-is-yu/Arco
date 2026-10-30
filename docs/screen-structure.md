@@ -73,9 +73,11 @@ Arco owns context selection and annotations; Codex owns the conversation compose
 
 Whole-issue **Add to chat** labels the attachment with the GitHub repository name and issue number (for example, `Arco #42`) or the native Linear identifier (for example, `ARC-42`). It retains the issue title, source reference, and relevant issue content. Passage sharing includes the selected text rather than silently adding the complete body or comment history.
 
-Selecting text reveals a small **Add to chat** action. Adding it preserves earlier annotations, highlights the passage, gives it a number, and optionally opens a comment editor. Each annotation keeps its own selected text and optional comment. Saving a comment updates that annotation; Escape or outside click discards only the unsaved comment edit, keeping the attachment and marker.
+Selecting text reveals a small **Add to chat** action. Adding it immediately attaches the passage, preserves earlier annotations, and opens an optional comment field with a check button. Clicking the passage's number later opens an editor with **Remove**, **Cancel**, and **Save**. Each annotation keeps its own selected text and optional comment. The range is highlighted only while its editor is open; the number remains after closing. Display numbers follow the remaining attachment order, independently of the stable keys used for editing and position snapshots.
 
-Multiple annotations are shared as numbered content blocks under one group. Codex renders the attachment chips and group. Arco does not copy the host's composer or send a message.
+**Cancel** or **Escape** discards only the unsaved comment edit, keeping the attachment and marker. An outside click closes an empty new comment or cancels a reopened editor. An outside click on a nonempty new comment keeps the draft and returns focus to it. **Command/Control+Enter** saves; plain **Enter** inserts a newline, and IME composition must not submit. Failed updates keep the draft available for retry.
+
+Each annotation is one self-contained content block in the **Annotations** group. Its attachment title is a shortened quote without a display number, so native deletion cannot leave stale numbers in the list. Codex owns the attachment list, previews, individual and group removal, and sending; Arco does not add a second list or composer. Annotation comments are edited from the numbers in Arco. The host decides the group's count and presentation. Arco does not send a message or provide a separate microphone control.
 
 A selection contained within the body or one comment retains that native origin; comment origins include the native comment ID. Other UI text uses a UI origin. Include a minimal issue reference only when the text safely belongs to one issue; a multi-issue selection must not be attached to an arbitrary target.
 
@@ -83,7 +85,9 @@ A selection contained within the body or one comment retains that native origin;
 
 The originating Arco card restores markers only when their source text and positions still match. A separate new card does not inherit another card's annotations. Changed content or missing positions must not produce guessed highlights.
 
-Removing or replacing Codex context removes its annotation markers. Closing and reopening a card or switching providers must preserve only annotations still attached to that card. Deleted, sent, or replaced context must not be automatically reattached.
+The content blocks currently attached in Codex are authoritative. Removing an individual block removes its marker and updates the remaining display numbers; removing or replacing the group clears its markers. Closing and reopening a card or switching providers must preserve only annotations still attached to that card. Deleted, sent, or replaced context must not be automatically reattached.
+
+When an originating card opens with an older Arco annotation attachment, convert only annotations whose original visible text and title still match an attached block. Remove aggregate copies of selected text and comments during conversion. Never restore an annotation from background metadata or saved positions alone. If conversion is not confirmed, do not expose the workspace as successfully connected. A newer native deletion or replacement takes precedence over an in-flight update.
 
 ## Notifications and recovery
 
