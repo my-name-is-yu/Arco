@@ -10,7 +10,7 @@ export type SharedAnnotation = {
     comment?: string;
   };
 };
-export function sharedContextFromText(value: unknown) {
+export function sharedContextFromText(value: unknown): Record<string, unknown> {
   const update = value as {
     content: {
       type: string;
@@ -20,6 +20,63 @@ export function sharedContextFromText(value: unknown) {
     }[];
     structuredContent: Record<string, unknown>;
   };
+  if (update.structuredContent.arcoAnnotationFormat === 2) {
+    expect(update.structuredContent).toEqual({
+      source: "arco",
+      arcoAnnotationFormat: 2,
+      ...(update.structuredContent.arcoAnnotationSnapshotId
+        ? {
+            arcoAnnotationSnapshotId: expect.stringMatching(/^[a-f0-9-]{36}$/),
+          }
+        : {}),
+    });
+    const annotations = update.content.map(
+      (block) => block._meta?.["arco/annotation"] as SharedAnnotation,
+    );
+    const numbers = annotations.map(({ number }) => number);
+    expect(new Set(numbers).size).toBe(numbers.length);
+    for (const [index, annotation] of annotations.entries()) {
+      const block = update.content[index]!;
+      const { number, issue, selection } = annotation;
+      expect(Number.isInteger(number) && number > 0).toBe(true);
+      expect(block.type).toBe("text");
+      expect(block.annotations?.audience ?? []).not.toContain("assistant");
+      expect(block._meta?.["openai/group"]).toEqual({ title: "Annotations" });
+      const preview = selection.text.replace(/\s+/g, " ").trim();
+      expect(block._meta?.["openai/title"]).toBe(
+        preview.length > 64 ? `${preview.slice(0, 64)}…` : preview,
+      );
+      const identifier = issue
+        ? issue.source === "github"
+          ? `${issue.repo} #${issue.number}`
+          : issue.identifier
+        : "Arco";
+      expect(block.text).toBe(
+        `${identifier}\n${issue ? `${issue.url}\n` : ""}Origin: ${selection.origin}${selection.commentId ? `\nComment ID: ${selection.commentId}` : ""}\n\nSelected text:\n${selection.text}${selection.comment ? `\n\nUser comment:\n${selection.comment}` : ""}`,
+      );
+      expect(selection.text.trim()).not.toBe("");
+      expect(["body", "comment", "ui"]).toContain(selection.origin);
+      if (selection.commentId !== undefined)
+        expect(selection.origin).toBe("comment");
+      if (issue) expect(issue).not.toHaveProperty("body");
+    }
+    const first = annotations[0];
+    return {
+      ...(annotations.length === 1
+        ? {
+            ...(first!.issue ?? { source: "arco" }),
+            selection: first!.selection,
+          }
+        : { source: "arco" }),
+      annotations,
+      ...(update.structuredContent.arcoAnnotationSnapshotId
+        ? {
+            arcoAnnotationSnapshotId:
+              update.structuredContent.arcoAnnotationSnapshotId,
+          }
+        : {}),
+    };
+  }
   const hidden = update.content.filter((content) =>
     content.annotations?.audience?.includes("assistant"),
   );

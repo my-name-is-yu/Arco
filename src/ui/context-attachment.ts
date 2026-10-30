@@ -1,3 +1,7 @@
+import type { SelectionAnnotationContext } from "../shared/contracts";
+import { annotationSnapshotIdSchema } from "../shared/annotation-state";
+import { readSharedContext } from "./shared-context";
+
 function attachment(
   context: Record<string, unknown>,
   items: { text: string; title: string }[],
@@ -38,12 +42,38 @@ export function contextAttachment(
 }
 
 export function annotationAttachment(
-  context: Record<string, unknown>,
-  items: { text: string; title: string }[],
+  annotations: SelectionAnnotationContext[],
+  snapshotId?: string,
 ) {
-  return attachment(
-    context,
-    items,
-    `${items.length} annotation${items.length === 1 ? "" : "s"}`,
-  );
+  const parsed = readSharedContext({ source: "arco", annotations }).annotations;
+  if (!parsed)
+    throw new Error("Annotations must have valid, unique positive numbers.");
+  if (snapshotId !== undefined)
+    snapshotId = annotationSnapshotIdSchema.parse(snapshotId);
+  return {
+    content: parsed.map((annotation) => {
+      const { issue, selection } = annotation;
+      const identifier = issue
+        ? issue.source === "github"
+          ? `${issue.repo} #${issue.number}`
+          : issue.identifier
+        : "Arco";
+      const preview = selection.text.replace(/\s+/g, " ").trim();
+      return {
+        type: "text" as const,
+        text: `${identifier}\n${issue ? `${issue.url}\n` : ""}Origin: ${selection.origin}${selection.commentId ? `\nComment ID: ${selection.commentId}` : ""}\n\nSelected text:\n${selection.text}${selection.comment ? `\n\nUser comment:\n${selection.comment}` : ""}`,
+        _meta: {
+          "openai/title":
+            preview.length > 64 ? `${preview.slice(0, 64)}…` : preview,
+          "openai/group": { title: "Annotations" },
+          "arco/annotation": annotation,
+        },
+      };
+    }),
+    structuredContent: {
+      source: "arco" as const,
+      arcoAnnotationFormat: 2 as const,
+      ...(snapshotId ? { arcoAnnotationSnapshotId: snapshotId } : {}),
+    },
+  };
 }

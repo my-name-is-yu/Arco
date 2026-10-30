@@ -681,7 +681,7 @@ test("a retained GitHub selection edits an optional comment without changing the
   expect(
     (update as { content: { text: string }[] }).content[0]!.text,
   ).toContain(note);
-  await expect.poll(() => retainedSelection(app)).toEqual([sourceText]);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
   await expect(marker).toHaveCount(1);
 
   await marker.click();
@@ -706,7 +706,7 @@ test("a retained GitHub selection edits an optional comment without changing the
   await comment.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(marker).toHaveText("1");
-  await expect.poll(() => retainedSelection(app)).toEqual([sourceText]);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
   await marker.click();
   await expect(comment).toHaveValue("");
   await comment.fill("Discard this unsaved note by clicking outside");
@@ -729,14 +729,12 @@ test("two GitHub selections keep numbered markers and independent comments when 
     name: "Save comment",
     exact: true,
   });
-  const first = app.getByRole("button", {
-    name: "Edit selection comment 1",
-    exact: true,
-  });
-  const second = app.getByRole("button", {
-    name: "Edit selection comment 2",
-    exact: true,
-  });
+  const first = app.locator(
+    '[data-arco-annotation="1"] .selection-annotation-number',
+  );
+  const second = app.locator(
+    '[data-arco-annotation="2"] .selection-annotation-number',
+  );
   const firstText = await selectText(app, ".issue-heading h1");
   await addSelectionToChat(app);
   await expect.poll(() => events(page, "context")).toHaveLength(1);
@@ -754,9 +752,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
   await expect(second).toBeVisible();
   await expect(first).toHaveText("1");
   await expect(second).toHaveText("2");
-  await expect
-    .poll(() => retainedSelection(app))
-    .toEqual([firstText, secondText]);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
   const collection = sharedContextFromText((await events(page, "context"))[3]);
   expect(collection).toEqual({
     source: "arco",
@@ -788,6 +784,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
   });
   const secondAnnotation = (collection.annotations as SharedAnnotation[])[1];
   await first.click();
+  await expect.poll(() => retainedSelection(app)).toEqual([firstText]);
   await expect(comment).toHaveValue("First comment");
   await comment.fill("Updated first comment");
   await save.click();
@@ -805,9 +802,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
   expect(annotations[1]).toEqual(secondAnnotation);
   await expect(first).toBeVisible();
   await expect(second).toBeVisible();
-  await expect
-    .poll(() => retainedSelection(app))
-    .toEqual([firstText, secondText]);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
   const sharedBeforeBrowsing = await events(page, "context");
   await app.locator(".issue-row").filter({ hasText: secondTitle }).click();
   await expect(
@@ -819,9 +814,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
   await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
   await expect(first).toBeVisible();
   await expect(second).toBeVisible();
-  await expect
-    .poll(() => retainedSelection(app))
-    .toEqual([firstText, secondText]);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
   expect(await events(page, "context")).toEqual(sharedBeforeBrowsing);
   await second.click();
   await expect(comment).toHaveValue("Second comment");
@@ -835,17 +828,17 @@ test("two GitHub selections keep numbered markers and independent comments when 
   const remaining = sharedContextFromText((await events(page, "context"))[5]);
   expect(remaining.annotations).toEqual([secondAnnotation]);
   await expect(first).toHaveCount(0);
-  await expect(second).toHaveText("2");
-  await expect.poll(() => retainedSelection(app)).toEqual([secondText]);
+  await expect(second).toHaveText("1");
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
   await second.click();
   await expect(comment).toHaveValue("Second comment");
   await dialog
-    .getByRole("button", { name: "Remove annotation 2", exact: true })
+    .getByRole("button", { name: "Remove annotation 1", exact: true })
     .click();
   await expect.poll(() => events(page, "context")).toHaveLength(7);
   expect((await events(page, "context"))[6]).toEqual({
     content: [],
-    structuredContent: { source: "arco", annotations: [] },
+    structuredContent: { source: "arco", arcoAnnotationFormat: 2 },
   });
   await expect(first).toHaveCount(0);
   await expect(second).toHaveCount(0);
@@ -855,7 +848,7 @@ test("two GitHub selections keep numbered markers and independent comments when 
 });
 
 test(
-  "removing the native annotation group also removes its model-only data and Arco highlights",
+  "removing the native annotation group also removes Arco markers and highlights",
   { tag: "@smoke" },
   async ({ page }) => {
     const app = issueFrame(page);
@@ -891,6 +884,100 @@ test(
     expect(await events(page, "message")).toEqual([]);
   },
 );
+
+test("native item deletion renumbers remaining markers and never restores the removed quote", async ({
+  page,
+}) => {
+  const app = issueFrame(page);
+  const dialog = selectionComment(app);
+  const comment = dialog.getByRole("textbox", { name: "Optional comment" });
+  const quotes: string[] = [];
+  for (const [index, selector] of [
+    ".issue-heading h1",
+    ".issue-body p",
+    ".comment [data-context-origin='comment'] p",
+  ].entries()) {
+    quotes.push(await selectText(app, selector));
+    await addSelectionToChat(app);
+    await comment.fill(`Annotation note ${index + 1}`);
+    await dialog
+      .getByRole("button", { name: "Save comment", exact: true })
+      .click();
+  }
+  await expect.poll(() => events(page, "context")).toHaveLength(6);
+  type Attachment = {
+    content: { _meta?: Record<string, unknown> }[];
+    structuredContent: Record<string, unknown>;
+  };
+  const attached = (await events(page, "context")).at(-1) as Attachment;
+  const remaining = {
+    ...attached,
+    content: attached.content.filter((_, index) => index !== 1),
+  };
+  await updateHostContext(page, {
+    "openai/modelContext": { ...remaining, updateId: "native-middle-deleted" },
+  });
+  const first = app.locator(
+    '[data-arco-annotation="1"] .selection-annotation-number',
+  );
+  const removed = app.locator(
+    '[data-arco-annotation="2"] .selection-annotation-number',
+  );
+  const third = app.locator(
+    '[data-arco-annotation="3"] .selection-annotation-number',
+  );
+  await expect(removed).toHaveCount(0);
+  await expect(first).toHaveText("1");
+  await expect(third).toHaveText("2");
+  expect(JSON.stringify(remaining)).not.toContain(quotes[1]);
+  expect(JSON.stringify(remaining)).not.toContain("Annotation note 2");
+  await third.scrollIntoViewIfNeeded();
+  await third.click();
+  await expect(comment).toHaveValue("Annotation note 3");
+  await comment.fill("Revised surviving annotation");
+  await dialog
+    .getByRole("button", { name: "Save comment", exact: true })
+    .click();
+  await expect.poll(() => events(page, "context")).toHaveLength(7);
+  const revised = (await events(page, "context")).at(-1) as Attachment;
+  expect(sharedContextFromText(revised).annotations).toMatchObject([
+    { number: 1, selection: { text: quotes[0], comment: "Annotation note 1" } },
+    {
+      number: 3,
+      selection: { text: quotes[2], comment: "Revised surviving annotation" },
+    },
+  ]);
+  expect(JSON.stringify(revised)).not.toContain(quotes[1]);
+  const frame = page
+    .frames()
+    .find((candidate) => candidate.url().endsWith("/arco.html"))!;
+  await frame.goto(frame.url());
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(removed).toHaveCount(0);
+  await expect(third).toHaveText("2");
+  await updateHostContext(page, {
+    "openai/modelContext": {
+      ...revised,
+      content: [revised.content[1]],
+      updateId: "native-first-deleted",
+    },
+  });
+  await expect(first).toHaveCount(0);
+  await expect(third).toHaveText("1");
+  await updateHostContext(page, {
+    "openai/modelContext": {
+      ...revised,
+      content: [],
+      updateId: "native-last-deleted",
+    },
+  });
+  await expect(app.locator(".selection-annotation-number")).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  expect(await events(page, "context")).toHaveLength(7);
+  expect(await events(page, "message")).toEqual([]);
+});
 
 test("narrow input selections keep their source draft and survive presentation updates until native context removal or replacement", async ({
   page,
@@ -961,7 +1048,7 @@ test("narrow input selections keep their source draft and survive presentation u
     },
   });
   await expect(source).toHaveValue(draft);
-  await expect(retainedInput.locator("mark")).toHaveText("Keep");
+  await expect(retainedInput).toHaveCount(0);
   await source.scrollIntoViewIfNeeded();
   await source.evaluate((element: HTMLTextAreaElement) => {
     element.focus();
@@ -1002,7 +1089,7 @@ test("narrow input selections keep their source draft and survive presentation u
       firstRect!.top < secondRect!.bottom &&
       firstRect!.bottom > secondRect!.top,
   ).toBe(false);
-  await expect(retainedInput.locator("mark")).toHaveText(["Keep", "GitHub"]);
+  await expect(retainedInput).toHaveCount(0);
   const twoInputSelections = sharedContextFromText(
     (await events(page, "context"))[3],
   ).annotations as SharedAnnotation[];
@@ -2694,7 +2781,7 @@ test("annotation restoration reconnects both Issue ranges and comments after ifr
     .getByRole("button", { name: "Mock fullscreen", exact: true })
     .click();
   await expect(app.locator(".workspace")).toBeVisible();
-  await expect.poll(() => retainedSelection(app)).toEqual([title, body]);
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
   for (const [number, note] of [
     [1, "Keep the first annotation comment"],
     [2, "Keep the second annotation comment"],
@@ -2705,6 +2792,9 @@ test("annotation restoration reconnects both Issue ranges and comments after ifr
     });
     await expect(marker).toHaveText(String(number));
     await marker.click();
+    await expect
+      .poll(() => retainedSelection(app))
+      .toEqual([number === 1 ? title : body]);
     await expect(comment).toHaveValue(note);
     await comment.press("Escape");
   }
@@ -2802,12 +2892,15 @@ test("annotation restoration hashes unselected input text and refuses a changed 
   await expect(source).toHaveValue(draft);
   await source.scrollIntoViewIfNeeded();
   const mark = app.locator(".selection-retained-input mark");
-  await expect(mark).toHaveText(text);
+  await expect(mark).toHaveCount(0);
   const marker = app.getByRole("button", {
     name: "Edit selection comment 1",
     exact: true,
   });
   await expect(marker).toBeVisible();
+  await marker.click();
+  await expect(mark).toHaveText(text);
+  await selectionComment(app).press("Escape");
   const changedDraft = `Changed ${draft}`;
   await source.fill(changedDraft);
   await expect(marker).toHaveCount(0);
@@ -2837,8 +2930,9 @@ test("annotation restoration hashes unselected input text and refuses a changed 
   await expect(marker).toHaveCount(0);
   await expect(mark).toHaveCount(0);
   await source.fill(draft);
-  await expect(mark).toHaveText(text);
   await expect(marker).toBeVisible();
+  await marker.click();
+  await expect(mark).toHaveText(text);
   expect(await events(page, "context")).toHaveLength(1);
   expect(await events(page, "message")).toEqual([]);
 });
@@ -2890,14 +2984,19 @@ test("annotation restoration reconnects generic UI and cross-Issue ranges in the
     .getByRole("button", { name: "Mock fullscreen", exact: true })
     .click();
   await expect(app.locator(".workspace")).toBeVisible();
-  await expect.poll(() => retainedSelection(app)).toEqual([title, sourceText]);
-  for (const number of [1, 2])
-    await expect(
-      app.getByRole("button", {
-        name: `Edit selection comment ${number}`,
-        exact: true,
-      }),
-    ).toHaveText(String(number));
+  await expect.poll(() => retainedSelection(app)).toEqual([]);
+  for (const number of [1, 2]) {
+    const marker = app.getByRole("button", {
+      name: `Edit selection comment ${number}`,
+      exact: true,
+    });
+    await expect(marker).toHaveText(String(number));
+    await marker.click();
+    await expect
+      .poll(() => retainedSelection(app))
+      .toEqual([number === 1 ? title : sourceText]);
+    await selectionComment(app).press("Escape");
+  }
   expect(await events(page, "context")).toEqual(sharedBeforeReload);
   expect(await events(page, "message")).toEqual([]);
 });

@@ -15,14 +15,17 @@ import {
 } from "./selection-context";
 import type { useSharedAnnotations } from "./useSharedAnnotations";
 
-export function useAnnotationLayout({
-  annotations,
-  current,
-  anchors,
-  persisted,
-  restored,
-  commit,
-}: ReturnType<typeof useSharedAnnotations>) {
+export function useAnnotationLayout(
+  {
+    annotations,
+    current,
+    anchors,
+    persisted,
+    restored,
+    commit,
+  }: ReturnType<typeof useSharedAnnotations>,
+  editing: number | null,
+) {
   const [layouts, setLayouts] = useState(new Map<number, AnnotationLayout>());
   const scheduleLayout = useRef<() => void>(() => undefined);
   const repositionAnnotations = useCallback(() => scheduleLayout.current(), []);
@@ -96,8 +99,8 @@ export function useAnnotationLayout({
         const measured = new Map<number, AnnotationLayout>();
         for (const { context, target } of next) {
           if (!target) continue;
-          const editor = document.querySelector<HTMLTextAreaElement>(
-            `[data-arco-annotation="${context.number}"] .selection-comment textarea`,
+          const editor = document.querySelector<HTMLElement>(
+            `[data-arco-annotation="${context.number}"] .selection-comment`,
           );
           const layout = measureSelectionAnnotation(
             target,
@@ -164,12 +167,15 @@ export function useAnnotationLayout({
   }, [anchors, commit, current, persisted]);
   useEffect(repositionAnnotations, [
     annotations,
+    editing,
     restored,
     repositionAnnotations,
   ]);
   useEffect(() => {
     const ranges = annotations.flatMap((item) =>
-      item.target?.range ? [item.target.range] : [],
+      item.context.number === editing && item.target?.range
+        ? [item.target.range]
+        : [],
     );
     if (ranges.length)
       CSS.highlights.set("arco-selection", new Highlight(...ranges));
@@ -177,6 +183,6 @@ export function useAnnotationLayout({
     return () => {
       CSS.highlights.delete("arco-selection");
     };
-  }, [annotations]);
+  }, [annotations, editing]);
   return { layouts, repositionAnnotations };
 }

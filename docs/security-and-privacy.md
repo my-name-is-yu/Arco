@@ -51,6 +51,8 @@ Store chat/repository associations under opaque keys rather than raw chat IDs or
 
 **Add to chat** is an explicit handoff. Whole-issue sharing and passage sharing have different payloads; a selected passage must not silently include the full issue or comment history. Preserve a native origin only when the selection belongs to one well-defined issue or comment. Multi-issue text must not be assigned an arbitrary native target.
 
-Annotation position snapshots must not contain selected text or annotation comments. Restore only matching positions for the originating card and context. Changed content or missing positions must not produce guessed markers, and local positions must not resurrect removed attachments.
+Each annotation's selected text, optional comment, and minimal native reference must belong to its independently removable content block. Do not duplicate selections or comments in an assistant-only aggregate block or background `structuredContent`: removing a visible item in Codex does not necessarily update that background data. Treat the current host content blocks as the source of truth for attachment membership, including when only one item is removed.
+
+Annotation position snapshots must not contain selected text or annotation comments. Restore only matching positions for the originating card, current attached blocks, and context. Changed content or missing positions must not produce guessed markers, and local positions must not resurrect removed attachments. Convert recognized older annotation attachments only from exact remaining visible-block matches, remove aggregate source copies, and give native removal or replacement precedence over an in-flight conversion.
 
 See [Product requirements](requirements.md), [Issue operations](issue-operations.md), and [Screen structure](screen-structure.md) for related behavior.

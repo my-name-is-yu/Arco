@@ -217,6 +217,23 @@
   animation: arco-rise var(--arco-motion-medium) var(--arco-motion-ease);
 }
 
+.selection-comment[data-attention] {
+  animation: arco-annotation-attention 180ms ease-out;
+}
+
+@keyframes arco-annotation-attention {
+  0%,
+  100% {
+    translate: 0;
+  }
+  25% {
+    translate: -3px;
+  }
+  75% {
+    translate: 3px;
+  }
+}
+
 .detail-utilities[open] > .detail-utility-menu,
 .linear-reaction-picker[open] > .linear-reaction-options {
   animation: arco-rise 150ms var(--arco-motion-ease);

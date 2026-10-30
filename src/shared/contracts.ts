@@ -246,6 +246,7 @@ export interface TextSelectionContext {
   issue?: SelectionIssue;
 }
 export interface SelectionAnnotationContext extends TextSelectionContext {
+  /** Stable attachment key; visible numbers follow the current item order. */
   number: number;
 }
 export type ConversationIssue = IssueDetail | LinearIssue;

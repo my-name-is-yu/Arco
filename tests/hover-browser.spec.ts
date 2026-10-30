@@ -217,6 +217,12 @@ async function annotationComment(page: Page) {
     exact: true,
   });
   await expect(comment).toBeVisible();
+  await expect(comment.getByRole("button")).toHaveCount(1);
+  await comment.press("Escape");
+  await ui
+    .getByRole("button", { name: "Edit selection comment 1", exact: true })
+    .click();
+  await expect(comment).toBeVisible();
   return comment;
 }
 
@@ -727,7 +733,9 @@ test("annotation numbers provide hover feedback while preserving their text and 
       });
     });
   const sourceBefore = await annotatedRanges();
-  expect(sourceBefore).toHaveLength(1);
+  expect(sourceBefore).toHaveLength(0);
+  const source = ui.locator(".issue-body p").first();
+  const sourceBounds = await source.boundingBox();
   await page.mouse.move(1, 1);
   await appearance(marker);
   const before = await marker.boundingBox();
@@ -735,6 +743,7 @@ test("annotation numbers provide hover feedback while preserving their text and 
     scale: hoverScale,
     whileHovered: async () => {
       expect(await annotatedRanges()).toEqual(sourceBefore);
+      expect(await source.boundingBox()).toEqual(sourceBounds);
       const hovered = await marker.boundingBox();
       expect(hovered!.x).toBeCloseTo(before!.x, 1);
       expect(hovered!.y + hovered!.height).toBeCloseTo(
@@ -745,6 +754,7 @@ test("annotation numbers provide hover feedback while preserving their text and 
   });
   expect(await marker.boundingBox()).toEqual(before);
   expect(await annotatedRanges()).toEqual(sourceBefore);
+  expect(await source.boundingBox()).toEqual(sourceBounds);
   await expect(marker).toHaveText("1");
 });
 

@@ -19,10 +19,7 @@ import {
   type LaunchContext,
   type NativeIssueTarget,
 } from "../shared/launch";
-import {
-  readSharedContext,
-  type SharedContextSnapshot,
-} from "./shared-context";
+import { readModelContext, readSharedContext } from "./shared-context";
 import { createToolQueue } from "./tool-queue";
 import { annotationAttachment, contextAttachment } from "./context-attachment";
 import type {
@@ -146,16 +143,16 @@ export async function connectHost(): Promise<ArcoHost> {
   const notify = (event: "data" | "display" | "context" | "launch") =>
     listeners.forEach((listener) => listener(event));
   let contextRevision = 0;
-  let attachment: SharedContextSnapshot & {
+  let attachment: ReturnType<typeof readModelContext> & {
     updateId?: string | null;
     present: boolean;
-  } = { ...readSharedContext(undefined), present: false };
+  } = { ...readModelContext(undefined), present: false };
   const applyAttachment = (
-    value: unknown,
+    value: Parameters<typeof readModelContext>[0],
     updateId: string | null | undefined,
     present: boolean,
   ) => {
-    attachment = { ...readSharedContext(value), updateId, present };
+    attachment = { ...readModelContext(value), updateId, present };
     notify("context");
   };
   let attachmentBusy = false;
@@ -194,7 +191,7 @@ export async function connectHost(): Promise<ArcoHost> {
         pendingRemoval
       ) {
         contextRevision += 1;
-        applyAttachment(modelContext?.structuredContent, nextVersion, present);
+        applyAttachment(modelContext, nextVersion, present);
       }
     }
   };
@@ -238,6 +235,16 @@ export async function connectHost(): Promise<ArcoHost> {
   };
   await app.connect();
   applyContext();
+  // Upgrade only content that is still attached to this app instance. Position
+  // snapshots and the legacy aggregate are never evidence of attachment.
+  while (attachment.present && attachment.legacy) {
+    await attach(
+      annotationAttachment(
+        attachment.annotations ?? [],
+        attachment.snapshotId ?? undefined,
+      ),
+    );
+  }
   async function attach(params: Parameters<App["updateModelContext"]>[0]) {
     if (!openai.modelContext)
       throw new Error(
@@ -262,7 +269,7 @@ export async function connectHost(): Promise<ArcoHost> {
         attachment.updateId !== receipt.updateId
       )
         return;
-      applyAttachment(params.structuredContent, receipt.updateId, true);
+      applyAttachment(params, receipt.updateId, true);
     } finally {
       attachmentBusy = false;
     }
@@ -415,43 +422,7 @@ export async function connectHost(): Promise<ArcoHost> {
         throw new Error(
           "Annotations must have valid, unique positive numbers.",
         );
-      if (!parsed.length) {
-        await attach({
-          content: [],
-          structuredContent: { source: "arco", annotations: [] },
-        });
-        return;
-      }
-      const first = parsed[0]!;
-      const context =
-        parsed.length === 1
-          ? {
-              ...(first.issue ?? { source: "arco" }),
-              selection: first.selection,
-              annotations: parsed,
-            }
-          : { source: "arco", annotations: parsed };
-      const items = parsed.map(({ number, issue, selection }) => {
-        const identifier = issue
-          ? issue.source === "github"
-            ? `${issue.repo} #${issue.number}`
-            : issue.identifier
-          : "Arco";
-        const preview = selection.text.replace(/\s+/g, " ").trim();
-        return {
-          text: `${number}. ${identifier}\n${selection.text}${selection.comment ? `\n\nComment: ${selection.comment}` : ""}`,
-          title: `#${number} ${preview.length > 64 ? `${preview.slice(0, 64)}…` : preview}`,
-        };
-      });
-      await attach(
-        annotationAttachment(
-          {
-            ...context,
-            ...(snapshotId ? { arcoAnnotationSnapshotId: snapshotId } : {}),
-          },
-          items,
-        ),
-      );
+      await attach(annotationAttachment(parsed, snapshotId));
     },
     async openLink(url) {
       const parsed = new URL(url);
