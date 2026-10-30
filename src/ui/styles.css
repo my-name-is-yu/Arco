@@ -1287,13 +1287,6 @@
   font-size: 32px;
   color: var(--arco-muted);
 }
-.keyboard-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  margin-top: 18px;
-}
 .dialog-backdrop {
   position: absolute;
   inset: 0;

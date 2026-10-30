@@ -1,0 +1,216 @@
+.shortcut-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.shortcut-menu-item .shortcut-keys {
+  margin-left: auto;
+}
+
+.issue-navigation {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.shortcut-menu-group {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--arco-border);
+}
+
+.detail-utility-menu:has(.shortcut-menu-group) {
+  width: 260px;
+}
+
+.inline-card-utilities .detail-utility-menu:has(.shortcut-menu-group) {
+  max-width: min(260px, calc(100vw - 32px));
+}
+
+.shortcut-menu-item > svg {
+  flex-shrink: 0;
+}
+
+.shortcut-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--arco-border, currentColor);
+  border-radius: 4px;
+  background: var(--arco-hover, transparent);
+  color: inherit;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.shortcut-key-separator {
+  color: var(--arco-muted, inherit);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.arco-shortcut-tooltip {
+  z-index: 60;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.shortcut-tooltip-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.arco-shortcut-tooltip .shortcut-keys kbd {
+  min-width: 18px;
+  height: 18px;
+  border-color: currentColor;
+  background: transparent;
+  font-size: 10px;
+}
+
+.shortcut-help-backdrop {
+  position: fixed;
+  z-index: 50;
+  padding: 12px;
+}
+
+.shortcut-help-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 460px;
+  max-width: 100%;
+  max-height: calc(100dvh - 24px);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--arco-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px #0005;
+}
+
+.shortcut-help-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 12px;
+  padding: 20px 23px 8px;
+  margin: 0;
+}
+
+.shortcut-help-heading h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.shortcut-help-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 23px 23px;
+}
+
+.shortcut-help-description,
+.shortcut-help-condition,
+.shortcut-help-setting > p {
+  color: var(--arco-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.shortcut-help-content > .shortcut-help-description {
+  margin: 0 0 16px;
+}
+
+.shortcut-help-content h3 {
+  margin: 0 0 5px;
+  color: var(--arco-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.shortcut-help-list {
+  margin: 0;
+}
+
+.shortcut-help-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+}
+
+.shortcut-help-row dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.shortcut-help-row dd {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  flex-shrink: 0;
+  max-width: 55%;
+}
+
+.shortcut-help-condition {
+  display: block;
+  margin-top: 2px;
+}
+
+.shortcut-help-setting {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--arco-border);
+}
+
+.shortcut-help-setting label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.shortcut-help-setting input {
+  flex-shrink: 0;
+  accent-color: var(--arco-accent);
+}
+
+.shortcut-help-setting > p {
+  margin: 4px 0 0 21px;
+}
+
+.shortcut-help-error {
+  margin-top: 10px;
+  color: var(--arco-text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.shortcut-help-error p {
+  margin: 0 0 4px;
+}
+
+@media (max-width: 600px) {
+  .shortcut-help-heading {
+    padding: 18px 18px 8px;
+  }
+
+  .shortcut-help-content {
+    padding: 0 18px 18px;
+  }
+}

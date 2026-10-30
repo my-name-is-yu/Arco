@@ -1,4 +1,10 @@
-import { useContext, useId, useRef, type ReactNode } from "react";
+import {
+  useContext,
+  useId,
+  useRef,
+  useLayoutEffect,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
 import type {
@@ -13,6 +19,7 @@ import { githubStatePresentation } from "./github-state";
 import { GitHubAuthScopeContext, isGitHubAuthScope } from "./github-auth";
 import { ToolCallError } from "../shared/errors";
 import "./inline-issue-tabs.css";
+import { useIssueShortcuts } from "./keyboard-shortcuts";
 
 export function presentationTarget(
   issue: IssuePresentationSummary,
@@ -150,6 +157,39 @@ export function InlineIssueTabs({
     (issue) => presentationIdentity(issue) === activeKey,
   );
   const panelId = `${prefix}-panel`;
+  const panel = useRef<HTMLDivElement>(null);
+  const focusAfterSwitch = useRef<"tab" | "body" | null>(null);
+  useLayoutEffect(() => {
+    const destination = focusAfterSwitch.current;
+    if (!destination) return;
+    if (destination === "tab")
+      buttons.current.get(activeKey)?.focus({ preventScroll: true });
+    else panel.current?.focus({ preventScroll: true });
+    focusAfterSwitch.current = null;
+  }, [activeKey]);
+  const moveIssue = (direction: -1 | 1) => {
+    if (activeIndex < 0 || currentIssues.length < 2) return;
+    focusAfterSwitch.current = document.activeElement?.closest(
+      '[role="tablist"]',
+    )
+      ? "tab"
+      : "body";
+    onSelect(
+      currentIssues[
+        (activeIndex + direction + currentIssues.length) % currentIssues.length
+      ],
+    );
+  };
+  useIssueShortcuts("tabs", "tabs", {
+    previous: {
+      run: () => moveIssue(-1),
+      enabled: activeIndex >= 0 && currentIssues.length > 1,
+    },
+    next: {
+      run: () => moveIssue(1),
+      enabled: activeIndex >= 0 && currentIssues.length > 1,
+    },
+  });
   return (
     <section
       className="arco inline-issue-tabs"
@@ -164,6 +204,15 @@ export function InlineIssueTabs({
         aria-label="Issues"
         data-motion="selection"
         onKeyDown={(event) => {
+          if (
+            event.defaultPrevented ||
+            event.nativeEvent.isComposing ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey ||
+            event.shiftKey
+          )
+            return;
           if (!currentIssues.length) return;
           const last = currentIssues.length - 1;
           const index =
@@ -247,6 +296,7 @@ export function InlineIssueTabs({
         </Notice>
       )}
       <div
+        ref={panel}
         role="tabpanel"
         id={panelId}
         aria-labelledby={

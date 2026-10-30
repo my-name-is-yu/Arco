@@ -44,6 +44,20 @@ const filter = {
 };
 
 describe("settings recovery", () => {
+  it("persists disabled character shortcuts alongside queued source changes", async () => {
+    const source = fixture();
+    source.recover();
+    source.controller.update("keyboard-shortcuts", () => ({
+      characterShortcutsEnabled: false,
+    }));
+    source.controller.update("source", () => ({ activeSource: "linear" }));
+    await vi.waitFor(() =>
+      expect(source.controller.get()).toEqual({ pending: false, error: null }),
+    );
+    expect(source.saved().settings.characterShortcutsEnabled).toBe(false);
+    expect(source.saved().settings.activeSource).toBe("linear");
+  });
+
   it("serializes settings writes per host across a source change", async () => {
     let saved: SettingsRecord = {
       revision: 0,

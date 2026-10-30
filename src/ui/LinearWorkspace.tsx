@@ -61,6 +61,7 @@ import { DisclosureSummary } from "./DisclosureSummary";
 import { useListScroll, useListKeyboard } from "./useListInteraction";
 import { useIssueListContinuation } from "./useIssueListContinuation";
 import { useDebouncedSearch } from "./useDebouncedSearch";
+import { useShortcuts } from "./keyboard-shortcuts";
 import {
   linearRef,
   useLinearIssueList,
@@ -444,7 +445,8 @@ export function LinearWorkspace({
     mode,
     ready: issues.isSuccess,
   });
-  useListKeyboard({
+  const shortcuts = useShortcuts();
+  const { goToList: focusIssueList, selectIssue } = useListKeyboard({
     rows,
     activeKey: active?.issueId ?? null,
     keyForRow: (issue) => issue.issueId,
@@ -453,7 +455,14 @@ export function LinearWorkspace({
       setShowDetail(true);
     },
     onClose: () => setShowDetail(false),
+    onGoToList: () => {
+      if (mode !== "fullscreen") openRetainedDetails();
+      setShowDetail(false);
+    },
+    mode,
+    listRef: list,
     searchRef: search,
+    searchEnabled: Boolean(scope),
   });
   async function run<T>(
     name: string,
@@ -1079,7 +1088,7 @@ export function LinearWorkspace({
                     }}
                     placeholder="Search or paste issue URL…"
                   />
-                  <kbd>/</kbd>
+                  {shortcuts?.enabled && <kbd>/</kbd>}
                 </div>
                 {searchError && (
                   <p
@@ -1263,6 +1272,9 @@ export function LinearWorkspace({
                       />
                       <button
                         className={`issue-row ${active?.issueId === issue.issueId ? "selected" : ""}`}
+                        aria-current={
+                          active?.issueId === issue.issueId ? "true" : undefined
+                        }
                         data-arco-issue={selectionIssueData(issue)}
                         onClick={(event) => {
                           if (
@@ -1270,8 +1282,7 @@ export function LinearWorkspace({
                             isTextSelectionClick(event.currentTarget)
                           )
                             return;
-                          setSelected(linearRef(issue));
-                          setShowDetail(true);
+                          selectIssue(issue);
                         }}
                       >
                         <span style={{ color: issue.state.color }}>◉</span>
@@ -1336,6 +1347,7 @@ export function LinearWorkspace({
       </aside>
       <section
         className="detail-pane"
+        tabIndex={-1}
         aria-label="Linear Issue details"
         aria-busy={(canRead && detail.isFetching) || detailLoading}
         data-arco-issue={
@@ -1359,7 +1371,7 @@ export function LinearWorkspace({
                   }
                 : null
             }
-            onBack={() => setShowDetail(false)}
+            onBack={focusIssueList}
             onFullscreen={() => void changeMode("fullscreen")}
             metadata={detailMetadata.data}
             metadataError={detailMetadata.error}

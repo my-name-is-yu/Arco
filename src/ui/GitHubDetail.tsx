@@ -34,6 +34,7 @@ import { DisclosureSummary } from "./DisclosureSummary";
 import { useGitHubComments } from "./github-comments";
 import { StateIcon, ShortDate } from "./GitHubIssueMeta";
 import { githubStatePresentation } from "./github-state";
+import { useDetailReadingPosition } from "./useListInteraction";
 const refKey = (issue: IssueRef) => `${issue.repo}#${issue.number}`;
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -76,6 +77,10 @@ export function GitHubDetail({
   hostAction,
   shared,
 }: ContentProps) {
+  const readingPosition = useDetailReadingPosition(
+    host,
+    `${ownerId}:${issue.url}`,
+  );
   const comments = useGitHubComments(host, issue);
   const visibleComments = comments.comments;
   const [editing, setEditing] = useState(false);
@@ -169,7 +174,13 @@ export function GitHubDetail({
         }
       />
       {feedback}
-      <div className="detail-scroll motion-content">
+      <div
+        className="detail-scroll motion-content"
+        {...readingPosition}
+        tabIndex={0}
+        role="region"
+        aria-label="Issue content"
+      >
         <div className="issue-heading">
           <div className="issue-kicker">
             <span className={`state-pill ${issue.state}`}>

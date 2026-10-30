@@ -66,6 +66,69 @@ describe("local settings and drafts", () => {
     });
     expect(next.settings.githubRepos).toEqual(["yu/Arco"]);
   });
+  it("defaults character shortcuts for existing settings without rewriting the file", async () => {
+    const dir = await temporary();
+    const file = join(dir, "settings.json");
+    const settings: Record<string, unknown> = {
+      ...defaultSettings,
+      activeSource: "linear",
+    };
+    delete settings.characterShortcutsEnabled;
+    const original = JSON.stringify({ revision: 3, settings });
+    await writeFile(file, original);
+
+    expect(await createStateStore(dir).readSettings()).toEqual({
+      revision: 3,
+      settings: { ...settings, characterShortcutsEnabled: true },
+    });
+    expect(await readFile(file, "utf8")).toBe(original);
+  });
+  it("preserves disabled character shortcuts through unrelated updates and reloads", async () => {
+    const dir = await temporary();
+    const store = createStateStore(dir);
+    await store.updateSettings({
+      expectedRevision: 0,
+      patch: { characterShortcutsEnabled: false },
+    });
+    const updated = await store.updateSettings({
+      expectedRevision: 1,
+      patch: { activeSource: "linear" },
+    });
+    expect(updated.settings.characterShortcutsEnabled).toBe(false);
+    expect((await createStateStore(dir).readSettings()).settings).toEqual(
+      updated.settings,
+    );
+  });
+  it.each([null, "false", 0])(
+    "rejects invalid character shortcut preference %s without replacing saved settings",
+    async (value) => {
+      const dir = await temporary();
+      const file = join(dir, "settings.json");
+      const store = createStateStore(dir);
+      await store.updateSettings({
+        expectedRevision: 0,
+        patch: { characterShortcutsEnabled: false },
+      });
+      const saved = await readFile(file, "utf8");
+      await expect(
+        store.updateSettings({
+          expectedRevision: 1,
+          patch: JSON.parse(
+            JSON.stringify({ characterShortcutsEnabled: value }),
+          ),
+        }),
+      ).rejects.toThrow();
+      expect(await readFile(file, "utf8")).toBe(saved);
+
+      const invalid = JSON.stringify({
+        revision: 1,
+        settings: { ...defaultSettings, characterShortcutsEnabled: value },
+      });
+      await writeFile(file, invalid);
+      await expect(store.readSettings()).rejects.toThrow("could not be opened");
+      expect(await readFile(file, "utf8")).toBe(invalid);
+    },
+  );
   it("keeps source/repository draft keys separate and deletion prevents stale revival", async () => {
     const store = createStateStore(await temporary());
     const key = {

@@ -67,6 +67,27 @@ Selecting a tab stays inline and promptly displays that issue's prepared body, n
 
 GitHub and Linear can appear together without sharing a workflow or synthesizing status values. The group stays attached to its original set when the active issue is opened in details; returning inline restores its selected tab. Tab selection does not attach context or rewrite saved provider preferences or the existing workspace layout. A selection within one tab retains that issue's native reference; a selection across tabs must not attach an arbitrary issue. A failed source read returns an error rather than a partial or broader set.
 
+## Keyboard shortcuts
+
+Shortcuts apply only inside the focused Arco surface. Keep Codex and browser shortcuts available; do not take over Command/Ctrl combinations, host tab switching, or host chat navigation.
+
+| Key                      | Action and scope                                                                                                                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `J` / `K`                | Show the next / previous issue. Inline issue sets cycle in supplied tab order. Workspaces use the current filtered, loaded list and stop at its ends; they do not fetch another page or widen the scope. |
+| `G`, then `I`            | Go to the issue list. From an inline card, request the expanded workspace. In a narrow workspace, show the list; in a wide workspace, return focus to the current row.                                   |
+| `/`                      | Focus the current workspace's search field.                                                                                                                                                              |
+| `?`                      | Open keyboard shortcut help for the current surface.                                                                                                                                                     |
+| `Escape`                 | Close the nearest active menu, dialog, or selection UI. It does not return from issue details to the list. One press must not also close a containing surface.                                           |
+| Left / Right, Home / End | Move among inline issue tabs when a tab has focus, retaining the existing tab behavior.                                                                                                                  |
+
+Character shortcuts do not run during text entry, IME composition, text selection, or interaction with an open menu or dialog. The `G` sequence expires after one second and is cancelled by another key, pointer or focus movement, or leaving Arco. Switching an issue must retain its drafts and reading position, preserve keyboard focus in the reading or tab area, and never share context or send a message.
+
+Keep previous and next issue controls visible beside the current issue in its toolbar or inline card. Use up/down arrows for the workspace list and left/right arrows for an inline issue set. Their tooltips pair the action label with a small `K` or `J` keycap on hover and keyboard focus. The controls remain clickable when character shortcuts are disabled and follow the same list boundaries or tab cycling as the shortcuts.
+
+Use Arco's shared icons, neutral theme colors, and dialog spacing. Keep issue-specific utilities first in the menu, followed by a separated group for the issue list and shortcut help; do not duplicate previous/next navigation there. Show assigned keys at the right edge of action menu rows, and retain the `/` hint in the search field. Render `G`, **then** `I` in tooltips, menus, and help, and separate alternative keys with **or**. Do not repeat shortcut instructions below every tab or in the reading body.
+
+The **Keyboard shortcuts** action is reachable by click from the workspace header, including empty lists, and from an issue's utility menu. Help lists only the relevant surface's commands and conditions, and includes **Enable keyboard shortcuts**, enabled by default and saved in local settings. When disabled, hide inactive character-key hints while keeping the clickable help entry and standard Tab, arrow, Enter, and Escape behavior available. Saving failures remain visible and retryable; disabling shortcuts must not make their settings unreachable.
+
 ## Add to chat and annotations
 
 Arco owns context selection and annotations; Codex owns the conversation composer, attachment UI, and sending. Neither browsing a row nor selecting text shares anything automatically.

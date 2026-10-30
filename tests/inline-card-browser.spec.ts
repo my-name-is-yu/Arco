@@ -878,10 +878,7 @@ test.describe("inline utility dismissal", () => {
       await actions.click();
       await expect(menu).toHaveJSProperty("open", true);
       await card
-        .getByRole("button", {
-          name: source === "github" ? "Open on GitHub" : "Open in Linear",
-          exact: true,
-        })
+        .getByRole("button", { name: "Keyboard shortcuts", exact: true })
         .press("Tab");
       await expect(menu).toHaveJSProperty("open", false);
       await expect(
