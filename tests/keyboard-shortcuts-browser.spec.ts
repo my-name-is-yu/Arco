@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./browser-test";
 import { choose } from "./select-helpers";
+import { toolFailure } from "./tool-failure";
 import type { NativeIssueTarget } from "../src/shared/launch";
 
 const app = (page: Page) => page.frameLocator("#arco");
@@ -660,3 +661,86 @@ test("shortcut hints expose labels and keycaps through hover, focus, and menus",
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
 });
+
+for (const source of ["github", "linear"] as const) {
+  test(`${source} retrying a failed shortcut preference keeps help focus and Escape usable`, async ({
+    page,
+  }, testInfo) => {
+    await openWorkspace(page, source);
+    const ui = app(page);
+    const help = ui.getByRole("button", {
+      name: "Keyboard shortcuts",
+      exact: true,
+    });
+    await help.click();
+    const dialog = ui.getByRole("dialog", {
+      name: "Keyboard shortcuts",
+      exact: true,
+    });
+    const toggle = dialog.getByRole("checkbox", {
+      name: "Enable keyboard shortcuts",
+      exact: true,
+    });
+    const attempts: boolean[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let markEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as {
+        name: string;
+        arguments: { patch?: { characterShortcutsEnabled?: boolean } };
+      };
+      if (
+        input.name !== "arco_update_settings" ||
+        typeof input.arguments.patch?.characterShortcutsEnabled !== "boolean"
+      )
+        return route.continue();
+      attempts.push(input.arguments.patch.characterShortcutsEnabled);
+      if (attempts.length === 1)
+        return route.fulfill({
+          json: toolFailure("Settings are temporarily unavailable"),
+        });
+      markEntered();
+      await held;
+      await route.continue();
+    });
+    try {
+      await toggle.click();
+      await expect(dialog.getByRole("alert")).toContainText(
+        "Settings are temporarily unavailable",
+      );
+      await expect(toggle).toBeChecked();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(help).toBeFocused();
+      await help.click();
+      const saved = settingsSaved(page);
+      await dialog
+        .getByRole("button", { name: "Retry saving", exact: true })
+        .click();
+      await entered;
+      await expect(toggle).toBeFocused();
+      await expect(dialog.getByRole("alert")).toHaveCount(0);
+      release();
+      await saved;
+      await expect(toggle).not.toBeChecked();
+      await expect(toggle).toBeFocused();
+      expect(attempts).toEqual([false, false]);
+      await page.screenshot({
+        path: testInfo.outputPath(`${source}-shortcut-retry-focus.png`),
+        animations: "disabled",
+      });
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(help).toBeFocused();
+      await expectNoSharing(page);
+    } finally {
+      release();
+    }
+  });
+}
