@@ -1,59 +1,157 @@
 # Issue operations
 
-This table defines Arco's issue-client boundary. All operations require the source service to expose the capability and the connected user to have access.
+This document defines what Arco can and cannot do as an issue client for GitHub and Linear. Every operation requires two prerequisites: the upstream service must expose the capability, and the connected user must have permission to use it.
 
-## Supported categories
+For broader product and security boundaries, see [Product requirements](requirements.md) and [Security and privacy](security-and-privacy.md).
 
-| ID  | Operation                      | GitHub                                                              | Linear                                            | Limits                                                                        |
-| --- | ------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
-| O01 | Select scope                   | Repository and existing Project                                     | Workspace, team, and existing project             | Preserve native scope; no mixed-provider workflow                             |
-| O02 | List, search, filter, and sort | Native issue queries and account filters                            | Native issue queries and team filters             | No independent issue index                                                    |
-| O03 | Read details                   | Title, Markdown, comments, properties, images, and links            | Same, preserving comment replies                  | Public API and account permissions limit available data                       |
-| O04 | Create issue                   | Choose a repository                                                 | Choose a team                                     | Preserve drafts during failure                                                |
-| O05 | Edit title and body            | Markdown and checklist items                                        | Markdown and checklist items                      | No collaborative editing service or separate task model                       |
-| O06 | Change state                   | Open/Closed and close reason; separate Project Status               | Team workflow state                               | Never automatically couple GitHub issue state with Project Status             |
-| O07 | Assign                         | Add/remove eligible assignees                                       | Set/clear the eligible single assignee            | Do not invite users or manage access                                          |
-| O08 | Apply labels                   | Existing repository labels                                          | Existing workspace/team labels                    | Preserve unspecified labels and native group constraints                      |
-| O09 | Manage labels                  | List, create, edit, and delete label definitions                    | Same within supported scope                       | Group administration and scope moves stay upstream                            |
-| O10 | Comments                       | Read, post, and authorized edit/delete                              | Same, including replies                           | No reimplementation of inline annotations, thread resolution, or AI summaries |
-| O11 | Reactions                      | Issue and comment reactions                                         | Issue and comment reactions                       | Use existing native reaction kinds                                            |
-| O12 | Existing attribute values      | Issue type, supported organization issue fields, and Project fields | Priority, estimate, due date                      | Supported types are listed below                                              |
-| O13 | Membership                     | Existing Projects and milestone                                     | Existing project, project milestone, and cycle    | Do not create or administer membership targets                                |
-| O14 | Parent and child issues        | Create child, set/change/remove parent                              | Same                                              | No hierarchy bulk editor                                                      |
-| O15 | Issue relationships            | Read/add/remove blocking relationships                              | Blocking and related relationships                | No duplicate merge or cross-service relationships                             |
-| O16 | Attachments and links          | View existing attachments and add Markdown URLs                     | View/add URLs and upload through the official API | GitHub local-file upload is handed to the source UI; no Arco file storage     |
-| O17 | Existing simple templates      | Supported body and property defaults                                | Same                                              | Complex forms or unsupported contents must be handled upstream                |
-| O18 | Bulk organization              | Compatible states, assignees, labels, and existing values           | Same                                              | No bulk body/comments/relationships/definition management or transfer         |
-| O19 | Codex context                  | Whole issue, selected passages, mentions, refresh after tools       | Same                                              | Explicit sharing; no automatic message sending                                |
-| O20 | Source handoff                 | Copy issue/comment URL or identifier; open GitHub                   | Same for Linear                                   | Preserve access to unsupported native operations                              |
+---
+
+## Supported operations (`O01`–`O20`)
+
+Arco organizes issue operations around native provider concepts.
+
+### Browsing and reading
+
+- **`O01` — Select scope**
+  - **GitHub:** Select a repository and an existing Project.
+  - **Linear:** Select a workspace, a team, and an existing project.
+  - **Boundary:** Preserve each provider's native scope; never mix providers into a single workflow.
+- **`O02` — List, search, filter, and sort**
+  - **GitHub:** Run native issue queries and account filters.
+  - **Linear:** Run native issue queries and team filters.
+  - **Boundary:** Arco does not maintain an independent issue index.
+- **`O03` — Read details**
+  - **GitHub:** Read the title, Markdown body, comments, properties, images, and links.
+  - **Linear:** Read the same details while preserving comment replies.
+  - **Boundary:** Available data is strictly bounded by public API capabilities and the connected account's permissions.
+
+### Creating and editing content
+
+- **`O04` — Create issue**
+  - **GitHub:** Create an issue in a chosen repository.
+  - **Linear:** Create an issue in a chosen team.
+  - **Boundary:** If creation fails, preserve the user's draft so no work is lost.
+- **`O05` — Edit title and body**
+  - **GitHub & Linear:** Edit Markdown content and checklist items.
+  - **Boundary:** Arco does not provide a collaborative editing service or a separate task model.
+- **`O16` — Attachments and links**
+  - **GitHub:** View existing attachments and insert Markdown URLs. Local file uploads are handed off to the native GitHub UI.
+  - **Linear:** View and add URLs, and upload files through the official Linear API.
+  - **Boundary:** Arco does not provide file storage.
+- **`O17` — Existing simple templates**
+  - **GitHub & Linear:** Apply supported body and property defaults from existing templates.
+  - **Boundary:** Complex template forms or unsupported template contents must be handled in the upstream service.
+
+### State, assignment, and labels
+
+- **`O06` — Change state**
+  - **GitHub:** Toggle Open/Closed state (including the close reason) and update Project Status separately.
+  - **Linear:** Change the team workflow state.
+  - **Boundary:** Never automatically couple a GitHub issue's Open/Closed state with its Project Status.
+- **`O07` — Assign**
+  - **GitHub:** Add or remove eligible assignees.
+  - **Linear:** Set or clear the single eligible assignee.
+  - **Boundary:** Do not invite users or manage access.
+- **`O08` — Apply labels**
+  - **GitHub:** Apply existing repository labels.
+  - **Linear:** Apply existing workspace and team labels.
+  - **Boundary:** Leave unspecified labels untouched and respect native label-group constraints.
+- **`O09` — Manage labels**
+  - **GitHub & Linear:** List, create, edit, and delete label definitions within the supported scope.
+  - **Boundary:** Label-group administration and moving labels across scopes remain upstream.
+
+### Discussion and reactions
+
+- **`O10` — Comments**
+  - **GitHub:** Read and post comments, and edit or delete comments when authorized.
+  - **Linear:** Same as GitHub, including replies.
+  - **Boundary:** Do not reimplement inline annotations, thread resolution, or AI summaries.
+- **`O11` — Reactions**
+  - **GitHub & Linear:** Use issue and comment reactions.
+  - **Boundary:** Use only the native reaction types provided by each service.
+
+### Attributes, membership, and hierarchy
+
+- **`O12` — Existing attribute values**
+  - **GitHub:** Set the issue type, supported organization issue fields, and Project fields.
+  - **Linear:** Set priority, estimate, and due date.
+  - **Boundary:** Only the specific attribute types listed in [Supported attribute types](#supported-attribute-types) are supported.
+- **`O13` — Membership**
+  - **GitHub:** Assign issues to existing Projects and an existing milestone.
+  - **Linear:** Assign issues to an existing project, project milestone, and cycle.
+  - **Boundary:** Do not create or administer membership targets.
+- **`O14` — Parent and child issues**
+  - **GitHub & Linear:** Create a child issue, or set, change, and remove a parent issue.
+  - **Boundary:** No bulk hierarchy editor.
+- **`O15` — Issue relationships**
+  - **GitHub:** Read, add, and remove blocking relationships.
+  - **Linear:** Read, add, and remove blocking and related relationships.
+  - **Boundary:** Do not merge duplicate issues or create cross-service relationships.
+
+### Bulk actions, Codex context, and handoff
+
+- **`O18` — Bulk organization**
+  - **GitHub & Linear:** Update compatible states, assignees, labels, and existing attribute values across multiple issues.
+  - **Boundary:** Bulk operations cannot edit issue bodies, comments, or relationships, manage definitions, or transfer issues.
+- **`O19` — Codex context**
+  - **GitHub & Linear:** Whole-issue sharing, selected passages, mentions, and refresh after tool execution.
+  - **Boundary:** Sharing must be explicit; Arco never sends messages to Codex automatically.
+- **`O20` — Source handoff**
+  - **GitHub & Linear:** Copy an issue or comment URL/identifier, or open it directly in GitHub or Linear.
+  - **Boundary:** Always preserve easy access to the upstream service for unsupported native operations.
+
+---
 
 ## Supported attribute types
 
-- GitHub issue: an existing issue type.
-- GitHub organization issue fields: existing text, number, date, single-select, and multi-select values.
-- GitHub Project fields: existing text, number, date, single-select, and iteration values. Status is one Project single-select field.
-- Linear: priority, estimate under the selected team's scale, and due date.
+Arco reads and writes existing attribute values (`O12`), while leaving schema administration—field definitions, select options, iteration periods, and estimate scales—to the upstream service:
 
-Organization issue fields and Project fields are separate storage locations. Matching names do not imply matching definitions or synchronization. Field definitions, options, iteration periods, and estimate scales are managed in the source service.
+- **GitHub issue:** An existing issue type.
+- **GitHub organization issue fields:** Existing text, number, date, single-select, and multi-select values.
+- **GitHub Project fields:** Existing text, number, date, single-select, and iteration values (`Status` is treated as one Project single-select field).
+- **Linear:** Priority, estimate (using the selected team's scale), and due date.
 
-## Inline and expanded operations
+> **Note on GitHub field storage:** Organization issue fields and Project fields live in separate storage locations. Even if two fields share the same name, that does not imply matching definitions or synchronization.
 
-Inline cards support reading, checklist changes, native issue state, assignees, existing labels, Linear priority, and copying/opening native references. Free-form title/body editing, comments, project membership and fields, relationships, and bulk operations belong in the expanded workspace. See [Screen structure](screen-structure.md#inline-cards).
+---
 
-For 2–4 explicitly selected issues, inline tabs preserve the supplied order and remove duplicate native references. They do not broaden the requested set or introduce cross-provider operations. **Open details** opens the same issue in the expanded workspace.
+## Inline cards vs. the expanded workspace
 
-Checklist writes edit the source Markdown line. A conflicting draft or unavailable draft state must lead to review in details rather than silently overwriting work.
+Arco splits operations between lightweight inline cards and the full expanded workspace (see [Screen structure](screen-structure.md#inline-cards)):
 
-## Source-service handoffs
+- **Inline cards** handle reading, toggling checklist items, changing native issue state, updating assignees, applying existing labels, setting Linear priority, and copying or opening native links/references.
+- **The expanded workspace** handles free-form title and body editing, comments, project membership and fields, issue relationships, and bulk operations.
 
-Issue transfers, deletion/archive/restore, duplicate merging, moderation, subscription management, complex templates, full history restoration, pull-request review/merge, and CI execution are outside Arco's direct operations. Preserve available source links; do not render an unsupported feature as a working control.
+### Multi-issue inline tabs
 
-Project/cycle/milestone/team administration, roadmap planning, time accounting, autonomous triage, notification inboxes, provider synchronization, and generic migration/import/export are outside the product scope.
+When 2 to 4 issues are explicitly selected, inline tabs display them in the exact order supplied and deduplicate repeated native references. Inline tabs never expand the requested set on their own or introduce cross-provider actions. Selecting **Open details** opens that same issue in the expanded workspace.
 
-## Write correctness
+### Safe checklist updates
 
-Validate native source, ID, repository/team, and any required Project/field/option IDs before saving. Write only the supplied attributes. For bulk actions, require compatible targets, retain per-Issue outcomes, and show failed targets with failed-only retry. See [Screen structure](screen-structure.md) for feedback requirements.
+Toggling a checklist item edits the underlying Markdown line in the source issue. If the issue has a conflicting local draft or its draft state is unavailable, Arco routes the user to review the change in the issue details view rather than silently overwriting work.
 
-Keep source automation intact and re-read the result instead of reproducing or counteracting upstream automation. Distinguish successful writes, failed writes, uncertain outcomes, and successful writes whose subsequent read failed. Never automatically retry an uncertain mutation with a new request ID.
+---
 
-See [Product requirements](requirements.md) and [Security and privacy](security-and-privacy.md) for the surrounding boundaries.
+## Out-of-scope operations and upstream handoffs
+
+Whenever a feature is outside Arco's scope, Arco preserves available links to the upstream service rather than rendering an unsupported feature as a working control.
+
+- **Direct issue operations handed off to the source service:** Issue transfers, deletion/archiving/restoration, duplicate merging, moderation, subscription management, complex issue templates, full history restoration, pull-request review and merging, and CI execution.
+- **Broader product capabilities outside Arco's scope:** Administering projects, cycles, milestones, or teams; roadmap planning; time accounting; autonomous triage; notification inboxes; provider synchronization; and generic migration, import, or export.
+
+---
+
+## Write correctness and error handling
+
+Every write operation follows strict validation and state-reconciliation rules (see [Screen structure](screen-structure.md) for UI feedback requirements):
+
+1. **Pre-save validation:** Before sending a write, validate the native source, issue ID, repository or team, and any required Project, field, or option IDs.
+2. **Minimal payloads:** Write only the attributes that were explicitly supplied.
+3. **Bulk action resilience:** Bulk writes require compatible target issues, track outcomes per issue, and surface any failed targets with an option to retry only the failures.
+4. **Respect upstream automation:** Leave source-service automation intact. After a write completes, re-read the issue from the source service rather than trying to reproduce or counteract upstream rules.
+5. **Clear outcome states:** Strictly distinguish between four outcomes:
+   - A successful write
+   - A failed write
+   - An uncertain outcome
+   - A successful write followed by a failed re-read
+6. **Idempotency:** Never automatically retry an uncertain mutation with a new request ID.

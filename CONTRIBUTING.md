@@ -1,48 +1,75 @@
 # Contributing to Arco
 
-This guide keeps contributions focused and reviewable. Read it before opening an issue or pull request.
+Please read this guide before opening an issue or pull request. It helps keep contributions focused, well-scoped, and easy to review.
 
 ## Keep the project small
 
-Arco is an issue client inside Codex. GitHub and Linear own the issue records; Codex owns the conversation and model execution. Keep changes within the [requirements](docs/requirements.md).
+Arco is an issue client built to run inside Codex. GitHub and Linear own the issue records, while Codex manages the conversation and model execution. All changes must stay within the project's [requirements](docs/requirements.md).
 
-Solve a concrete problem with the smallest useful change. A new abstraction, dependency, provider, or configuration option needs a reason beyond a possible future use. Cross-provider synchronization, a hosted issue backend, and a separate agent runtime are outside Arco's scope.
+Aim to solve a concrete problem with the smallest useful change. Any new abstraction, dependency, provider, or configuration option needs a clear justification beyond "we might need it later." Cross-provider synchronization, a hosted issue backend, and a separate agent runtime are out of scope for Arco.
 
 ## Own what you submit
 
-**You are responsible for understanding and verifying your contribution.** Be ready to explain what it changes, why it belongs in Arco, and how it interacts with the existing code. Changes the author cannot explain may be closed without review.
+**You are responsible for understanding and verifying everything you submit.** Be ready to explain what your change does, why it belongs in Arco, and how it interacts with the existing codebase. If you cannot explain your changes, your submission may be closed without review.
 
-AI assistance is welcome. Review the output, check its assumptions, and test the result yourself. Do not submit unreviewed agent output, speculative diagnoses presented as facts, or batches of automatically generated issues and PRs.
+### Using AI tools
 
-Write issue descriptions and PR explanations in your own words. If generated analysis is useful, add it as a separate comment clearly labeled as AI-generated, and verify its claims. Write repository documentation, comments, and authored examples in English. Provider content retains its original language; tests may use non-ASCII input to exercise Unicode or input-method behavior.
+AI assistance is welcome, provided you review the output, verify its assumptions, and test the results yourself.
 
-Keep `docs/` for specifications and contracts. Do not add work logs, test-result snapshots, agent handoffs, or code inventories. Use Git history, source code, and test output for that information; keep setup and contribution instructions in the root guides.
+- Do not submit unreviewed agent output, speculative diagnoses presented as facts, or batches of auto-generated issues and PRs.
+- Write issue descriptions and PR explanations in your own words. If an AI-generated analysis is genuinely useful, post it as a separate comment, clearly label it as AI-generated, and verify its claims first.
+- When responding to review feedback, reply with your own explanations and focused changes rather than pasting an agent transcript.
+
+### Language and documentation standards
+
+- Write all repository documentation, code comments, and authored examples in English. (Provider content retains its original language, and tests may use non-ASCII input to test Unicode or input-method behavior.)
+- Reserve `docs/` strictly for specifications and contracts. Do not add work logs, test-result snapshots, agent handoffs, or code inventories there—rely on Git history, source code, and test output for those. Keep setup and contribution instructions in the root guides.
 
 ## Start with an issue
 
-Search existing issues first. Use the **Bug report** template for reproducible problems or **Contribution proposal** for a change you want to make. Say whether you want to work on it.
+Search existing issues first to see if your topic has already been discussed. When opening a new issue:
 
-New issues and PRs from unapproved contributors are automatically closed. Maintainers review closed issues and may reopen them; a response or review date is not guaranteed. Repository writers and Dependabot are exempt from the gate.
+- Use the **Bug report** template for reproducible problems, or the **Contribution proposal** template for changes you want to make.
+- Mention whether you plan to work on the change yourself.
 
-A maintainer can reply on an issue with `lgtmi` to allow its author to open future issues, or `lgtm` to allow its author to open future issues and PRs. The command must appear at the start or end of the comment. To approve someone other than the issue author, mention them in the comment. These are standing permissions to submit, not approval of every proposed change. The approval record lives on the `arco-contributor-approvals` branch; it does not grant repository write access.
+### Contributor approval gate
 
-Before opening a PR, agree with a maintainer on the issue's problem and scope. Approval is not a promise to merge the resulting code. Duplicate, out-of-scope, low-effort, or unapproved submissions may be closed without discussion. Repeated disregard for this guide or automated spam may lead to an account being blocked from the repository.
+New issues and PRs from unapproved contributors are closed automatically (repository writers and Dependabot are exempt). Maintainers review closed issues and may reopen them, though response and review times are not guaranteed.
 
-## Make issues useful
+Maintainers can grant standing submission permissions by replying to an issue with a command at the very start or end of a comment:
 
-Keep the main report short enough to read on one screen. Put only necessary logs or supporting details below it.
+- `lgtmi` — allows the issue author to open future issues.
+- `lgtm` — allows the issue author to open future issues and pull requests.
 
-- State the problem or proposed change and why it matters.
-- For bugs, give minimal reproduction steps and expected versus actual behavior.
-- Include OS, architecture, Node.js version, Codex version, and Arco revision when relevant.
-- Distinguish fixture behavior, actual Codex behavior, and live provider results.
-- Include only relevant, redacted logs or screenshots.
+_(To approve someone other than the issue author, the maintainer must mention their username in the comment.)_
 
-Do not include access tokens, OAuth callback codes, private issue content, or credential-store exports. Follow [SECURITY.md](SECURITY.md) for vulnerability reports.
+These records are stored on the `arco-contributor-approvals` branch. Note that this is only permission to submit—it does not grant repository write access, nor does it approve every proposed change.
 
-## Before opening a PR
+Before opening a PR, reach an agreement with a maintainer on the issue's problem and scope. Even then, issue approval is not a promise to merge the resulting code. Duplicate, out-of-scope, low-effort, or unapproved submissions may be closed without discussion, and repeated disregard for this guide or automated spam may result in your account being blocked.
 
-Use the Node.js version in `.node-version`. Install locked dependencies and the browser needed by Playwright, then run the code checks:
+## Writing useful issues
+
+Keep the main description short enough to fit on a single screen, and place any necessary logs or supporting details below it.
+
+- **Be clear:** State the problem or proposed change and explain why it matters.
+- **Make bugs reproducible:** Provide minimal reproduction steps along with expected vs. actual behavior.
+- **Include environment details:** Share your OS, architecture, Node.js version, Codex version, and Arco revision when relevant.
+- **Clarify the context:** Distinguish between fixture behavior, actual Codex behavior, and live provider results.
+- **Keep attachments clean:** Include only relevant, redacted logs or screenshots.
+
+**Security note:** Never include access tokens, OAuth callback codes, private issue content, or credential-store exports in issues or PRs. To report a security vulnerability, follow [SECURITY.md](SECURITY.md).
+
+## Development and testing
+
+### Local development
+
+Use the Node.js version specified in `.node-version`. For routine development, run `npm run dev` to build and start the fictional fixture host. (`npm run dev:fixture` starts an existing build without rebuilding, so remember to rebuild after making source changes.)
+
+Keep in mind that fixture tests do not prove native credential storage, real provider writes, or Codex desktop rendering. Because live validation scripts can create or modify real provider records, only run them against dedicated test resources with explicit authorization.
+
+### Pre-PR verification
+
+Before opening a pull request, install locked dependencies and the Playwright Chromium browser, then run the verification suites:
 
 ```sh
 npm ci
@@ -51,55 +78,87 @@ npm run check
 npm run test:browser:smoke
 ```
 
-`check` runs static and documentation checks, unit/service tests, builds, MCP smoke checks, and production artifact and npm tarball validation. The browser smoke suite covers critical interactions. Both must pass. Run affected browser specs locally for behavior changes; use `npm run test:browser` when a full regression check is needed. For documentation-only changes, run `npm run check:docs` locally and verify any commands you changed. State exactly what you checked and disclose anything you could not verify.
+Both commands must pass:
 
-Pull requests into `main` require a passing Quality check against the latest `main`. Pull requests, including documentation-only changes, and manually dispatched Quality runs run `check` and the browser smoke suite. Pushes to `main` also run Quality except for documentation-only changes. Commands share a three-minute deadline starting before checkout, with a five-second forced-termination grace period. Checkout and Node setup each have a one-minute limit; the four-minute job limit is a fallback. Failure artifact upload has a one-minute limit, leaving time for cleanup within the five-minute budget. Browser tests run with four parallel workers and stop on the first failure. CI installs only Chromium's headless shell and retains error context and failure screenshots; detailed traces remain available in local runs. A newer run cancels an older run of the same event type and branch or pull request. The Release workflow has the same four-minute job limit.
+- `npm run check` runs static analysis, documentation checks, unit and service tests, builds, MCP smoke checks, and production artifact/npm tarball validation.
+- `npm run test:browser:smoke` covers critical browser interactions.
 
-Before publishing a release, run the full browser suite locally with `npm run test:browser` and manually run the Quality workflow on its intended branch or tag. Require both to pass for the exact commit being released, and repeat them if that commit changes. Full browser validation does not run in GitHub Actions.
+Depending on your changes, run these local checks:
 
-Use `npm run dev` to build and start the fictional fixture host for routine development. `npm run dev:fixture` starts an existing build; rebuild after source changes. Live validation scripts can create or modify provider records; run them only against dedicated resources with explicit authorization. A fixture test does not prove native credential storage, real provider writes, or Codex desktop rendering.
+- **Behavior changes:** Run the affected browser specs locally. Run the full suite (`npm run test:browser`) if your change needs a complete regression check.
+- **Documentation-only changes:** Run `npm run check:docs` locally and test any commands you modified.
+- **macOS Apple Silicon native credential check:** On supported macOS Apple Silicon machines with an unlocked credential store, run `npx --no-install vitest run tests/linear-native-rotation.test.ts`. The native rotation case must pass (store failures will fail the check). Other OS and architecture combinations automatically skip this case before accessing credential storage; if yours skips it, note that in your PR rather than claiming native verification.
 
-On supported macOS Apple Silicon with an unlocked credential store, run `npx --no-install vitest run tests/linear-native-rotation.test.ts` and require the native rotation case to pass. Store failures fail this check. Other OS/architecture combinations skip that case before accessing credential storage; report those skips without claiming native verification.
+In your PR description, state exactly what you tested and disclose anything you were unable to verify.
+
+### Continuous Integration (Quality workflow)
+
+Pull requests targeting `main` require a passing **Quality** check against the latest `main` branch.
+
+- **Triggers:** The Quality workflow runs `check` and `test:browser:smoke` on all pull requests (including documentation-only PRs), manual workflow dispatches, and pushes to `main` (excluding documentation-only pushes). Newer runs automatically cancel older runs of the same event type and branch/PR.
+- **Browser setup in CI:** CI installs only Chromium's headless shell, runs browser tests with four parallel workers, and stops on the first failure. CI retains error context and failure screenshots; for detailed traces, run the tests locally.
+- **Timeouts:** The workflow operates on a strict five-minute budget. Checkout and Node setup each have a one-minute limit. Commands share a three-minute deadline (starting before checkout) with a five-second grace period before forced termination. The job itself has a four-minute fallback limit, and failure artifact uploads are capped at one minute to leave time for cleanup. (The Release workflow shares this same four-minute job limit.)
+
+## Keeping PRs easy to review
+
+- **Stay focused:** Limit each PR to a single concern. Leave out unrelated refactoring, formatting tweaks, and dependency updates.
+- **Link and explain:** Reference the approved issue, explain the problem and resulting behavior, and detail how you verified the fix.
+- **Test and document:** Add regression tests for meaningful behavior changes. If your PR includes UI changes, use fictional or redacted data in your screenshots.
+- **Respect provider semantics:** Keep native provider concepts distinct—GitHub issue state, GitHub Projects Status, and Linear workflow state are separate values and should not be conflated.
+- **Keep commits clean:** Never commit generated `dist/` files, test output, local state, credentials, or dependency directories.
+
+Final review decisions rest with the maintainers.
 
 ## Publishing the plugin
 
-Git tracks source and the npm-backed marketplace catalog. Publish the built plugin as `arco-codex-plugin`; keep tarballs, native binaries, and `dist/` out of Git. The development root package remains private.
+Git tracks the source code and the npm-backed marketplace catalog, while the root development package remains private. The built plugin is published to npm as `arco-codex-plugin`. Never commit tarballs, native binaries, or `dist/` to Git.
 
-On macOS with Apple Silicon, run:
+### Building and validating the plugin package
+
+The first prebuilt release supports macOS Apple Silicon (`arm64`) only. On an Apple Silicon Mac, run:
 
 ```sh
 npm ci
 npm run package:plugin
 ```
 
-This builds and validates the production artifact, packs it into `dist/npm/`, and starts the extracted production server outside the checkout. The package check verifies bundled native module loading and offline MCP tools/resources without installing dependencies or calling providers. It does not verify OS credential-store operations, provider authorization, or Codex desktop rendering. The first prebuilt release supports macOS Apple Silicon only.
+This builds and validates the production artifact, packs it into `dist/npm/`, and starts the extracted production server outside the repository checkout. It verifies that bundled native modules load properly and that offline MCP tools and resources work without installing dependencies or calling live providers. However, it does not verify OS credential-store operations, live provider authorization, or Codex desktop rendering.
 
-Keep the root package version, plugin manifest versions, and catalog's exact npm version aligned on a release branch. Complete the manual Quality run for the exact release commit before publishing. Keep the default branch's catalog on the already-published version until the matching new npm package is available.
+### Pre-release checklist
 
-To bootstrap a new package name before trusted publishing is available, authenticate with `npm login` and publish its verified tarball from `dist/npm/` using `npm publish <tarball> --access public --ignore-scripts`. A published version cannot be reused.
+1. **Align versions:** On your release branch, make sure the root package version, plugin manifest versions, and the catalog's exact npm version all match. (On the default branch, leave the catalog pointing to the previously published version until the new npm package is actually live.)
+2. **Verify the exact release commit:** Because full browser validation does not run in GitHub Actions, run `npm run test:browser` locally and manually trigger the Quality workflow on your target release branch or tag. Both must pass on the exact commit being released—if the commit changes, re-run both checks.
 
-Before using the Release workflow, create the GitHub `npm` environment with a selected-tag deployment rule matching `v*` and no branch deployment rule. Configure the package's npm trusted publisher using npm 11.15.0 or later, a package maintainer account, and account-level 2FA:
+### Setting up npm trusted publishing (first-time setup)
 
-```sh
-npm trust github arco-codex-plugin --repo my-name-is-yu/Arco --file release.yml --env npm --allow-publish
-```
+Before using the Release workflow, configure npm trusted publishing as follows. Store no npm tokens in the repository.
 
-`--allow-publish` permits the workflow's direct `npm publish`. Confirm the repository, workflow filename, and environment with `npm trust list arco-codex-plugin`. Store no npm token in the repository.
+1. **Bootstrap the package name (if brand new):** To bootstrap a new package name before trusted publishing is available, authenticate locally with `npm login` and publish the verified tarball from `dist/npm/`:
+   ```sh
+   npm publish <tarball> --access public --ignore-scripts
+   ```
+   _(Note: Once a version is published to npm, that version number cannot be reused.)_
+2. **Configure the GitHub environment:** Create a GitHub environment named `npm` with a selected-tag deployment rule matching `v*` and no branch deployment rules.
+3. **Configure npm trust:** Using npm 11.15.0 or later and a package maintainer account with account-level 2FA enabled, register the GitHub workflow as a trusted publisher:
+   ```sh
+   npm trust github arco-codex-plugin --repo my-name-is-yu/Arco --file release.yml --env npm --allow-publish
+   ```
+   _(The `--allow-publish` flag permits the workflow to run `npm publish` directly.)_ Verify that the repository, workflow filename, and environment are set up properly by running:
+   ```sh
+   npm trust list arco-codex-plugin
+   ```
+4. **Complete the first CI publication within two days:** A newly configured trusted publisher [expires if it does not complete a successful publication within two days](https://docs.npmjs.com/trusted-publishers/#trusted-publisher-configuration-expiry)—saving the configuration alone does not validate it. Run the release sequence below for a new version within that window and confirm the workflow succeeds. If the configuration expires before you publish, remove it, recreate it, and complete a CI release within two days.
 
-A new trusted publisher must complete its [first successful publication within two days](https://docs.npmjs.com/trusted-publishers/#trusted-publisher-configuration-expiry). Run the Quality and Release sequence below for a new version within that window; saving the configuration alone does not validate it. Confirm that the Release workflow published successfully. If the configuration expires, remove it, create a new one, and complete the first CI publication within two days.
+### Running a release
 
-For later releases, prepare and validate the release branch, push the matching `v<version>` tag, and manually run the Release workflow on that tag. It requires a successful manual Quality run for the same commit, builds and validates the macOS arm64 package, then publishes the verified tarball using npm trusted publishing. Confirm that the exact version is available from npm before merging the catalog version change into the default branch. This order also applies to the first manual publication.
+For all subsequent releases (and for the first CI release after bootstrapping):
 
-## Keep PRs easy to review
-
-- Link the approved issue and describe the problem, resulting behavior, and verification.
-- Keep each PR to one concern. Leave unrelated refactors, formatting, and dependency updates out.
-- Add regression coverage for meaningful behavior changes. Use fictional or redacted data in screenshots for UI changes.
-- Preserve native provider semantics. GitHub issue state, GitHub Projects Status, and Linear workflow state are separate values.
-- Keep generated `dist/`, test output, local state, credentials, and dependency directories out of commits.
-
-Review decisions remain with the maintainer. Address feedback with explanations and focused changes; do not replace them with an agent transcript.
+1. Prepare and validate the release branch.
+2. Push the matching `v<version>` tag.
+3. Manually run the **Quality** workflow on the intended branch or tag for that exact commit and wait for it to pass.
+4. Manually run the **Release** workflow on the `v<version>` tag. The workflow verifies that the manual Quality run passed for that commit, builds and validates the macOS `arm64` package, and publishes the verified tarball via npm trusted publishing.
+5. Confirm that the new version is live on npm, then merge the updated catalog version into the default branch. _(This publication-before-catalog-merge order also applies to the first manual publication.)_
 
 ## License
 
-New contributions are provided under the repository's [MIT License](LICENSE). Preserve third-party license and attribution notices when reusing external material.
+New contributions are provided under the repository's [MIT License](LICENSE). When reusing external material, always preserve third-party license and attribution notices.
