@@ -1,37 +1,43 @@
 # Arco
 
-An MIT-licensed Codex plugin for browsing and editing GitHub and Linear issues, and bringing selected issue context into your conversation.
+Arco is an MIT-licensed Codex plugin that lets you browse and edit GitHub and Linear issues alongside your chat, and pull selected issue passages directly into your conversation context.
 
 [Install](#install)
 
 ## Keep issues beside the conversation
 
-Read and compare issue cards inside your conversation, then open full details in the side panel.
+Browse and compare issue cards right inside your chat, then open any issue in the side panel to see the full details.
 
 ![Browse inline issue cards in Codex and open the selected issue in its side panel](assets/readme/issue-tabs.gif)
 
-_This clip shows Arco in Codex with fictional demo issues. Typing is shown at 4× speed; waiting and some scrolling are also sped up._
+_This clip shows Arco in Codex using fictional demo issues. Typing is sped up 4×; waiting and some scrolling are also sped up._
 
 ## Install
 
-You need a Codex desktop environment with local plugin and interactive MCP UI support, the `codex` CLI, Git, npm, and Node.js **24.22.1 or later within Node 24**. The desktop app must be able to find `node` and, for GitHub, the [`gh` CLI](https://cli.github.com/) on its executable search path. The GitHub CLI must support `gh auth token --no-refresh`.
+### Prerequisites
 
-The prebuilt npm package targets **macOS on Apple Silicon**. Node.js and the GitHub CLI are separate prerequisites. Linear requires a working OS credential store; there is no plaintext credential fallback.
+- A Codex desktop environment that supports local plugins and interactive MCP UIs
+- The `codex` CLI, Git, and npm
+- **Node.js 24** (`24.22.1` or later within the 24.x release line), available on the Codex desktop app's `PATH`
+- **For GitHub:** The [`gh` CLI](https://cli.github.com/) on the desktop app's `PATH`, using a version that supports `gh auth token --no-refresh`
+- **For Linear:** A working OS credential store (Arco does not fall back to storing credentials in plaintext)
 
-### Prebuilt plugin
+The prebuilt npm package is built for **macOS on Apple Silicon**. Node.js and the GitHub CLI must be installed separately.
 
-Install the prebuilt `arco-codex-plugin` through Arco's marketplace:
+### Option 1: Prebuilt plugin
+
+Install the prebuilt `arco-codex-plugin` package through Arco's marketplace:
 
 ```sh
 codex plugin marketplace add my-name-is-yu/Arco
 codex plugin add arco@arco-marketplace
 ```
 
-The repository contains the distribution catalog; npm provides the built plugin and its native credential-storage binding. Installation does not build from source or run npm lifecycle scripts.
+The GitHub repository provides the marketplace catalog, while npm delivers the compiled plugin and its native credential-storage binding. Installing the prebuilt plugin does not compile code from source or run npm lifecycle scripts.
 
-### Install from source
+### Option 2: Build from source
 
-Build on the target OS and architecture: the source build includes its native keyring binding and cannot be copied across platforms. Windows and Linux require native validation before support can be claimed; Linux also needs an unlocked Secret Service.
+If you are installing from source, you must build the plugin on the target OS and architecture. The build bundles a native keyring binding that cannot be copied across operating systems or architectures. (Note: Windows and Linux builds require native testing before support can be claimed, and Linux requires an unlocked Secret Service.)
 
 ```sh
 git clone https://github.com/my-name-is-yu/Arco.git
@@ -42,66 +48,86 @@ codex plugin marketplace add ./dist
 codex plugin add arco@arco-local
 ```
 
-The build generates a local catalog at `dist/.agents/plugins/marketplace.json` pointing to `dist/plugin/`. Build before installing and keep the checkout for updates. Both installation methods install a cached copy. Restart the desktop app, start a new conversation, and run Arco's setup skill. Connect the service you want to use; either service can be used independently.
+Running `npm run build` outputs the plugin to `dist/plugin/` and generates a local marketplace catalog at `dist/.agents/plugins/marketplace.json` pointing to `dist/plugin/`. Build before installing. Keep your local checkout so you can pull and rebuild when updating.
+
+### Finish setup
+
+Both installation methods install a cached copy of the plugin into Codex. Once installed:
+
+1. Restart the Codex desktop app and start a new conversation.
+2. Run Arco's setup skill.
+3. Connect GitHub, Linear, or both—each provider works independently.
 
 ## Connect your providers
 
-For GitHub, authenticate with the CLI:
+### GitHub
+
+Sign in with the GitHub CLI:
 
 ```sh
 gh auth login --web
 gh auth status
 ```
 
-Arco uses the selected GitHub.com account and its existing permissions. For GitHub Projects, review and grant the additional scope with `gh auth refresh --hostname github.com --scopes project`. Open **My issues** for the initial **Assigned to me** list, or **Project issues** to choose a repository for the conversation.
+Arco uses your active `github.com` account and its existing permissions. If you want to work with GitHub Projects, review and grant the additional `project` scope:
 
-For Linear:
+```sh
+gh auth refresh --hostname github.com --scopes project
+```
 
-1. Create or use a [Linear OAuth application](https://linear.app/developers/oauth-2-0-authentication) that your account and workspace can authorize.
-2. Register the exact callback `http://127.0.0.1:53187/oauth/linear/callback`.
-3. Open Arco's Linear view, enter the client ID, and select **Authorize in Linear**. No client secret is needed.
-4. Finish browser authorization, verify the connected account and workspace in Arco, and select a team.
+In Arco, open **My issues** to see the initial **Assigned to me** list, or **Project issues** to pick a repository for the current conversation.
 
-Linear tokens are stored in the OS credential store. Your application's access settings determine who can connect; the maintainer's development application is not a shared public connection.
+### Linear
 
-The first write after upgrading an older Linear sign-in adds a private grant ID to its stored credential. Routine token refresh preserves this ID; reconnecting replaces it. Earlier Arco versions with the old strict credential format cannot read the upgraded record and may require reconnecting after a downgrade.
+1. Create or use a [Linear OAuth application](https://linear.app/developers/oauth-2-0-authentication) that your account and workspace are allowed to authorize. (Who can connect depends on your OAuth app's access settings; the maintainer's own development app is not shared publicly.)
+2. Register `http://127.0.0.1:53187/oauth/linear/callback` as an exact callback URL.
+3. Open Arco's Linear view, paste in the OAuth app's **Client ID**, and click **Authorize in Linear**. You do not need a client secret.
+4. Complete the authorization flow in your browser, confirm the connected account and workspace in Arco, and select a team.
+
+Linear tokens are saved in your OS credential store.
+
+> **Note on upgrading older Linear sign-ins:** The first time an updated version of Arco writes to an older Linear credential, it adds a private grant ID to the stored record. Normal token refreshes keep this ID, while reconnecting replaces it. Older versions of Arco that enforce the previous credential format cannot read this updated record, so you may need to reconnect Linear if you downgrade.
 
 ## Features
 
-Arco runs a local Node.js MCP server and an embedded React interface. It connects directly to your issue providers, uses your existing GitHub CLI login, and stores Linear credentials in the operating system's credential store. There is no Arco account or hosted backend.
+Arco runs locally using a Node.js MCP server and an embedded React interface. There is no Arco account or hosted backend—it connects directly to your issue trackers, uses your existing GitHub CLI session, and stores Linear tokens in your operating system's credential store.
 
-GitHub and Linear remain the sources of truth. Arco preserves each provider's native fields and does not synchronize the two services.
+GitHub and Linear remain the single sources of truth. Arco preserves each provider's native fields and does not sync data between the two services.
 
 ### Bring the right context into chat
 
-Select passages across issues and collect them as numbered context beside your next prompt.
+Highlight passages across multiple issues and collect them into a numbered attachment beside your next prompt.
 
 ![Add selections from two issues to a grouped context attachment and prepare a message in Codex](assets/readme/share-context.gif)
 
 ### Edit where you read
 
-Update Markdown and labels directly from the issue workspace.
+Update issue descriptions in Markdown and change labels without leaving the issue workspace.
 
 ![Edit an issue's Markdown body, save changes, and update its labels](assets/readme/edit-issue.gif)
 
 ### Work with Linear's own fields
 
-Read Linear issues and update their native workflow states and priorities.
+View Linear issues and update their native workflow states and priorities directly.
 
 ![Update a Linear issue's native workflow state and priority](assets/readme/linear-workflow.gif)
 
-_The context clip shows Arco in Codex with fictional demo issues. The editing and Linear clips use sample data in a browser preview. Typing is shown at 4× speed; waiting and some scrolling are also sped up._
+_The context clip shows Arco in Codex with fictional demo issues. The editing and Linear clips use sample data in a browser preview. Typing is sped up 4×; waiting and some scrolling are also sped up._
 
-## Update or remove
+## Update, troubleshoot, or uninstall
 
-For a prebuilt installation, refresh the catalog and installed plugin:
+### Updating
+
+**Prebuilt installation:**
 
 ```sh
 codex plugin marketplace upgrade arco-marketplace
 codex plugin add arco@arco-marketplace
 ```
 
-For a source installation, preserve local changes before updating, then rebuild:
+**Source installation:**
+
+First, preserve any local changes, then pull and rebuild:
 
 ```sh
 git pull --ff-only
@@ -109,42 +135,59 @@ npm ci
 npm run build
 ```
 
-Existing source installations that registered the repository root with `codex plugin marketplace add .` need this one-time migration after rebuilding:
+_One-time migration:_ If you previously registered the repository root with `codex plugin marketplace add .`, point the marketplace to `./dist` instead:
 
 ```sh
 codex plugin marketplace remove arco-local
 codex plugin marketplace add ./dist
 ```
 
-After the migration, and on subsequent source updates, refresh the installed copy:
+Finally, update the installed copy:
 
 ```sh
 codex plugin add arco@arco-local
 ```
 
-Restart the desktop app and start a new conversation to load the update. If native keyring loading fails, check that the prebuilt package supports your OS and architecture; for a source installation, reinstall dependencies and rebuild on that machine. If Linear authorization fails, check the registered callback, available port 53187, and unlocked credential store.
+After updating either installation type, restart the Codex desktop app and open a new conversation.
 
-To uninstall a prebuilt installation:
+### Troubleshooting
+
+- **Native keyring fails to load:** On a prebuilt install, verify you are on a supported OS and architecture (macOS on Apple Silicon). On a source install, reinstall dependencies (`npm ci`) and rebuild on that exact machine.
+- **Linear authorization fails:** Make sure the callback URL matches `http://127.0.0.1:53187/oauth/linear/callback` exactly, local port `53187` is free, and your OS credential store is unlocked.
+
+### Uninstalling
+
+If you want to remove your stored Linear token from the OS credential store, disconnect Linear inside Arco before uninstalling. Uninstalling leaves local settings and drafts separate from provider grants; revoke Linear authorization through Linear when needed. Your GitHub CLI login remains managed by `gh`.
+
+**Prebuilt installation:**
 
 ```sh
 codex plugin remove arco@arco-marketplace
 codex plugin marketplace remove arco-marketplace
 ```
 
-For a source installation, use `arco@arco-local` and `arco-local` instead.
+**Source installation:**
 
-Disconnect Linear in Arco first if you want to remove its stored credential. Uninstalling leaves local settings and drafts separate from provider grants; revoke Linear authorization through Linear when needed. Shared GitHub CLI credentials remain managed by `gh`.
+```sh
+codex plugin remove arco@arco-local
+codex plugin marketplace remove arco-local
+```
 
-## Develop locally
+## Local development
+
+To run the local browser preview with fictional sample issues (without live provider access):
 
 ```sh
 npm ci
 npm run dev
 ```
 
-The fixture host builds and displays fictional issues without live provider access. It is a browser preview; actual Codex desktop behavior and live writes require separate checks. The build produces `dist/plugin/` for installation and `dist/dev/` for fixture development. Rebuild after source changes; `npm run dev:fixture` starts an existing build without hot reload. See [Publishing the plugin](CONTRIBUTING.md#publishing-the-plugin) for npm package validation and release setup.
+The build outputs the installable plugin to `dist/plugin/` and the fixture preview to `dist/dev/`. Re-run the build after changing source files; you can also run `npm run dev:fixture` to serve an existing build without hot reload. Because the fixture host runs in a standard browser, always test actual Codex desktop behavior and live API writes separately.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for validation commands and contribution policy. Repository documentation, comments, and authored examples are written in English; provider content is displayed in its original language.
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for validation commands and contribution guidelines.
+- See [Publishing the plugin](CONTRIBUTING.md#publishing-the-plugin) for npm package validation and release setup.
+
+Repository docs, code comments, and authored examples are written in English, while content from GitHub and Linear is displayed in whatever language it was written in.
 
 ## Specifications
 
@@ -155,10 +198,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for validation commands and contribution 
 
 ## Contributing and support
 
-Start with a short issue and get maintainer approval before opening a pull request. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the scope, quality bar, and AI-assisted contribution policy. For vulnerabilities, follow [SECURITY.md](SECURITY.md).
+Please open a short issue and get approval from the maintainer before submitting a pull request. Read [CONTRIBUTING.md](CONTRIBUTING.md) for project scope, quality expectations, and the policy on AI-assisted contributions. To report a security vulnerability, follow [SECURITY.md](SECURITY.md).
 
 Arco is an independent project and is not an official OpenAI, GitHub, or Linear product.
 
 ## License
 
-Arco's code and documentation are licensed under the [MIT License](LICENSE). Dependencies retain their own licenses; a build generates `dist/plugin/THIRD_PARTY_NOTICES.txt`. Third-party names and any content retrieved from providers remain the property of their respective owners.
+Arco's source code and documentation are released under the [MIT License](LICENSE). Third-party dependencies keep their respective licenses; building the project generates `dist/plugin/THIRD_PARTY_NOTICES.txt`. Third-party names and any content fetched from connected providers belong to their respective owners.
