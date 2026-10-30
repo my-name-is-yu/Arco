@@ -1,4 +1,4 @@
-import { Fragment, useId, type ReactElement } from "react";
+import { Fragment, useId, useRef, type ReactElement } from "react";
 import { Tooltip } from "@openai/apps-sdk-ui/components/Tooltip";
 import { AnimatedDialogBackdrop } from "./AnimatedDialogBackdrop";
 import "./shortcuts.css";
@@ -92,6 +92,7 @@ export function ShortcutHelpDialog({
   onRetry?: () => void;
 }) {
   const id = useId();
+  const preference = useRef<HTMLInputElement>(null);
   return (
     <AnimatedDialogBackdrop
       open={open}
@@ -181,6 +182,7 @@ export function ShortcutHelpDialog({
           <div className="shortcut-help-setting" aria-busy={saving}>
             <label>
               <input
+                ref={preference}
                 type="checkbox"
                 checked={enabled}
                 aria-disabled={saving || undefined}
@@ -199,7 +201,10 @@ export function ShortcutHelpDialog({
                     type="button"
                     className="text-button"
                     disabled={saving}
-                    onClick={onRetry}
+                    onClick={() => {
+                      preference.current?.focus({ preventScroll: true });
+                      onRetry();
+                    }}
                   >
                     Retry saving
                   </button>

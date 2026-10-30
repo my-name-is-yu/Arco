@@ -6,7 +6,7 @@
       "source": {
         "source": "npm",
         "package": "arco-codex-plugin",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "registry": "https://registry.npmjs.org"
       },
       "policy": {
