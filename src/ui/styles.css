@@ -932,6 +932,18 @@
   color: var(--arco-text);
   box-shadow: 0 4px 16px #0003;
 }
+.selection-comment-edit {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+}
+.selection-comment-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .selection-comment textarea {
   display: block;
   flex: 1;
@@ -955,7 +967,8 @@
 .arco .selection-comment textarea:focus-visible {
   outline: none;
 }
-.selection-comment button {
+.selection-comment-new button,
+.selection-comment .selection-comment-remove {
   flex-shrink: 0;
   width: 28px;
   height: 28px;
@@ -964,7 +977,12 @@
   background: var(--arco-text);
   color: var(--arco-bg);
 }
+.selection-comment-actions button {
+  flex-shrink: 0;
+  min-height: 30px;
+}
 .selection-comment .selection-comment-remove {
+  margin-right: auto;
   background: transparent;
   color: var(--arco-muted);
 }

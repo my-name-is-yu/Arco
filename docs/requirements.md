@@ -47,7 +47,7 @@ Arco does not provide an independent issue tracker, generic project-management p
 
 Keep inline targets, panel browsing targets, and shared targets independent. A long description alone is not a reason to open a side panel. Host initialization must not rewrite saved source or scope preferences merely because a card was opened.
 
-Whole-issue sharing, selected passages with optional annotations, `@Arco` issue discovery, and refresh after MCP updates are the conversation integration goals. Group multiple annotations into one attachment context while preserving their numbers and optional comments. Restore markers only for the originating card and matching content; removed context must not be recreated from local position metadata.
+Whole-issue sharing, selected passages with optional annotations, `@Arco` issue discovery, and refresh after MCP updates are the conversation integration goals. Represent each annotation as one individually removable content block in the same attachment group. Keep selected text and optional comments together in that block, with no aggregate model-facing copies. Codex owns the attachment list and sending; Arco owns text selection, numbered markers, and comment editing. Display numbers follow the remaining attachment order while internal keys stay stable. Restore markers only for the originating card, current attached blocks, and matching content; removed context must not be recreated from background metadata or local positions.
 
 ## Local data and authorization
 
