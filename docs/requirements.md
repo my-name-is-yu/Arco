@@ -1,67 +1,105 @@
-# Product requirements
+# Product Requirements
 
-These requirements define Arco's product boundary and the behavior contributors should preserve.
+This document defines what Arco does, where its boundaries lie, and the behavior contributors should preserve.
 
-## Purpose and distribution
+## Overview and Distribution
 
-Arco lets a user find, read, and update GitHub and Linear issues while discussing the same work in Codex. It is distributed as MIT-licensed source and a local MCP plugin. A Git-backed marketplace catalog references the versioned, prebuilt npm package; generated artifacts and native binaries stay out of Git. The initial prebuilt target is macOS Apple Silicon, and source builds retain a generated local marketplace for development. Official public-directory submission is outside the current distribution plan.
+Arco lets users find, read, and update GitHub and Linear issues while discussing the same work in Codex.
 
-GitHub and Linear own issue records and permissions. Codex owns the conversation, message sending, and AI execution. Arco owns issue interaction, local preferences and drafts, and the handoff of explicitly selected context. Operation categories are defined in [Issue operations](issue-operations.md).
+It is distributed as MIT-licensed source code and a local MCP plugin:
 
-Arco can select existing projects, milestones, cycles, and supported native field values, and manage supported label definitions. It does not administer projects, teams, workflows, field definitions, or access permissions.
+- **Packaged distribution:** A Git-backed marketplace catalog points to a versioned, prebuilt npm package (initially targeting macOS Apple Silicon). Generated artifacts and native binaries are excluded from Git.
+- **Development builds:** Source builds generate a local marketplace for development.
+- **Public directories:** Submitting to official public plugin directories is currently out of scope.
 
-Arco does not provide an independent issue tracker, generic project-management platform, cross-service synchronization, migration service, notification inbox, autonomous triage, or agent execution service. It does not introduce an Arco account, hosted issue backend, billing service, entitlement server, or paid feature tiers. Transfers, duplicate merges, destructive issue lifecycle operations, complex issue forms, and source-service administration remain upstream.
+## Responsibilities and Boundaries
 
-## Browsing and discovery
+Arco works alongside GitHub, Linear, and Codex with clear ownership boundaries:
 
-- The personal GitHub entry initially shows open issues assigned to the connected user, ordered by last update. **Created by me**, **Mentioned me**, and **All account repositories** require an explicit switch.
-- An empty personal list stays empty. It must not silently widen to all repositories or public search.
-- The project entry chooses a GitHub repository explicitly when the host cannot supply usable workspace roots. Keep this selection separate from personal browsing preferences.
-- Ambiguous workspace roots require a repository choice. Never infer the chat's project from the MCP process's working directory or select an arbitrary repository or Linear team.
-- Preserve native repository/workspace/team identity on every row, including when issue numbers or names coincide.
-- Provide source-native search, filters, pagination, refresh, and direct issue-URL navigation without building an independent full-text index.
-- Show the number of loaded issues accurately; do not present it as the account's total issue count.
-- Keep list position, filters, draft input, and in-flight work across issue and provider switches.
+- **GitHub and Linear** own the underlying issue records and access permissions.
+- **Codex** owns the conversation, message sending, attachment list, and AI execution.
+- **Arco** owns issue interaction, local preferences, unsent drafts, and the handoff of explicitly selected context to Codex. Detailed operation categories are defined in [Issue operations](issue-operations.md).
 
-## Issue interaction
+### What Arco supports
 
-- Support both services' issue reading, creation, edits, native states, assignments, labels, comments, relationships, and the explicitly supported existing attributes.
-- Preserve unspecified attributes and native constraints. Do not synthesize a common status, priority, or label model.
-- Keep GitHub issue state independent from GitHub Projects Status.
-- Reject incomplete scope or field catalogs when a write requires complete membership or option validation.
-- Preserve input on validation errors, conflicts, connection failures, and uncertain writes.
-- Retain bulk outcomes per issue for failure isolation and retry selection. Show failed targets and retry only those; ordinary successful rows stay quiet. Do not guess values across incompatible selections.
-- Apply simple templates only when their supported contents can be represented without silently dropping required fields or behavior.
-- Offer source-service links for unsupported operations.
+- Reading, creating, and editing issues across both GitHub and Linear, including native states, assignments, labels, comments, relationships, and explicitly supported existing attributes.
+- Selecting existing projects, milestones, cycles, and supported native field values.
+- Managing supported label definitions.
 
-## Conversation and display
+### What is out of scope
 
-| User intent                               | Expected behavior                                                |
-| ----------------------------------------- | ---------------------------------------------------------------- |
-| Show a particular issue                   | Display an inline card for its explicit native reference         |
-| Change a quick property or checklist item | Save against the card's own target and retain that card          |
-| Ask Codex to summarize or update content  | Use data tools; a panel is not required just to perform the task |
-| Open details or use **Open details**      | Open the same issue in the expanded panel                        |
-| Open a list or compare issues             | Open the list/detail workspace                                   |
-| Share an issue or a selection             | Add explicit context to Codex; leave message sending to the user |
+- **Service administration:** Arco does not administer projects, teams, workflows, field definitions, or access permissions.
+- **Upstream-only operations:** Issue transfers, duplicate merges, destructive lifecycle actions, and complex issue forms remain in the source service. When an operation isn't supported locally, Arco provides a direct link to the source service.
+- **Platform expansion:** Arco is not an independent issue tracker, general project-management tool, cross-service sync or migration engine, notification inbox, autonomous triage system, or agent execution service.
+- **Hosted infrastructure:** Arco does not introduce an Arco account, a hosted issue backend, billing, entitlement servers, or paid tiers.
 
-Keep inline targets, panel browsing targets, and shared targets independent. A long description alone is not a reason to open a side panel. Host initialization must not rewrite saved source or scope preferences merely because a card was opened.
+## Browsing and Discovery
 
-Whole-issue sharing, selected passages with optional annotations, `@Arco` issue discovery, and refresh after MCP updates are the conversation integration goals. Represent each annotation as one individually removable content block in the same attachment group. Keep selected text and optional comments together in that block, with no aggregate model-facing copies. Codex owns the attachment list and sending; Arco owns text selection, numbered markers, and comment editing. Display numbers follow the remaining attachment order while internal keys stay stable. Restore markers only for the originating card, current attached blocks, and matching content; removed context must not be recreated from background metadata or local positions.
+### Scoping and repository selection
 
-## Local data and authorization
+- **Personal GitHub view:** Defaults to open issues assigned to the connected user, sorted by last updated. Switching to **Created by me**, **Mentioned me**, or **All account repositories** requires an explicit user action. If a personal list has no matches, it stays empty rather than automatically widening to all repositories or public search.
+- **Project view:** If the host cannot provide usable workspace roots, the user must explicitly choose a GitHub repository. This project selection is kept separate from personal browsing preferences.
+- **Ambiguous workspaces:** When workspace roots are ambiguous, prompt the user to choose a repository. Never guess the project from the MCP process's working directory or pick an arbitrary repository or Linear team.
+- **Clear identity:** Always display the native repository, workspace, or team identity on every row—even when issue numbers or names overlap.
 
-Credentials stay outside the UI and model-facing results. Preserve local settings and unsent drafts without maintaining a persistent issue mirror. See [Security and privacy](security-and-privacy.md).
+### Search, navigation, and state retention
 
-Only explicit user-authorized operations may mutate source data. Reusing a request ID is valid only for the identical operation. An uncertain write must be inspected before retrying; a read failure after a successful write must not be presented as a failed write.
+- Use each service's native search, filters, pagination, refresh, and direct URL navigation rather than building an independent full-text index.
+- Report the number of currently loaded issues accurately without framing it as the account's total issue count.
+- Preserve list scroll position, active filters, draft inputs, and in-flight operations when switching between issues or providers.
 
-## Usability and accessibility
+## Reading and Updating Issues
 
-- Keep issue content readable in narrow panels and wide workspaces; preserve access to controls when properties wrap.
-- Support keyboard access, clear focus, useful names for controls, and focus return when dialogs close.
-- Follow the host theme and reduced-motion preference. Use restrained motion only where it communicates action or loading.
-- Distinguish loading, empty, error, saved, and partially completed states. A failed request is not an empty list.
-- Display original issue text faithfully. Repository-maintained documentation, comments, and interface copy use English; user content retains its source language.
-- Prefer each source service's terminology for equivalent actions. Use clear action-specific wording for Arco-only interactions, and describe the behavior Arco actually provides.
+### Native models and validation
 
-See [Screen structure](screen-structure.md) for presentation and interaction requirements. Contribution and verification requirements are in [CONTRIBUTING.md](../CONTRIBUTING.md).
+- Respect each platform's native constraints and leave unspecified attributes untouched. Do not invent a unified status, priority, or label model across GitHub and Linear.
+- Keep standard GitHub issue state separate from GitHub Projects Status.
+- If a write operation requires complete membership or option validation, reject incomplete scope or field catalogs rather than proceeding with partial data.
+- Apply simple issue templates only when their supported contents can be faithfully represented without silently dropping required fields or behavior.
+
+### Error handling and bulk updates
+
+- Never lose user input when validation errors, conflicts, connection drops, or uncertain writes occur.
+- Track bulk operations per issue so failures are isolated: keep successful rows quiet, surface the failed targets, and allow retrying just the failures. Never guess values across incompatible selections.
+
+## Codex Conversation and Display
+
+Arco matches its UI footprint to the user's intent, keeping inline cards, panel views, and shared conversation targets independent of one another:
+
+| User intent                                 | Expected behavior                                                                                      |
+| :------------------------------------------ | :----------------------------------------------------------------------------------------------------- |
+| Show a specific issue                       | Display an inline card bound to that explicit native reference.                                        |
+| Tweak a quick property or checklist item    | Save directly against the card's target and keep the card in place.                                    |
+| Ask Codex to summarize or update an issue   | Run via data tools; a UI panel is not required just to complete the task.                              |
+| View full details or click **Open details** | Open the issue in the expanded side panel. (A long description alone does not trigger the side panel.) |
+| Browse a list or compare multiple issues    | Open the full list/detail workspace.                                                                   |
+| Share an issue or text selection            | Attach the selected context to Codex, leaving the user in control of sending the message.              |
+
+Host initialization must not overwrite the user's saved source or scope preferences merely because a card was opened.
+
+### Context sharing and annotations
+
+Conversation integration centers on four workflows: sharing whole issues, sharing selected passages with optional annotations, discovering issues via `@Arco`, and refreshing views after MCP updates.
+
+For passage sharing and annotations:
+
+- **Ownership:** Arco manages text selection, numbered markers, and comment editing; Codex manages the attachment list and message sending.
+- **Structure:** Package each annotation—the selected text plus its optional comment—as a single, individually removable content block within the same attachment group. Do not generate aggregate copies for the model.
+- **Numbering:** Keep internal block keys stable, but update visible marker numbers dynamically to match the current attachment order.
+- **Marker restoration:** Restore selection markers only when they match the originating card, currently attached blocks, and matching content. Once context is removed, never recreate it from background metadata or cached local offsets.
+
+## Local Data, Security, and Authorization
+
+- **Credentials and storage:** Keep credentials strictly out of the UI and model-facing results. Store local preferences and unsent drafts locally without maintaining a persistent mirror of remote issues. See [Security and privacy](security-and-privacy.md) for full details.
+- **Write safety:** Source data may only be modified by explicit, user-authorized actions.
+- **Idempotency and retries:** Only reuse a request ID when repeating the exact same operation. If a write outcome is uncertain, inspect the remote state before retrying. If a write succeeds but the follow-up read fails, report the read failure accurately rather than telling the user the write failed.
+
+## Usability, Accessibility, and Copy
+
+- **Responsive layout:** Keep issue content legible in both narrow panels and wide workspaces, ensuring controls remain accessible when properties wrap.
+- **Keyboard and focus:** Provide keyboard access, visible focus states, useful control names, and reliable focus restoration when dialogs close.
+- **Theme and motion:** Respect the host's color theme and reduced-motion settings. Use subtle animation only to communicate loading or actions.
+- **Clear state feedback:** Clearly distinguish between loading, empty, error, saved, and partially completed states—never display a failed request as an empty list.
+- **Language and terminology:** Render original issue text faithfully in its original language, while keeping codebase documentation, comments, and UI copy in English. Use GitHub's and Linear's native terminology for platform actions, and use clear, literal action labels for Arco-specific features that describe the behavior Arco actually provides.
+
+For detailed layout and interaction rules, see [Screen structure](screen-structure.md). For development and testing workflows, see [CONTRIBUTING.md](../CONTRIBUTING.md).
