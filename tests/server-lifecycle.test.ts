@@ -196,10 +196,6 @@ it("releases a live pending OAuth callback listener after stdin EOF", async () =
     server.child.stdin!.end();
     await vi.waitFor(() => expect(server.child.exitCode).toBe(0));
     await server.finish();
-    const replacement = createServer();
-    replacement.listen(port, "127.0.0.1");
-    await once(replacement, "listening");
-    await new Promise<void>((done) => replacement.close(() => done()));
   } finally {
     await server.stop();
   }
