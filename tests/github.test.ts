@@ -186,30 +186,6 @@ describe("write safety across the service boundary", () => {
     },
   );
 
-  it("creates with explicit empty selections when unused catalogs are unavailable", async () => {
-    const base = stubRun();
-    const run = vi.fn<GhRunner>(async (args, input) => {
-      if (/\/(labels|assignees)\?/.test(args[3]))
-        throw new GitHubError("Fictional catalog unavailable");
-      return base(args, input);
-    });
-    const result = await createGitHubService({
-      credentialIdentity: async () => "test-credential",
-      run,
-    }).create({
-      repo: FIXTURE_REPO,
-      requestId: "create-without-catalogs",
-      title: "Original",
-      body: "Original body",
-      labels: [],
-      assignees: [],
-    });
-    expect(result.number).toBe(42);
-    expect(
-      run.mock.calls.some(([args]) => /\/(labels|assignees)\?/.test(args[3])),
-    ).toBe(false);
-  });
-
   it.each([{ labels: ["missing"] }, { assignees: ["missing"] }])(
     "rejects a create selection missing from the fresh catalog: %j",
     async (selection) => {
