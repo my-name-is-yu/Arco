@@ -279,7 +279,7 @@ export function registerGitHubImageTool(
       title: "Read an issue image",
       description:
         "Read an existing image in the selected issue or comment. Image bytes are returned only to the app.",
-      inputSchema: githubImageInputSchema.shape,
+      inputSchema: githubImageInputSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
