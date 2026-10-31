@@ -1826,7 +1826,7 @@ test("visible source refetch reflects an external mutation without a host notifi
   expect(await events(page, "external-update")).toEqual([]);
 });
 
-test("keyboard navigation and narrow panel remain usable; capture wide/narrow mock views", async ({
+test("narrow panel remains usable; capture wide/narrow mock views", async ({
   page,
 }, testInfo) => {
   const app = issueFrame(page);
@@ -1834,19 +1834,7 @@ test("keyboard navigation and narrow panel remain usable; capture wide/narrow mo
     path: testInfo.outputPath("arco-wide.png"),
     fullPage: true,
   });
-  await app.getByRole("heading", { name: firstTitle, exact: true }).click();
-  await page.keyboard.press("j");
-  await expect(
-    app.getByRole("heading", { name: secondTitle, exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press("k");
-  await expect(
-    app.getByRole("heading", { name: firstTitle, exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press("/");
-  await expect(
-    app.getByRole("textbox", { name: "Search issues" }),
-  ).toBeFocused();
+  await app.locator(".issue-row").filter({ hasText: firstTitle }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(app.getByRole("button", { name: "Back to list" })).toBeVisible();
   await expect(

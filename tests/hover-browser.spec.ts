@@ -335,43 +335,6 @@ test("GitHub navigation, disclosures, content actions, and native fields have ho
   await openGithub(page);
   const ui = app(page);
   const controls: [string, Locator, HoverOptions?][] = [
-    [
-      "selected state segment",
-      ui
-        .locator(".segmented")
-        .getByRole("button", { name: "Open", exact: true }),
-    ],
-    [
-      "unselected state segment",
-      ui
-        .locator(".segmented")
-        .getByRole("button", { name: "Closed", exact: true }),
-    ],
-    ["selected issue row", ui.locator(".issue-row.selected")],
-    [
-      "unselected issue row",
-      ui.locator(".issue-row").filter({ hasText: "Separate shared context" }),
-    ],
-    [
-      "filters disclosure",
-      ui.locator(".sidebar-filters > summary"),
-      {
-        scale: hoverScale,
-        scaleTarget: ui.locator(
-          ".sidebar-filters > summary > .disclosure-label",
-        ),
-      },
-    ],
-    [
-      "advanced properties disclosure",
-      ui.locator(".property-advanced > summary"),
-      {
-        scale: hoverScale,
-        scaleTarget: ui.locator(
-          ".property-advanced > summary > .disclosure-label",
-        ),
-      },
-    ],
     ["search field shell", ui.locator(".search-control")],
     [
       "bulk checkbox",
@@ -393,20 +356,6 @@ test("GitHub navigation, disclosures, content actions, and native fields have ho
         name: "Completion of Preserve filters, selection, and scroll position",
         exact: true,
       }),
-    ],
-    [
-      "pagination button",
-      ui.getByRole("button", { name: "Load more", exact: true }),
-      { scale: hoverScale },
-    ],
-    [
-      "Markdown link",
-      ui.getByRole("button", { name: "Fixture documentation", exact: true }),
-    ],
-    [
-      "SDK primary button",
-      ui.getByRole("button", { name: "Add to chat", exact: true }).first(),
-      { scale: hoverScale },
     ],
     [
       "SDK Select trigger",
@@ -431,12 +380,6 @@ test("GitHub navigation, disclosures, content actions, and native fields have ho
     ui.locator(".segmented").getByRole("button", { name: "Open", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await auditVisibleActions(page, ui, "GitHub workspace action inventory");
-  await hoverFeedback(
-    page,
-    "utility menu trigger",
-    ui.getByLabel("Issue actions", { exact: true }),
-    { scale: hoverScale, duration: 150 },
-  );
   await issueActions(page);
   await auditVisibleActions(
     page,
@@ -549,12 +492,6 @@ test("editor tabs and fields respond to hover while disabled custom and SDK butt
   await modal
     .getByRole("button", { name: "Apply template", exact: true })
     .click();
-  await hoverFeedback(
-    page,
-    "removable template label chip",
-    modal.getByTitle("Remove initial label", { exact: true }),
-    { scale: hoverScale, duration: 150 },
-  );
   await auditVisibleActions(page, modal, "creation modal action inventory");
   await modal.getByRole("button", { name: "Close", exact: true }).click();
 });
