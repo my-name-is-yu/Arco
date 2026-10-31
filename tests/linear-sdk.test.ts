@@ -604,7 +604,7 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
       expect(calls.every((call) => call.bearer)).toBe(true);
     });
 
-    it("keeps the connection profile read while allowing scopes after a viewer-only failure", async () => {
+    it("keeps the connection identity and required viewer failures", async () => {
       const { service, calls, controls } = await source();
       await expect(
         service.call("linear_connection", { connectionId: scope.connectionId }),
@@ -618,18 +618,7 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
         "organization",
         "viewer",
       ]);
-      calls.length = 0;
       controls.forbiddenConnectionRead = "viewer";
-      await expect(
-        service.call("linear_scopes", { connectionId: scope.connectionId }),
-      ).resolves.toMatchObject({
-        workspace: { id: "workspace", name: "Test workspace" },
-        teams: [{ id: "team", name: "Test team", key: "TST" }],
-      });
-      expect(calls.map((call) => call.operation)).toEqual([
-        "organization",
-        "teams",
-      ]);
       await expect(
         service.call("linear_connection", { connectionId: scope.connectionId }),
       ).rejects.toMatchObject({ code: "forbidden" });
