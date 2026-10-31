@@ -15,6 +15,7 @@ import {
   createLinearFixtureService,
 } from "./linear/fixture";
 import { createLinearService } from "./linear/service";
+import { createLinearAuth } from "./linear/auth";
 import { createStateStore } from "./state";
 
 export interface ArcoBackend {
@@ -29,13 +30,14 @@ export interface ArcoBackend {
 export function createLiveBackend(): ArcoBackend {
   const authSession = createGitHubAuthSession(credentialIdentity);
   const service = createGitHubService({ authSession });
+  const linearAuth = createLinearAuth();
   return {
     service,
-    linearService: createLinearService(),
+    linearService: createLinearService({ auth: linearAuth }),
     operations: createGitHubOperations({ service, authSession }),
     stateStore: createStateStore(),
     fixture: false,
-    cleanup() {},
+    cleanup: linearAuth.close,
   };
 }
 
