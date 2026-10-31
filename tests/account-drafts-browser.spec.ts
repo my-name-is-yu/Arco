@@ -292,6 +292,13 @@ for (const kind of ["issue", "project"] as const) {
     const read = kind === "issue" ? "arco_issue_fields" : "arco_project_fields";
     const fieldId = kind === "issue" ? 101 : "fixture-project-text";
     const providerWrites: string[] = [];
+    let holdRead = false;
+    let readHeld = false;
+    let readCompleted = false;
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
     await page.route("**/tool", async (route) => {
       const input = route.request().postDataJSON() as { name: string };
       if (
@@ -299,18 +306,26 @@ for (const kind of ["issue", "project"] as const) {
       )
         providerWrites.push(input.name);
       if (input.name !== read) return route.fallback();
+      const { owner, generation } = state;
       const response = await route.fetch();
       const result = await response.json();
       const field = result.structuredContent.fields.find(
         (field: { id: string | number }) => field.id === fieldId,
       );
       field.value =
-        state.owner === ownerB
+        owner === ownerB
           ? "B's current source value"
-          : state.generation
+          : generation
             ? "A's updated source value"
             : "A's original source value";
-      return route.fulfill({ response, json: result });
+      const held = holdRead;
+      if (held) {
+        holdRead = false;
+        readHeld = true;
+        await pendingRead;
+      }
+      await route.fulfill({ response, json: result });
+      if (held) readCompleted = true;
     });
     const openField = async () => {
       const properties = ui.locator(".property-advanced");
@@ -345,6 +360,11 @@ for (const kind of ["issue", "project"] as const) {
       await expect(
         field.getByRole("button", { name: "Save", exact: true }),
       ).toBeDisabled();
+      if (kind === "project") {
+        holdRead = true;
+        await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+        await expect.poll(() => readHeld).toBe(true);
+      }
       await switchOwner(ownerB);
       await expect(input).toHaveCount(0);
       const other = await openField();
@@ -355,6 +375,14 @@ for (const kind of ["issue", "project"] as const) {
       await other
         .getByRole("textbox", { name: label, exact: true })
         .fill("B's own field input");
+      if (kind === "project") {
+        releaseRead();
+        await expect.poll(() => readCompleted).toBe(true);
+        await expect(
+          other.getByRole("textbox", { name: label, exact: true }),
+        ).toHaveValue("B's own field input");
+        await expect(other).not.toContainText("A's updated source value");
+      }
       await switchOwner(ownerA);
       await expect(input).toHaveCount(0);
       const restored = await openField();
@@ -367,6 +395,7 @@ for (const kind of ["issue", "project"] as const) {
       ).toBeDisabled();
       expect(providerWrites).toEqual([]);
     } finally {
+      releaseRead();
       release();
     }
   });

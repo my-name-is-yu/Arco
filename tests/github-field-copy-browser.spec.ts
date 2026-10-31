@@ -58,6 +58,99 @@ async function projectFields(
   return { ui, project, writes };
 }
 
+test("Project fields load only for open memberships while retaining drafts and invalidated data", async ({
+  page,
+}) => {
+  const memberships = Array.from({ length: 3 }, (_, index) => ({
+    projectId: `fictional-project-${index}`,
+    itemId: `fictional-item-${index}`,
+    title: `Fictional Project ${index}`,
+    url: `https://github.com/orgs/fictional/projects/${index + 1}`,
+  }));
+  const reads: string[] = [];
+  let membershipReads = 0;
+  let sourceValue = "Current project note";
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: {
+        repo: string;
+        number: number;
+        projectId: string;
+        itemId: string;
+      };
+    };
+    if (input.name === "arco_issue_projects") {
+      membershipReads += 1;
+      return route.fulfill({
+        json: { structuredContent: { memberships, errors: [] } },
+      });
+    }
+    if (input.name !== "arco_project_fields") return route.continue();
+    reads.push(input.arguments.projectId);
+    const fields: ProjectFieldList = {
+      ...input.arguments,
+      fields: [
+        {
+          id: "fictional-notes",
+          name: "Project notes",
+          type: "text",
+          supported: true,
+          value: sourceValue,
+          options: [],
+          iterations: [],
+        },
+      ],
+      hasMore: false,
+    };
+    return route.fulfill({ json: { structuredContent: fields } });
+  });
+  const ui = await openAttributes(page);
+  const projects = ui.locator(".project-membership");
+  await expect(projects).toHaveCount(3);
+  expect(
+    await projects.evaluateAll((items) =>
+      items.every((item) => !(item as HTMLDetailsElement).open),
+    ),
+  ).toBe(true);
+  expect(reads).toEqual([]);
+  const project = projects.first();
+  const summary = project.locator("summary");
+  await summary.click();
+  const note = project.getByRole("textbox", {
+    name: "Project notes value",
+    exact: true,
+  });
+  await expect(note).toHaveValue(sourceValue);
+  expect(reads).toEqual([memberships[0].projectId]);
+  await note.fill("Unsaved project note");
+  await summary.click();
+  await expect(project).toHaveJSProperty("open", false);
+  await expect(project.locator(".field-editor")).toHaveCount(1);
+  await summary.click();
+  await expect(note).toHaveValue("Unsaved project note");
+  expect(reads).toHaveLength(1);
+
+  const refresh = ui.getByRole("button", { name: "Refresh", exact: true });
+  await refresh.click();
+  await expect
+    .poll(() => reads)
+    .toEqual([memberships[0].projectId, memberships[0].projectId]);
+  await expect(refresh).toBeEnabled();
+  await summary.click();
+  await expect(project).toHaveJSProperty("open", false);
+  sourceValue = "Changed project note from GitHub";
+  const before = membershipReads;
+  await refresh.click();
+  await expect.poll(() => membershipReads).toBe(before + 1);
+  await expect(refresh).toBeEnabled();
+  expect(reads).toHaveLength(2);
+  await summary.click();
+  await expect(project).toContainText(sourceValue);
+  await expect(note).toHaveValue("Unsaved project note");
+  expect(reads).toEqual(Array(3).fill(memberships[0].projectId));
+});
+
 test("Organization Issue fields retain fetched names when current choices are missing", async ({
   page,
 }) => {

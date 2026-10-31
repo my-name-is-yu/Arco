@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   useInfiniteQuery,
   useQuery,
@@ -445,12 +445,14 @@ function ProjectFields({
   issue,
   projectId,
   itemId,
+  enabled,
 }: {
   host: ArcoHost;
   ownerId: string;
   issue: IssueRef;
   projectId: string;
   itemId: string;
+  enabled: boolean;
 }) {
   const authScope = useGitHubAuthScope();
   const call = useGitHubCall(host);
@@ -473,6 +475,7 @@ function ProjectFields({
         projectId,
         itemId,
       }),
+    enabled,
   });
   const action = useGitHubOperation(
     host,
@@ -543,6 +546,39 @@ function ProjectFields({
   );
 }
 
+function ProjectMembership({
+  host,
+  ownerId,
+  issue,
+  membership,
+  children,
+}: {
+  host: ArcoHost;
+  ownerId: string;
+  issue: IssueRef;
+  membership: Memberships["memberships"][number];
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="project-membership"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <DisclosureSummary>{membership.title}</DisclosureSummary>
+      <ProjectFields
+        host={host}
+        ownerId={ownerId}
+        issue={issue}
+        projectId={membership.projectId}
+        itemId={membership.itemId}
+        enabled={open}
+      />
+      {children}
+    </details>
+  );
+}
+
 function Projects({
   host,
   ownerId,
@@ -599,15 +635,13 @@ function Projects({
         </p>
       ))}
       {memberships.data?.memberships.map((membership) => (
-        <details className="project-membership" key={membership.itemId}>
-          <DisclosureSummary>{membership.title}</DisclosureSummary>
-          <ProjectFields
-            host={host}
-            ownerId={ownerId}
-            issue={issue}
-            projectId={membership.projectId}
-            itemId={membership.itemId}
-          />
+        <ProjectMembership
+          key={membership.itemId}
+          host={host}
+          ownerId={ownerId}
+          issue={issue}
+          membership={membership}
+        >
           <Button
             color="secondary"
             variant="ghost"
@@ -628,7 +662,7 @@ function Projects({
           >
             Remove issue from this Project
           </Button>
-        </details>
+        </ProjectMembership>
       ))}
       {memberships.isSuccess && !memberships.data.memberships.length && (
         <p className="property-note">No Project membership.</p>
