@@ -131,6 +131,85 @@ function stubRun(
 }
 
 describe("write safety across the service boundary", () => {
+  it.each<{
+    selection: { labels?: string[]; assignees?: string[] };
+    catalogs: number;
+  }>([
+    { selection: {}, catalogs: 0 },
+    { selection: { labels: [], assignees: [] }, catalogs: 0 },
+    { selection: { labels: ["keep"] }, catalogs: 2 },
+    { selection: { assignees: ["test-user"] }, catalogs: 2 },
+    {
+      selection: { labels: ["keep"], assignees: ["test-user"] },
+      catalogs: 2,
+    },
+  ])(
+    "loads create catalogs only for selected values: $selection",
+    async ({ selection, catalogs }) => {
+      const run = stubRun({
+        issue: apiIssue({
+          labels: (selection.labels ?? []).map((name) => ({
+            id: 1,
+            name,
+            color: "eeeeee",
+          })),
+          assignees: (selection.assignees ?? []).map((login) => ({ login })),
+        }),
+      });
+      const service = createGitHubService({
+        credentialIdentity: async () => "test-credential",
+        run,
+      });
+      const input = {
+        repo: FIXTURE_REPO,
+        requestId: "create-selections-once",
+        title: "Original",
+        body: "Original body",
+        ...selection,
+      };
+      await service.create(input);
+      await service.create(input);
+      expect(
+        run.mock.calls.filter(([args]) =>
+          /\/(labels|assignees)\?/.test(args[3]),
+        ),
+      ).toHaveLength(catalogs);
+      const writes = run.mock.calls.filter(
+        ([args]) => args.includes("POST") && args[3] !== "graphql",
+      );
+      expect(writes).toHaveLength(1);
+      expect(JSON.parse(writes[0][1] ?? "{}")).toEqual({
+        title: input.title,
+        body: input.body,
+        ...selection,
+      });
+    },
+  );
+
+  it.each([{ labels: ["missing"] }, { assignees: ["missing"] }])(
+    "rejects a create selection missing from the fresh catalog: %j",
+    async (selection) => {
+      const run = stubRun();
+      await expect(
+        createGitHubService({
+          credentialIdentity: async () => "test-credential",
+          run,
+        }).create({
+          repo: FIXTURE_REPO,
+          requestId: "create-invalid-selection",
+          title: "Original",
+          body: "Original body",
+          ...selection,
+        }),
+      ).rejects.toMatchObject({ code: "invalid" });
+      expect(
+        run.mock.calls.some(
+          ([args]) => args.includes("POST") && args[3] !== "graphql",
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("creates from an existing organization type atomically and verifies the source type ID", async () => {
     const type = { id: 73, name: "Bug", color: "red" };
     const base = stubRun({
