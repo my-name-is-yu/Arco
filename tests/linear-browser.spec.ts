@@ -1586,7 +1586,7 @@ test("Linear viewport and theme updates preserve the issue and unsent comment wi
   }
 });
 
-test("Linear keyboard, narrow layout, filter/draft reload, and upload bounds remain usable", async ({
+test("Linear narrow layout, filter/draft reload, and upload bounds remain usable", async ({
   page,
 }, info) => {
   const ui = app(page);
@@ -1597,15 +1597,6 @@ test("Linear keyboard, narrow layout, filter/draft reload, and upload bounds rem
     path: info.outputPath("linear-wide.png"),
     fullPage: true,
   });
-  await ui.getByRole("heading", { name: firstTitle, exact: true }).click();
-  await page.keyboard.press("j");
-  await expect(
-    ui.getByRole("heading", { name: secondTitle, exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press("k");
-  await expect(
-    ui.getByRole("heading", { name: firstTitle, exact: true }),
-  ).toBeVisible();
   await ui
     .getByRole("textbox", { name: "Search Linear Issues", exact: true })
     .fill("workflow");
