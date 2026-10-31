@@ -23,11 +23,11 @@ export function createConnectionsHandlers(operation: LinearOperation) {
     const client = operation.makeClient(
       await operation.auth.accessToken(input.connectionId),
     );
-    const [viewer, organization] = await Promise.all([
-      client.viewer,
-      client.organization,
-    ]);
-    if (name === "linear_connection")
+    if (name === "linear_connection") {
+      const [viewer, organization] = await Promise.all([
+        client.viewer,
+        client.organization,
+      ]);
       return {
         connectionId: input.connectionId,
         connected: true,
@@ -37,6 +37,8 @@ export function createConnectionsHandlers(operation: LinearOperation) {
         workspace: named(organization),
         message: "Connected to Linear with your account permissions.",
       };
+    }
+    const organization = await client.organization;
     return {
       workspace: named(organization),
       teams: (await all(client.teams({ first: 100 }))).map((team) => ({

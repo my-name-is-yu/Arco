@@ -135,6 +135,8 @@ async function source() {
     userName: "Test user",
     userError: "" as "" | "forbidden" | "partial",
     userErrorOnce: false,
+    forbiddenConnectionRead: "" as "" | "viewer" | "organization" | "teams",
+    paginateTeams: false,
     teamParents: {} as Record<string, string>,
     commentIssueId: "issue",
   };
@@ -172,6 +174,7 @@ async function source() {
       await hooks.beforeOperation?.(operation);
       if (
         (operation === "updateIssue" && controls.rejectUpdate) ||
+        operation === controls.forbiddenConnectionRead ||
         (operation === "user" &&
           input.variables.id === "comment-author" &&
           controls.userError === "forbidden")
@@ -212,6 +215,9 @@ async function source() {
       });
       let data: object;
       switch (operation) {
+        case "viewer":
+          data = { viewer: { id: "user", name: "Test user" } };
+          break;
         case "ArcoLinearIssueList":
         case "ArcoLinearIssueSearch":
           data = {
@@ -238,6 +244,16 @@ async function source() {
           break;
         case "team":
           data = { team };
+          break;
+        case "teams":
+          data = {
+            teams: connection(
+              input.variables.after
+                ? [{ ...team, id: "next-team", name: "Next team", key: "NXT" }]
+                : [team],
+              controls.paginateTeams && !input.variables.after,
+            ),
+          };
           break;
         case "issue":
           if (controls.failIssueRead)
@@ -616,6 +632,84 @@ async function source() {
 }
 
 describe("Linear adapter through the official SDK HTTP transport", () => {
+  describe("connection discovery", () => {
+    it("reads all scope teams without fetching a viewer profile", async () => {
+      const { service, calls, controls } = await source();
+      controls.paginateTeams = true;
+      await expect(
+        service.call("linear_scopes", { connectionId: scope.connectionId }),
+      ).resolves.toEqual({
+        workspace: { id: "workspace", name: "Test workspace" },
+        teams: [
+          { id: "team", name: "Test team", key: "TST" },
+          { id: "next-team", name: "Next team", key: "NXT" },
+        ],
+      });
+      expect(calls.map((call) => call.operation)).toEqual([
+        "organization",
+        "teams",
+        "teams",
+      ]);
+      expect(calls.slice(1).map((call) => call.variables)).toMatchObject([
+        { first: 100 },
+        { first: 100, after: "page-2" },
+      ]);
+      expect(calls.every((call) => call.bearer)).toBe(true);
+    });
+
+    it("keeps the connection identity and required viewer failures", async () => {
+      const { service, calls, controls } = await source();
+      await expect(
+        service.call("linear_connection", { connectionId: scope.connectionId }),
+      ).resolves.toMatchObject({
+        connected: true,
+        account: "Test user",
+        userId: "user",
+        workspace: { id: "workspace", name: "Test workspace" },
+      });
+      expect(calls.map((call) => call.operation).sort()).toEqual([
+        "organization",
+        "viewer",
+      ]);
+      controls.forbiddenConnectionRead = "viewer";
+      await expect(
+        service.call("linear_connection", { connectionId: scope.connectionId }),
+      ).rejects.toMatchObject({ code: "forbidden" });
+    });
+
+    it.each(["organization", "teams"] as const)(
+      "retains the required %s read and its error",
+      async (operation) => {
+        const { service, calls, controls } = await source();
+        controls.forbiddenConnectionRead = operation;
+        await expect(
+          service.call("linear_scopes", { connectionId: scope.connectionId }),
+        ).rejects.toMatchObject({ code: "forbidden" });
+        expect(calls.map((call) => call.operation)).toEqual(
+          operation === "organization"
+            ? ["organization"]
+            : ["organization", "teams"],
+        );
+      },
+    );
+
+    it("returns the existing disconnected result without source requests", async () => {
+      const { service, calls, store } = await source();
+      await store.remove(scope.connectionId);
+      for (const name of ["linear_connection", "linear_scopes"] as const)
+        await expect(
+          service.call(name, { connectionId: scope.connectionId }),
+        ).resolves.toMatchObject({
+          connectionId: scope.connectionId,
+          connected: false,
+          account: null,
+          userId: null,
+          workspace: null,
+        });
+      expect(calls).toEqual([]);
+    });
+  });
+
   it.each([
     { pageSize: 100, requests: 1 },
     { pageSize: 2, requests: 3 },
