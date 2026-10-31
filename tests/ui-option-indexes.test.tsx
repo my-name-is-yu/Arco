@@ -112,7 +112,10 @@ const metadata: LinearMetadata = {
   estimateValues: [],
 };
 const host = { call: vi.fn() } as unknown as ArcoHost;
-function renderDetail(catalog?: LinearMetadata) {
+function renderDetail(
+  catalog?: LinearMetadata,
+  reactions: LinearIssue["reactions"] = [],
+) {
   const client = new QueryClient();
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
@@ -123,7 +126,16 @@ function renderDetail(catalog?: LinearMetadata) {
         onBack={() => {}}
         onFullscreen={() => {}}
         host={host}
-        issue={issue}
+        issue={{ ...issue, reactions }}
+        connection={{
+          connected: true,
+          connectionId: "default",
+          mode: "fixture",
+          account: "Fixture user",
+          userId: "fixture-linear-user",
+          workspace: { id: "workspace", name: "Workspace" },
+          message: "",
+        }}
         metadata={catalog}
         metadataError={null}
         busy={false}
@@ -146,6 +158,39 @@ beforeEach(() => {
 });
 
 describe("UI catalog indexes", () => {
+  it("groups reactions with linearly many emoji reads", () => {
+    let reads = 0;
+    const size = 128;
+    const reactions = Array.from({ length: size }, (_, index) => ({
+      id: `reaction-${index}`,
+      userId: index === 0 ? "fixture-linear-user" : "another-user",
+      get emoji() {
+        reads += 1;
+        return `emoji-${index}`;
+      },
+    }));
+    renderDetail(undefined, reactions);
+    expect(reads).toBeLessThanOrEqual(size * 2);
+  });
+
+  it("retains interleaved emoji order, counts and ownership", () => {
+    const html = renderDetail(undefined, [
+      { id: "other-crab", emoji: "🦀", userId: "another-user" },
+      { id: "rocket", emoji: "🚀", userId: "another-user" },
+      { id: "first-own-crab", emoji: "🦀", userId: "fixture-linear-user" },
+      { id: "later-own-crab", emoji: "🦀", userId: "fixture-linear-user" },
+    ]);
+    expect(html).toContain(
+      'aria-label="Remove 🦀 Issue reaction" aria-pressed="true" title="3 reactions">🦀<span>3</span>',
+    );
+    expect(html).toContain(
+      'aria-label="Add 🚀 Issue reaction" aria-pressed="false" title="1 reaction">🚀<span>1</span>',
+    );
+    expect(html.indexOf("🦀<span>3</span>")).toBeLessThan(
+      html.indexOf("🚀<span>1</span>"),
+    );
+  });
+
   it.each([undefined, metadata])(
     "keeps unavailable current values disabled with catalog %s",
     (catalog) => {
