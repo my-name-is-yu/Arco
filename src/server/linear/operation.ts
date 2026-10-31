@@ -134,6 +134,19 @@ export function estimateValues(
     : values;
 }
 
+function hasTemplateFields(content: string): boolean {
+  if (/\{\{|<input\b|<select\b/i.test(content)) return true;
+  let open = content.indexOf("[[");
+  while (open !== -1) {
+    const close = content.indexOf("]", open + 2);
+    if (close === -1) return false;
+    if (close > open + 2 && content[close + 1] === "]") return true;
+    // Earlier openers cannot match across this closing bracket.
+    open = content.indexOf("[[", close + 1);
+  }
+  return false;
+}
+
 export function describeTemplate(
   value: Pick<
     Template,
@@ -172,7 +185,7 @@ export function describeTemplate(
     value.type === "issue" &&
     unknown.length === 0 &&
     parsedDefaults.success &&
-    !/\{\{|\[\[[^\]]+\]\]|<input\b|<select\b/i.test(value.content ?? "");
+    !hasTemplateFields(value.content ?? "");
   return {
     id: value.id,
     name: value.name,
