@@ -452,11 +452,19 @@ export function LinearWorkspace({
     activeKey: active?.issueId ?? null,
     keyForRow: (issue) => issue.issueId,
     onSelect: (issue) => {
+      urlRequest.current += 1;
+      setUrlBusy(false);
       setSelected(linearRef(issue));
       setShowDetail(true);
     },
-    onClose: () => setShowDetail(false),
+    onClose: () => {
+      urlRequest.current += 1;
+      setUrlBusy(false);
+      setShowDetail(false);
+    },
     onGoToList: () => {
+      urlRequest.current += 1;
+      setUrlBusy(false);
       if (mode !== "fullscreen") openRetainedDetails();
       setShowDetail(false);
     },
