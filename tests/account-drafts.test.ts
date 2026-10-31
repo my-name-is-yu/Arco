@@ -332,6 +332,42 @@ describe("stable account ownership of local drafts", () => {
     },
   );
 
+  it("confirms a committed deletion after a lost acknowledgement and saves the next input without a stale revision", async () => {
+    const { directory, store, host, call } = await source();
+    const legacy = await seedLegacy(directory);
+    const key = owned(github);
+    await store.writeDraft({ key, expectedRevision: 0, draft });
+    const controller = draftController(host);
+    await controller.load(key);
+    const endpoint = call.getMockImplementation()!;
+    let loseResponse = true;
+    call.mockImplementation(async (name, args) => {
+      const result = await endpoint(name, args);
+      if (name === "arco_delete_draft" && loseResponse) {
+        loseResponse = false;
+        throw new Error("The deletion acknowledgement was lost.");
+      }
+      return result;
+    });
+    await expect(controller.remove(key)).resolves.toBeNull();
+    expect(controller.get()[draftStorageId(key)].state).toBe("idle");
+    expect(await store.readDraft(key)).toEqual({ revision: 2, draft: null });
+    expect(call.mock.calls.map(([name]) => name)).toEqual([
+      "arco_read_draft",
+      "arco_delete_draft",
+      "arco_read_draft",
+    ]);
+
+    const next = { ...draft, comment: "New input after deletion" };
+    controller.schedule(key, next);
+    controller.flush();
+    await vi.waitFor(() =>
+      expect(controller.get()[draftStorageId(key)].state).toBe("saved"),
+    );
+    expect(await store.readDraft(key)).toEqual({ revision: 3, draft: next });
+    expect(await readFile(legacy.path)).toEqual(legacy.bytes);
+  });
+
   it("verifies an imported draft after a lost write acknowledgement without replaying the save", async () => {
     const { directory, store, host, call } = await source();
     const legacy = await seedLegacy(directory);
