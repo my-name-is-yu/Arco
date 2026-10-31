@@ -122,10 +122,14 @@ for (const concealed of ["hidden", "offscreen"] as const) {
   }) => {
     await page.setViewportSize({ width: 1440, height: 640 });
     const app = page.frameLocator("#arco");
-    await add(app);
+    const selector =
+      concealed === "hidden"
+        ? '[data-context-origin="comment"] p'
+        : ".issue-heading h1";
+    await add(app, selector);
     const draft = "Keep this unfinished annotation while browsing";
     await editor(app).fill(draft);
-    const source = app.locator(".issue-heading h1");
+    const source = app.locator(selector).first();
     await source.evaluate((element, concealed) => {
       if (concealed === "hidden") element.setAttribute("hidden", "");
       else {
@@ -148,6 +152,7 @@ for (const concealed of ["hidden", "offscreen"] as const) {
     await expect(editor(app)).toHaveValue(draft);
     await expect(editor(app)).toBeFocused();
     await expect.poll(() => contexts(page)).toHaveLength(1);
+    await expect(page.locator("#harness-error")).toBeEmpty();
   });
 }
 
