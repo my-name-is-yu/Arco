@@ -148,7 +148,7 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
           entry.record = latest;
           return latest;
         }
-        if (latest && latest.revision !== expectedRevision) {
+        if (latest && latest.revision > expectedRevision) {
           entry.conflict = latest;
           throw new LocalDraftConflict(latest);
         }

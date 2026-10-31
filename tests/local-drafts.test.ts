@@ -134,9 +134,13 @@ describe("UI draft revisions across independent views", () => {
     expect(server.writes()).toBe(1);
     expect(server.reads()).toBe(2);
   });
-  it.each(["missing", "unavailable"])(
-    "preserves the deletion error when readback is %s instead of confirming a tombstone",
-    async (readback) => {
+  it.each([
+    { cachedRevision: 0, readback: "missing" },
+    { cachedRevision: 1, readback: "missing" },
+    { cachedRevision: 0, readback: "unavailable" },
+  ])(
+    "preserves the deletion error with cached revision $cachedRevision and $readback readback",
+    async ({ cachedRevision, readback }) => {
       const failure = new Error("Deletion could not be confirmed.");
       let reads = 0;
       let deletes = 0;
@@ -146,7 +150,13 @@ describe("UI draft revisions across independent views", () => {
             reads++;
             if (reads > 1 && readback === "unavailable")
               throw new Error("Readback is unavailable.");
-            return { revision: 0, draft: null } as T;
+            return {
+              revision: reads === 1 ? cachedRevision : 0,
+              draft:
+                reads === 1 && cachedRevision > 0
+                  ? draft("Cached input")
+                  : null,
+            } as T;
           }
           deletes++;
           throw failure;
