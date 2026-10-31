@@ -4,7 +4,7 @@ import type {
   ConversationIssue,
   PresentationIssues,
 } from "../shared/contracts";
-import { githubIssueKey } from "./github-queries";
+import { githubIssueKey } from "./github-issue-key";
 import { linearRef } from "./linear-queries";
 
 export function seedPresentationCache(

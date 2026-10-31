@@ -27,9 +27,9 @@ import {
   commentPostsKey,
   mergeCommentPages,
 } from "./github-comments";
+import { githubIssueKey } from "./github-issue-key";
 
-export const githubIssueKey = (issue: IssueRef, scope: string) =>
-  ["issue", issue.repo, issue.number, scope] as const;
+export { githubIssueKey } from "./github-issue-key";
 type PageParam = { page: number; cursor?: string };
 
 export function useGitHubIssueList(
