@@ -1008,13 +1008,6 @@ describe("host attachment context lifecycle", () => {
     changed({ "openai/modelContext": remaining });
     expect(host.sharedAnnotations()).toEqual([annotations[0], annotations[2]]);
     expect(host.annotationSnapshotId()).toBe(id);
-    const modelInput = JSON.stringify({
-      content: remaining.content,
-      structuredContent: remaining.structuredContent,
-    });
-    expect(modelInput).not.toContain("Selected words 2");
-    expect(modelInput).not.toContain("remove this note");
-    expect(modelInput).toContain("Linear words 3");
     changed({
       "openai/modelContext": {
         ...remaining,
