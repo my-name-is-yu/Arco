@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createGitHubTransport,
   createGitHubWriteGuard,
+  GitHubError,
+  type GhRunner,
 } from "../src/server/github/transport";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -24,7 +26,85 @@ function cliResponse(value: unknown, stderr: string, exitCode: number) {
   return child as unknown as ReturnType<typeof spawn>;
 }
 
+function cliProcessError(pid: number | undefined, code = "EACCES") {
+  const child = Object.assign(new EventEmitter(), {
+    pid,
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(),
+  });
+  queueMicrotask(() => {
+    child.emit(
+      "error",
+      Object.assign(new Error("Fictional process failure"), { code }),
+    );
+    child.emit("close", 1);
+  });
+  return child as unknown as ReturnType<typeof spawn>;
+}
+
 describe("GitHub CLI mutation outcomes", () => {
+  it.each(["EACCES", "ENOENT"])(
+    "retains a %s error after a PID was assigned without repeating the write",
+    async (code) => {
+      const launch = vi
+        .mocked(spawn)
+        .mockImplementation(() => cliProcessError(123, code));
+      launch.mockClear();
+      const transport = createGitHubTransport({ policy: "extended" });
+      const once = createGitHubWriteGuard<unknown>(
+        async () => "test-credential",
+      );
+      const write = () => transport.mutate("mutation Save { save }", {});
+      for (let attempt = 0; attempt < 2; attempt++)
+        await expect(once("pid-present", {}, write)).rejects.toMatchObject({
+          code: "uncertain",
+        });
+      expect(launch).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["unavailable", "invalid-response", "timeout"])(
+    "retains an ordinary %s error without treating it as an undispatched command",
+    async (code) => {
+      const run = vi.fn<GhRunner>(async () => {
+        throw new GitHubError("Fictional provider failure", code);
+      });
+      const transport = createGitHubTransport({ run, policy: "extended" });
+      const once = createGitHubWriteGuard<unknown>(
+        async () => "test-credential",
+      );
+      const write = () => transport.mutate("mutation Save { save }", {});
+      for (let attempt = 0; attempt < 2; attempt++)
+        await expect(once("ordinary-error", {}, write)).rejects.toMatchObject({
+          code: "uncertain",
+        });
+      expect(run).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retains an earlier saved step when a later command fails before startup", async () => {
+    const launch = vi
+      .mocked(spawn)
+      .mockImplementationOnce(() =>
+        cliResponse({ data: { save: { id: "saved" } } }, "", 0),
+      )
+      .mockImplementationOnce(() => cliProcessError(undefined));
+    launch.mockClear();
+    const transport = createGitHubTransport({ policy: "extended" });
+    const once = createGitHubWriteGuard<unknown>(async () => "test-credential");
+    const write = async () => {
+      await transport.mutate("mutation First { save }", {});
+      return transport.mutate("mutation Second { save }", {});
+    };
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(
+        once("saved-before-start-failure", {}, write),
+      ).rejects.toMatchObject({ code: "refresh" });
+    expect(launch).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ["RATE_LIMITED", "GraphQL: API rate limit exceeded"],
     ["FORBIDDEN", "GraphQL: Resource not accessible (HTTP 403)"],

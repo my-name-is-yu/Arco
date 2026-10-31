@@ -15,6 +15,9 @@ export class GitHubError extends OperationError {
   }
 }
 
+// With no child PID, a failed spawn cannot have dispatched a request.
+class GitHubLaunchError extends GitHubError {}
+
 export function isGitHubWriteOutcomeError(error: unknown) {
   return (
     error instanceof GitHubError &&
@@ -103,13 +106,16 @@ export const runGh: GhRunner = (args, input) =>
     });
     child.on("error", (error: NodeJS.ErrnoException) => {
       clearTimeout(timer);
+      const notStarted = child.pid === undefined;
       reject(
-        error.code === "ENOENT"
+        notStarted && error.code === "ENOENT"
           ? new GitHubError(
               "GitHub CLI was not found. Install gh using the instructions at cli.github.com.",
               "missing-cli",
             )
-          : new GitHubError("Unable to start GitHub CLI."),
+          : notStarted
+            ? new GitHubLaunchError("Unable to start GitHub CLI.")
+            : new GitHubError("Unable to start GitHub CLI."),
       );
     });
     child.on("close", (code) => {
@@ -216,6 +222,7 @@ export function createGitHubWriteGuard<T>(readScope: () => Promise<string>) {
 }
 
 function rejectedWrite(error: unknown) {
+  if (error instanceof GitHubLaunchError) return true;
   return (
     error instanceof GitHubError &&
     [
