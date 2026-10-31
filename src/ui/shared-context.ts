@@ -178,6 +178,7 @@ export function readModelContext(
       .safeParse(structured);
     if (!format.success) return empty;
     const annotations: SelectionAnnotationContext[] = [];
+    const numbers = new Set<number>();
     for (const block of Array.isArray(value.content) ? value.content : []) {
       const parsed = contentBlock.safeParse(block);
       if (!parsed.success) continue;
@@ -186,8 +187,8 @@ export function readModelContext(
         continue;
       const item = annotation.safeParse(parsed.data._meta?.["arco/annotation"]);
       if (!item.success) continue;
-      if (annotations.some(({ number }) => number === item.data.number))
-        return empty;
+      if (numbers.has(item.data.number)) return empty;
+      numbers.add(item.data.number);
       annotations.push(item.data);
     }
     return { ...annotationSnapshot(annotations, structured), legacy: false };
@@ -195,7 +196,17 @@ export function readModelContext(
   if (Object.hasOwn(structured, "annotations")) {
     const previous = readSharedContext(structured);
     if (!previous.annotations || !Array.isArray(value.content)) return empty;
-    const blocks = value.content;
+    const blocks = new Map<string, Set<string>>();
+    for (const block of value.content) {
+      const parsed = contentBlock.safeParse(block);
+      if (!parsed.success || parsed.data.annotations?.audience?.length)
+        continue;
+      const title = parsed.data._meta?.["openai/title"];
+      if (typeof title !== "string") continue;
+      const titles = blocks.get(parsed.data.text) ?? new Set<string>();
+      titles.add(title);
+      blocks.set(parsed.data.text, titles);
+    }
     const annotations = previous.annotations.filter((item) => {
       const { number, issue, selection } = item;
       const identifier = issue
@@ -206,15 +217,7 @@ export function readModelContext(
       const preview = selection.text.replace(/\s+/g, " ").trim();
       const text = `${number}. ${identifier}\n${selection.text}${selection.comment ? `\n\nComment: ${selection.comment}` : ""}`;
       const title = `#${number} ${preview.length > 64 ? `${preview.slice(0, 64)}…` : preview}`;
-      return blocks.some((block: unknown) => {
-        const parsed = contentBlock.safeParse(block);
-        if (!parsed.success || parsed.data.annotations?.audience?.length)
-          return false;
-        return (
-          parsed.data.text === text &&
-          parsed.data._meta?.["openai/title"] === title
-        );
-      });
+      return blocks.get(text)?.has(title) ?? false;
     });
     return { ...annotationSnapshot(annotations, structured), legacy: true };
   }

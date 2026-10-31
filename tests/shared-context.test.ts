@@ -290,6 +290,48 @@ describe("restoring removable model context", () => {
     });
   });
 
+  it("matches legacy text and title on the same visible block without overwriting another match", () => {
+    const first = annotationFor(1);
+    const second = annotationFor(2);
+    const structuredContent = {
+      source: "arco",
+      annotations: [first, second],
+    };
+    const blocks = [first, second].map((item) => ({
+      type: "text",
+      text: `${item.number}. yu/Arco #42\n${item.selection.text}\n\nComment: ${item.selection.comment}`,
+      _meta: { "openai/title": `#${item.number} ${item.selection.text}` },
+    }));
+    const firstBlock = blocks[0]!;
+    const secondBlock = blocks[1]!;
+    const mismatched = [
+      { ...firstBlock, _meta: secondBlock._meta },
+      { ...secondBlock, _meta: firstBlock._meta },
+    ];
+    expect(
+      readModelContext({
+        structuredContent,
+        content: [
+          ...mismatched,
+          ...blocks.map((block) => ({
+            ...block,
+            annotations: { audience: ["user"] },
+          })),
+        ],
+      }).annotations,
+    ).toEqual([]);
+    expect(
+      readModelContext({
+        structuredContent,
+        content: [
+          { ...secondBlock, annotations: { audience: [] } },
+          firstBlock,
+          ...mismatched,
+        ],
+      }).annotations,
+    ).toEqual([first, second]);
+  });
+
   it("keeps marked whole-Issue context compatible", () => {
     const structuredContent = {
       source: "github",
