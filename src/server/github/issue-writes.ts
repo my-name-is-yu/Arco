@@ -227,7 +227,7 @@ export function createIssueWrites(context: IssueWriteContext) {
             );
           issueType = matches[0];
         }
-        if (input.labels !== undefined || input.assignees !== undefined) {
+        if (input.labels?.length || input.assignees?.length) {
           const choices = await context.metadata(input.repo);
           if (
             input.labels?.some(
