@@ -22,7 +22,7 @@ export function registerGitHubOperationTools(
         {
           title: name,
           description: `GitHub native Issue operation: ${name}. Source IDs/scopes remain distinct. Changes only explicitly supplied attributes; requestId deduplicates this action within the process.`,
-          inputSchema: githubOperationSchemas[name].shape,
+          inputSchema: githubOperationSchemas[name],
           annotations: {
             readOnlyHint: githubOperationReadOnly.has(name),
             destructiveHint: !githubOperationReadOnly.has(name),

@@ -439,7 +439,7 @@ export function createArcoServer(backend: ArcoBackend) {
       {
         title: name,
         description: descriptions[name],
-        inputSchema: dataSchemas[name].shape,
+        inputSchema: dataSchemas[name],
         ...(name === "search_mentions"
           ? { outputSchema: OpenAIMentionSearchResultSchema.shape }
           : {}),
