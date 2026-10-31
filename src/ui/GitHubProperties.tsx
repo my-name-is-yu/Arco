@@ -517,7 +517,9 @@ function ProjectFields({
                 fieldId: field.id,
                 value,
               },
-              () =>
+              () => {
+                // Closed panels skip refetch on invalidation; discard older reads.
+                void client.cancelQueries({ queryKey, exact: true });
                 client.setQueryData<ProjectFieldList>(queryKey, (previous) =>
                   previous
                     ? {
@@ -529,7 +531,8 @@ function ProjectFields({
                         ),
                       }
                     : previous,
-                ),
+                );
+              },
             )
           }
         />

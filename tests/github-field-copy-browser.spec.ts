@@ -6,6 +6,7 @@ import type {
   ProjectFieldList,
 } from "../src/shared/github-operations";
 import { choose, selectControl } from "./select-helpers";
+import { toolFailure } from "./tool-failure";
 
 async function openAttributes(page: Page) {
   await page.goto("/?entry=project");
@@ -149,6 +150,86 @@ test("Project fields load only for open memberships while retaining drafts and i
   await expect(project).toContainText(sourceValue);
   await expect(note).toHaveValue("Unsaved project note");
   expect(reads).toEqual(Array(3).fill(memberships[0].projectId));
+});
+
+test("closing a Project during save retains the accepted value after an older read and failed refresh", async ({
+  page,
+}) => {
+  const { ui, project } = await projectFields(page, new Map());
+  const field = project.locator(".field-editor").filter({
+    has: ui.getByText("Notes", { exact: true }),
+  });
+  const input = field.locator('input[aria-label="Notes value"]');
+  const save = field.getByRole("button", {
+    name: "Save",
+    exact: true,
+    includeHidden: true,
+  });
+  const accepted = "Accepted Project note";
+  await input.fill(accepted);
+  let releaseRead!: () => void;
+  let releaseSave!: () => void;
+  const oldRead = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  const saveAck = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  let readHeld = false;
+  let readCompleted = false;
+  let saveHeld = false;
+  let failReads = false;
+  let writes = 0;
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as { name: string };
+    if (input.name === "arco_set_project_field") {
+      const response = await route.fetch();
+      writes += 1;
+      saveHeld = true;
+      await saveAck;
+      return route.fulfill({ response });
+    }
+    if (input.name !== "arco_project_fields") return route.fallback();
+    if (failReads)
+      return route.fulfill({
+        json: toolFailure("Project refresh unavailable"),
+      });
+    const response = await route.fetch();
+    readHeld = true;
+    await oldRead;
+    await route.fulfill({ response });
+    readCompleted = true;
+  });
+  try {
+    await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect.poll(() => readHeld).toBe(true);
+    await save.click();
+    await expect.poll(() => saveHeld).toBe(true);
+    await project.locator("summary").click();
+    await expect(project).toHaveJSProperty("open", false);
+    releaseSave();
+    await expect(input).toBeEnabled();
+    releaseRead();
+    await expect.poll(() => readCompleted).toBe(true);
+    await project.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(input).toHaveValue(accepted);
+    failReads = true;
+    await project.locator("summary").click();
+    await expect(project.getByRole("alert")).toHaveText(
+      "Project refresh unavailable",
+    );
+    await expect(input).toHaveValue(accepted);
+    await expect(save).toBeDisabled();
+    expect(writes).toBe(1);
+  } finally {
+    releaseSave();
+    releaseRead();
+  }
 });
 
 test("Organization Issue fields retain fetched names when current choices are missing", async ({
