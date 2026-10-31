@@ -207,6 +207,22 @@ describe("restoring removable model context", () => {
     ).toBeNull();
   });
 
+  it("ignores hidden and malformed duplicate numbers while accepting blocks visible to both audiences", () => {
+    const item = annotationFor(1);
+    const payload = annotationAttachment([item]);
+    const block = payload.content[0]!;
+    expect(
+      readModelContext({
+        ...payload,
+        content: [
+          { ...block, annotations: { audience: ["assistant"] } },
+          { ...block, _meta: { "arco/annotation": { number: item.number } } },
+          { ...block, annotations: { audience: ["assistant", "user"] } },
+        ],
+      }).annotations,
+    ).toEqual([item]);
+  });
+
   it("restores Linear and generic selections without guessing a shared issue", () => {
     const linear: SelectionAnnotationContext = {
       number: 9,
