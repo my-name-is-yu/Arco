@@ -119,6 +119,15 @@ async function source() {
     failIssueRead: false,
     failAfterUpdate: false,
     failProjects: false,
+    projectIds: [] as string[],
+    milestones: [] as {
+      id: string;
+      name: string;
+      project?: { id: string };
+    }[],
+    pageSize: 100,
+    milestoneCursorFailure: "" as
+      "" | "missing" | "repeated" | "empty" | "cyclic",
     rejectUpdate: false,
     mutationSuccess: true as unknown,
     commentCount: 0,
@@ -399,8 +408,51 @@ async function source() {
         case "team_projects":
           if (controls.failProjects)
             throw new Error("Simulated project catalog failure");
-          data = { team: { projects: connection([]) } };
+          data = {
+            team: {
+              projects: connection(
+                controls.projectIds.map((id) => ({ id, name: id })),
+              ),
+            },
+          };
           break;
+        case "projectMilestones": {
+          const start = input.variables.after
+            ? Number(String(input.variables.after).replace("milestone-", "")) +
+              1
+            : 0;
+          const count = Math.min(
+            Number(input.variables.first ?? 100),
+            controls.pageSize,
+          );
+          const milestones =
+            controls.milestoneCursorFailure === "empty" && input.variables.after
+              ? []
+              : controls.milestones.slice(start, start + count);
+          const hasMore =
+            start + milestones.length < controls.milestones.length;
+          data = {
+            projectMilestones: {
+              ...connection(milestones, hasMore),
+              pageInfo: {
+                hasNextPage: hasMore,
+                endCursor:
+                  controls.milestoneCursorFailure === "missing"
+                    ? null
+                    : controls.milestoneCursorFailure === "repeated" &&
+                        input.variables.after
+                      ? input.variables.after
+                      : controls.milestoneCursorFailure === "cyclic" &&
+                          start >= 4
+                        ? "milestone-1"
+                        : `milestone-${start + (milestones.length || count) - 1}`,
+                hasPreviousPage: start > 0,
+                startCursor: milestones.length ? `milestone-${start}` : null,
+              },
+            },
+          };
+          break;
+        }
         case "team_cycles":
           data = { team: { cycles: connection([]) } };
           break;
@@ -494,6 +546,7 @@ async function source() {
           data,
           ...((controls.partialError &&
             (operation === "updateIssue" ||
+              operation === "projectMilestones" ||
               operation.startsWith("ArcoLinear"))) ||
           (operation === "user" &&
             input.variables.id === "comment-author" &&
@@ -563,6 +616,161 @@ async function source() {
 }
 
 describe("Linear adapter through the official SDK HTTP transport", () => {
+  it.each([
+    { pageSize: 100, requests: 1 },
+    { pageSize: 2, requests: 3 },
+  ])(
+    "reads ten projects' milestones in $requests filtered requests with page size $pageSize",
+    async ({ pageSize, requests }) => {
+      const { service, calls, controls } = await source();
+      controls.projectIds = [
+        "project-2",
+        "project-1",
+        ...Array.from({ length: 8 }, (_, index) => `project-${index + 3}`),
+      ];
+      controls.pageSize = pageSize;
+      controls.milestones = [
+        ["first-1", "project-1"],
+        ["first-2", "project-2"],
+        ["second-1", "project-1"],
+        ["first-3", "project-3"],
+        ["second-2", "project-2"],
+      ].map(([id, projectId]) => ({
+        id,
+        name: id,
+        project: { id: projectId },
+      }));
+      const metadata = (await service.call(
+        "linear_metadata",
+        scope,
+      )) as LinearMetadata;
+      expect(metadata.projects).toEqual(
+        controls.projectIds.map((id) => ({ id, name: id })),
+      );
+      expect(metadata.milestones).toEqual(
+        [1, 4, 0, 2, 3].map((index) => {
+          const milestone = controls.milestones[index];
+          return {
+            id: milestone.id,
+            name: milestone.name,
+            projectId: milestone.project!.id,
+          };
+        }),
+      );
+      const reads = calls.filter(
+        (call) => call.operation === "projectMilestones",
+      );
+      expect(reads).toHaveLength(requests);
+      expect(reads.map((call) => call.variables.filter)).toEqual(
+        Array(requests).fill({ project: { id: { in: controls.projectIds } } }),
+      );
+      expect(reads.map((call) => call.variables.first)).toEqual(
+        Array(requests).fill(100),
+      );
+      expect(reads.map((call) => call.variables.after)).toEqual(
+        [undefined, "milestone-1", "milestone-3"].slice(0, requests),
+      );
+      expect(
+        calls.some((call) =>
+          ["project_projectMilestones", "project"].includes(call.operation),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("skips milestone queries when the team has no projects", async () => {
+    const { service, calls } = await source();
+    const metadata = (await service.call(
+      "linear_metadata",
+      scope,
+    )) as LinearMetadata;
+    expect(metadata.projects).toEqual([]);
+    expect(metadata.milestones).toEqual([]);
+    expect(calls.some((call) => call.operation === "projectMilestones")).toBe(
+      false,
+    );
+  });
+
+  it("validates a project-only update without reading milestone choices", async () => {
+    const { service, calls, controls, issue } = await source();
+    controls.projectIds = ["project-1"];
+    await service.call("linear_update_issue", {
+      ...ref,
+      requestId: randomUUID(),
+      expectedUpdatedAt: issue.updatedAt,
+      patch: { projectId: "project-1" },
+    });
+    expect(
+      calls.filter((call) => call.operation === "team_projects"),
+    ).toHaveLength(1);
+    expect(
+      calls.find((call) => call.operation === "updateIssue")?.variables.input,
+    ).toEqual({ projectId: "project-1" });
+    expect(calls.some((call) => /projectMilestones/.test(call.operation))).toBe(
+      false,
+    );
+  });
+
+  it.each([undefined, "foreign-project"])(
+    "rejects a milestone with an absent or out-of-scope project identity (%s)",
+    async (projectId) => {
+      const { service, controls } = await source();
+      controls.projectIds = ["project-1"];
+      controls.milestones = [
+        {
+          id: "milestone",
+          name: "Milestone",
+          ...(projectId === undefined ? {} : { project: { id: projectId } }),
+        },
+      ];
+      await expect(
+        service.call("linear_metadata", scope),
+      ).rejects.toMatchObject({ code: "invalid-response" });
+    },
+  );
+
+  it.each([
+    { failure: "missing" as const, requests: 1 },
+    { failure: "repeated" as const, requests: 2 },
+    { failure: "empty" as const, requests: 2 },
+    { failure: "cyclic" as const, requests: 3 },
+  ])(
+    "rejects $failure pagination before presenting complete milestone choices",
+    async ({ failure, requests }) => {
+      const { service, calls, controls } = await source();
+      controls.projectIds = ["project-1"];
+      controls.pageSize = 2;
+      controls.milestoneCursorFailure = failure;
+      controls.milestones = Array.from({ length: 7 }, (_, index) => ({
+        id: `milestone-${index}`,
+        name: `Milestone ${index}`,
+        project: { id: "project-1" },
+      }));
+      await expect(
+        service.call("linear_metadata", scope),
+      ).rejects.toMatchObject({
+        code: "invalid-response",
+        message: "Linear pagination did not advance. Refresh and try again.",
+      });
+      expect(
+        calls.filter((call) => call.operation === "projectMilestones"),
+      ).toHaveLength(requests);
+    },
+  );
+
+  it("rejects partial milestone data through the SDK instead of returning choices", async () => {
+    const { service, controls } = await source();
+    controls.projectIds = ["project-1"];
+    controls.milestones = [
+      { id: "milestone", name: "Milestone", project: { id: "project-1" } },
+    ];
+    controls.partialError = true;
+    await expect(service.call("linear_metadata", scope)).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.not.stringContaining("Source rejected"),
+    });
+  });
+
   it("reads one comment page at a time and keeps a reply's unloaded parent identity", async () => {
     const { service, calls, controls } = await source();
     controls.commentCount = 65;
