@@ -133,6 +133,7 @@ export function createLinearAuth(
     "linear-authorization",
   );
   const pending = new Map<string, { server: Server; close: () => void }>();
+  let closed = false;
   const statuses = new Map<
     string,
     { state: "pending" | "connected" | "failed"; message: string }
@@ -253,6 +254,11 @@ export function createLinearAuth(
       clientId: string,
       redirectUri = LINEAR_REDIRECT_URI,
     ) {
+      if (closed)
+        throw new LinearServiceError(
+          "Linear authorization was cancelled.",
+          "auth",
+        );
       z.string().min(1).max(200).parse(connectionId);
       z.string().min(1).max(200).parse(clientId);
       const callback = new URL(redirectUri);
@@ -377,6 +383,14 @@ export function createLinearAuth(
       };
       pending.set(connectionId, transaction);
       await new Promise<void>((resolve, reject) => {
+        server.once("close", () =>
+          reject(
+            new LinearServiceError(
+              "Linear authorization was cancelled.",
+              "auth",
+            ),
+          ),
+        );
         server.once("error", () => {
           status.state = "failed";
           status.message =
@@ -438,6 +452,7 @@ export function createLinearAuth(
       });
     },
     close() {
+      closed = true;
       pending.forEach((transaction) => transaction.close());
     },
   };
