@@ -26,9 +26,9 @@ export function createBulkHandlers(
         let saved = false;
         try {
           const ref = { ...input, issueId };
-          const { client } = await operation.context(ref);
-          const issue = await operation.checkedIssue(client, ref);
           if (input.patch) {
+            const { client } = await operation.context(ref);
+            const issue = await operation.checkedIssue(client, ref);
             const patch = await changes.validatePatch(ref, issue, input.patch);
             await linearMutation(() => client.updateIssue(issue.id, patch));
             saved = true;
