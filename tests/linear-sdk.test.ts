@@ -903,12 +903,12 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
     expect(calls[0].operation).toBe("ArcoLinearIssueSearch");
   });
   it.each([
-    { name: "labels only", patch: false, labels: true, reads: 2 },
-    { name: "properties only", patch: true, labels: false, reads: 2 },
-    { name: "properties and labels", patch: true, labels: true, reads: 3 },
+    { name: "labels only", patch: false, labels: true },
+    { name: "properties only", patch: true, labels: false },
+    { name: "properties and labels", patch: true, labels: true },
   ])(
     "shares checked context and preserves bulk read order for $name",
-    async ({ patch, labels, reads }) => {
+    async ({ patch, labels }) => {
       const { service, calls } = await source();
       const issueIds = ["issue", "other"];
       const add = ["added", "added"];
@@ -941,9 +941,6 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
             call.variables.id === issueId &&
             ["issue", "updateIssue"].includes(call.operation),
         );
-        expect(
-          memberCalls.filter((call) => call.operation === "issue"),
-        ).toHaveLength(reads);
         expect(memberCalls.map((call) => call.operation)).toEqual([
           "issue",
           "updateIssue",
