@@ -60,27 +60,31 @@ export function useSharedAnnotations(host: ArcoHost, onSync: () => void) {
       sameSnapshot
     )
       return;
+    const candidatesByNumber = new Map<number, Annotation[]>();
+    if (sameSnapshot)
+      for (const item of current.current) {
+        const number = item.context.number;
+        const candidates = candidatesByNumber.get(number);
+        if (candidates) candidates.push(item);
+        else candidatesByNumber.set(number, [item]);
+      }
     commit(
       shared.map((context) => {
-        const previous = sameSnapshot
-          ? current.current.find(
-              (item) =>
-                item.context.number === context.number &&
-                sameSelection(
-                  {
-                    ...item.context,
-                    selection: {
-                      ...item.context.selection,
-                      comment: undefined,
-                    },
-                  },
-                  {
-                    ...context,
-                    selection: { ...context.selection, comment: undefined },
-                  },
-                ),
-            )
-          : undefined;
+        const previous = candidatesByNumber.get(context.number)?.find((item) =>
+          sameSelection(
+            {
+              ...item.context,
+              selection: {
+                ...item.context.selection,
+                comment: undefined,
+              },
+            },
+            {
+              ...context,
+              selection: { ...context.selection, comment: undefined },
+            },
+          ),
+        );
         if (!previous) anchors.current.delete(context.number);
         return { context, target: previous?.target ?? null };
       }),

@@ -268,6 +268,58 @@ describe("host-lifetime draft controller", () => {
     ).toBe(true);
   });
 
+  it("keeps autosave revisions current when editing during a delayed legacy-import conflict resolution", async () => {
+    const source = recoveringSource({ revision: 0, draft: null });
+    const controller = draftController(source.host);
+    const id = draftStorageId(github);
+    source.call.mockImplementationOnce(async () => ({
+      ...structuredClone(source.record()),
+      legacyAvailable: true,
+    }));
+    await controller.load(github);
+    expect(controller.get()[id]?.legacy).toEqual({});
+    source.call.mockResolvedValueOnce({ revision: 1, draft: draft("Legacy") });
+    await controller.resolve(github, "review-legacy", draft(""));
+    source.record().revision = 1;
+    source.record().draft = draft("Another view saved before import");
+    await controller.resolve(github, "import-legacy", draft(""));
+    expect(controller.get()[id]?.state).toBe("conflict");
+
+    let release!: () => void;
+    source.call.mockImplementationOnce(async () => {
+      const captured = structuredClone(source.record());
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return captured;
+    });
+    const resolving = controller.resolve(github, "use-saved", draft(""));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    controller.schedule(github, draft("Typed while resolving"));
+    controller.flush();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    release();
+    await resolving;
+    await vi.waitFor(() => expect(controller.get()[id]?.state).toBe("saved"));
+
+    controller.schedule(github, draft("Next input"));
+    controller.flush();
+    await vi.waitFor(() =>
+      expect(controller.get()[id]?.state).not.toBe("pending"),
+    );
+    expect(controller.get()[id]?.state).toBe("saved");
+    expect(controller.value(github)).toEqual(draft("Next input"));
+    expect(source.record()).toEqual({
+      revision: 3,
+      draft: draft("Next input"),
+    });
+    expect(
+      source.call.mock.calls
+        .filter(([name]) => name === "arco_write_draft")
+        .map(([, args]) => args.expectedRevision),
+    ).toEqual([1, 2]);
+  });
+
   it("preserves a retired disk draft and keeps new input in memory when loading fails", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arco-draft-invalid-"));
     try {

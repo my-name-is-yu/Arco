@@ -69,6 +69,20 @@ function LinearReactions({
   onToggle: (emoji: string, reactionId?: string) => Promise<unknown>;
 }) {
   const picker = useRef<HTMLDetailsElement>(null);
+  const groups = new Map<
+    string,
+    { count: number; own?: LinearIssue["reactions"][number] }
+  >();
+  for (const item of items) {
+    const emoji = item.emoji;
+    let group = groups.get(emoji);
+    if (!group) {
+      group = { count: 0 };
+      groups.set(emoji, group);
+    }
+    group.count += 1;
+    if (!group.own && item.userId === userId) group.own = item;
+  }
   const target = comment ? "comment" : "Issue";
   const close = () => {
     if (!picker.current) return;
@@ -76,15 +90,14 @@ function LinearReactions({
     picker.current.querySelector("summary")?.focus();
   };
   const button = (emoji: string, choice = false) => {
-    const matches = items.filter((item) => item.emoji === emoji);
-    const own = matches.find((item) => item.userId === userId);
+    const { count = 0, own } = groups.get(emoji) ?? {};
     return (
       <button
         key={emoji}
         type="button"
         aria-label={`${own ? "Remove" : "Add"} ${emoji} ${target} reaction`}
         aria-pressed={Boolean(own)}
-        title={`${matches.length} reaction${matches.length === 1 ? "" : "s"}`}
+        title={`${count} reaction${count === 1 ? "" : "s"}`}
         disabled={busy}
         onClick={() => {
           void onToggle(emoji, own?.id).then((result) => {
@@ -93,7 +106,7 @@ function LinearReactions({
         }}
       >
         {emoji}
-        {matches.length > 0 && <span>{matches.length}</span>}
+        {count > 0 && <span>{count}</span>}
       </button>
     );
   };
@@ -103,9 +116,7 @@ function LinearReactions({
       role="group"
       aria-label={`${target} reactions`}
     >
-      {[...new Set(items.map((item) => item.emoji))].map((emoji) =>
-        button(emoji),
-      )}
+      {[...groups.keys()].map((emoji) => button(emoji))}
       <details
         ref={picker}
         className="linear-reaction-picker"

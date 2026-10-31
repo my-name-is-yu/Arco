@@ -170,6 +170,82 @@ test("invalid GitHub URLs remain visible without source lookup, and normal title
   );
 });
 
+for (const navigation of ["select", "back"] as const) {
+  test(`GitHub ${navigation} navigation supersedes a pending URL lookup`, async ({
+    page,
+  }) => {
+    const ui = frame(page);
+    const title = "Separate shared context from sending a request";
+    await choose(ui, "GitHub view", "yu/Arco");
+    const row = ui.locator(".issue-row").filter({ hasText: title });
+    if (navigation === "back") await row.click();
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    let completed = false;
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as Input;
+      if (input.name !== "arco_get_issue" || input.arguments.number !== 42)
+        return route.continue();
+      const response = await route.fetch();
+      held = true;
+      await pending;
+      await route.fulfill({ response });
+      completed = true;
+    });
+    try {
+      const search = ui.getByRole("textbox", {
+        name: "Search issues",
+        exact: true,
+      });
+      await search.fill("https://github.com/yu/Arco/issues/42");
+      await search.press("Enter");
+      await expect.poll(() => held).toBe(true);
+      if (navigation === "select") {
+        await row.click();
+        await expect(
+          ui.getByRole("heading", { name: title, exact: true }),
+        ).toBeVisible();
+      } else {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await ui
+          .getByRole("button", { name: "Back to list", exact: true })
+          .click();
+        await expect(ui.locator(".workspace")).not.toHaveClass(/show-detail/);
+      }
+      release();
+      await expect.poll(() => completed).toBe(true);
+      await ui
+        .locator("body")
+        .evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              ),
+            ),
+        );
+      await expect(row).toHaveAttribute("aria-current", "true");
+      if (navigation === "select")
+        await expect(
+          ui.getByRole("heading", { name: title, exact: true }),
+        ).toBeVisible();
+      else
+        await expect(ui.locator(".workspace")).not.toHaveClass(/show-detail/);
+      await expect(ui.locator(".search-control")).toHaveAttribute(
+        "aria-busy",
+        "false",
+      );
+      expect(await events(page, "context")).toEqual([]);
+      expect(await events(page, "message")).toEqual([]);
+    } finally {
+      release();
+    }
+  });
+}
+
 test("Linear resolves a native URL to a different team and leaves malformed or denied input intact", async ({
   page,
 }) => {
@@ -305,3 +381,92 @@ test("Linear resolves a native URL to a different team and leaves malformed or d
   expect(await events(page, "context")).toEqual([]);
   expect(await events(page, "message")).toEqual([]);
 });
+
+for (const navigation of ["select", "back"] as const) {
+  test(`Linear ${navigation} navigation supersedes a pending URL lookup`, async ({
+    page,
+  }) => {
+    const ui = frame(page);
+    await choose(ui, "Issue source", "linear");
+    await expect(
+      ui.getByRole("heading", {
+        name: "Keep Linear workflow states intact",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const title = "Share a Linear issue with the Codex chat";
+    const row = ui.locator(".issue-row").filter({ hasText: title });
+    if (navigation === "back") await row.click();
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    let completed = false;
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as Input;
+      if (input.name !== "linear_resolve_issue") return route.continue();
+      const response = await route.fetch();
+      held = true;
+      await pending;
+      await route.fulfill({ response });
+      completed = true;
+    });
+    const issueReads = async () =>
+      ((await events(page, "tool")) as Input[]).filter(
+        (call) =>
+          call.name === "linear_get_issue" &&
+          call.arguments.issueId === "fixture-linear-42",
+      ).length;
+    try {
+      const before = await issueReads();
+      const search = ui.getByRole("textbox", {
+        name: "Search Linear Issues",
+        exact: true,
+      });
+      await search.fill("https://linear.app/fixture/issue/YU-42");
+      await search.press("Enter");
+      await expect.poll(() => held).toBe(true);
+      if (navigation === "select") {
+        await row.click();
+        await expect(
+          ui.getByRole("heading", { name: title, exact: true }),
+        ).toBeVisible();
+      } else {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await ui
+          .getByRole("button", { name: "Back to Linear list", exact: true })
+          .click();
+        await expect(ui.locator(".workspace")).not.toHaveClass(/show-detail/);
+      }
+      release();
+      await expect.poll(() => completed).toBe(true);
+      await ui
+        .locator("body")
+        .evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              ),
+            ),
+        );
+      await expect(row).toHaveAttribute("aria-current", "true");
+      if (navigation === "select")
+        await expect(
+          ui.getByRole("heading", { name: title, exact: true }),
+        ).toBeVisible();
+      else
+        await expect(ui.locator(".workspace")).not.toHaveClass(/show-detail/);
+      await expect(ui.locator(".search-control")).toHaveAttribute(
+        "aria-busy",
+        "false",
+      );
+      expect(await issueReads()).toBe(before);
+      expect(await events(page, "context")).toEqual([]);
+      expect(await events(page, "message")).toEqual([]);
+    } finally {
+      release();
+    }
+  });
+}

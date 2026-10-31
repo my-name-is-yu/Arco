@@ -327,37 +327,77 @@ describe("Linear PKCE and local authorization", () => {
       expect(http).toHaveBeenCalledTimes(1);
     },
   );
-  it("does not save an in-flight callback credential after disconnect cancels it", async () => {
-    const store = memoryStore();
-    let releaseExchange!: () => void;
-    let exchangeStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      exchangeStarted = resolve;
-    });
-    const held = new Promise<void>((resolve) => {
-      releaseExchange = resolve;
+  it("rejects delayed authorization after close while allowing an existing grant to refresh", async () => {
+    const store = memoryStore({
+      clientId: "client",
+      accessToken: "fake-expired-access",
+      refreshToken: "fake-refresh",
+      expiresAt: 0,
+      scopes: ["read", "write"],
     });
     const auth = createLinearAuth({
       store,
       directory: await directory(),
-      fetch: vi.fn<typeof fetch>(async () => {
-        exchangeStarted();
-        await held;
-        return response();
-      }),
+      fetch: vi.fn<typeof fetch>(async () => response()),
     });
     authorizations.push(auth);
-    const uri = await callbackUri();
-    const begin = await auth.begin("cancelled", "client", uri);
-    const state = new URL(begin.authorizationUrl).searchParams.get("state");
-    const callback = fetch(`${uri}?code=fake-code&state=${state}`);
-    await started;
-    const disconnected = auth.disconnect("cancelled");
-    releaseExchange();
-    expect((await callback).status).toBe(400);
-    await disconnected;
-    expect(store.write).not.toHaveBeenCalled();
-    expect(await store.read("cancelled")).toBeNull();
-    expect(auth.status("cancelled").state).toBe("idle");
+    auth.close();
+    await expect(
+      auth.begin("delayed", "client", await callbackUri()),
+    ).rejects.toMatchObject({ code: "auth" });
+    await expect(auth.accessToken("existing")).resolves.toBe(
+      "fake-access-next",
+    );
+    expect(store.write).toHaveBeenCalledOnce();
   });
+
+  it("settles authorization cancelled while the callback listener is starting", async () => {
+    const auth = createLinearAuth({
+      store: memoryStore(),
+      directory: await directory(),
+    });
+    authorizations.push(auth);
+    const starting = auth.begin("starting", "client", await callbackUri());
+    auth.close();
+    await expect(starting).rejects.toMatchObject({ code: "auth" });
+  });
+
+  it.each(["disconnect", "close"] as const)(
+    "does not save an in-flight callback credential after %s cancels it",
+    async (action) => {
+      const store = memoryStore();
+      let releaseExchange!: () => void;
+      let exchangeStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        exchangeStarted = resolve;
+      });
+      const held = new Promise<void>((resolve) => {
+        releaseExchange = resolve;
+      });
+      const auth = createLinearAuth({
+        store,
+        directory: await directory(),
+        fetch: vi.fn<typeof fetch>(async () => {
+          exchangeStarted();
+          await held;
+          return response();
+        }),
+      });
+      authorizations.push(auth);
+      const uri = await callbackUri();
+      const begin = await auth.begin("cancelled", "client", uri);
+      const state = new URL(begin.authorizationUrl).searchParams.get("state");
+      const callback = fetch(`${uri}?code=fake-code&state=${state}`);
+      await started;
+      const cancelled =
+        action === "disconnect" ? auth.disconnect("cancelled") : auth.close();
+      releaseExchange();
+      expect((await callback).status).toBe(400);
+      await cancelled;
+      expect(store.write).not.toHaveBeenCalled();
+      expect(await store.read("cancelled")).toBeNull();
+      if (action === "disconnect")
+        expect(auth.status("cancelled").state).toBe("idle");
+    },
+  );
 });

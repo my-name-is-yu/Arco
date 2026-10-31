@@ -1204,49 +1204,81 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].operation).toBe("ArcoLinearIssueSearch");
   });
-  it("shares checked context and metadata within one call and reads back a labeled bulk member once", async () => {
-    const { service, calls } = await source();
-    const result = (await service.call("linear_bulk", {
-      ...scope,
-      requestId: randomUUID(),
-      issueIds: ["issue"],
-      patch: { priority: 1 },
-      addLabels: ["added"],
-    })) as { results: { success: boolean; issue: LinearIssue }[] };
-    expect(result.results[0]).toMatchObject({
-      success: true,
-      issue: { priority: 1 },
-    });
-    expect(result.results[0].issue.labels.map((label) => label.id)).toEqual([
-      "existing",
-      "added",
-    ]);
-    for (const operation of ["team", "issue_comments", "issue_children"])
+  it.each([
+    { name: "labels only", patch: false, labels: true },
+    { name: "properties only", patch: true, labels: false },
+    { name: "properties and labels", patch: true, labels: true },
+  ])(
+    "shares checked context and preserves bulk read order for $name",
+    async ({ patch, labels }) => {
+      const { service, calls } = await source();
+      const issueIds = ["issue", "other"];
+      const add = ["added", "added"];
+      const remove = ["existing", "existing"];
+      const result = (await service.call("linear_bulk", {
+        ...scope,
+        requestId: randomUUID(),
+        issueIds,
+        ...(patch ? { patch: { priority: 1 } } : {}),
+        ...(labels ? { addLabels: add, removeLabels: remove } : {}),
+      })) as { results: { success: boolean; issue: LinearIssue }[] };
+      expect(result.results).toHaveLength(issueIds.length);
+      for (const member of result.results) {
+        expect(member).toMatchObject({
+          success: true,
+          issue: { priority: patch ? 1 : 2 },
+        });
+        expect(member.issue.labels.map((label) => label.id)).toEqual(
+          labels ? ["added"] : ["existing"],
+        );
+      }
+      expect(calls.filter((call) => call.operation === "team")).toHaveLength(1);
+      for (const operation of ["issue_comments", "issue_children"])
+        expect(
+          calls.filter((call) => call.operation === operation),
+        ).toHaveLength(issueIds.length);
+      for (const issueId of issueIds) {
+        const memberCalls = calls.filter(
+          (call) =>
+            call.variables.id === issueId &&
+            ["issue", "updateIssue"].includes(call.operation),
+        );
+        expect(memberCalls.map((call) => call.operation)).toEqual([
+          "issue",
+          "updateIssue",
+          ...(patch && labels ? ["issue", "updateIssue"] : []),
+          "issue",
+        ]);
+      }
       expect(
-        calls.filter((call) => call.operation === operation),
-        operation,
-      ).toHaveLength(1);
-    expect(
-      calls.some((call) =>
-        [
-          "team_projects",
-          "team_states",
-          "team_cycles",
-          "team_members",
-        ].includes(call.operation),
-      ),
-    ).toBe(false);
-    expect(
-      calls.filter((call) => call.operation === "updateIssue"),
-    ).toHaveLength(2);
-    const firstCallTeamReads = calls.filter(
-      (call) => call.operation === "team",
-    ).length;
-    await service.call("linear_get_issue", ref);
-    expect(calls.filter((call) => call.operation === "team")).toHaveLength(
-      firstCallTeamReads + 1,
-    );
-  });
+        calls
+          .filter((call) => call.operation === "updateIssue")
+          .map((call) => call.variables.input),
+      ).toEqual(
+        issueIds.flatMap(() => [
+          ...(patch ? [{ priority: 1 }] : []),
+          ...(labels ? [{ addedLabelIds: add, removedLabelIds: remove }] : []),
+        ]),
+      );
+      expect(
+        calls.some((call) =>
+          [
+            "team_projects",
+            "team_states",
+            "team_cycles",
+            "team_members",
+          ].includes(call.operation),
+        ),
+      ).toBe(false);
+      const firstCallTeamReads = calls.filter(
+        (call) => call.operation === "team",
+      ).length;
+      await service.call("linear_get_issue", ref);
+      expect(calls.filter((call) => call.operation === "team")).toHaveLength(
+        firstCallTeamReads + 1,
+      );
+    },
+  );
   it("rejects GraphQL partial errors and reports an intra-issue bulk partial save", async () => {
     const { service, issue, controls } = await source();
     controls.partialError = true;

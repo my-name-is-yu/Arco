@@ -18,8 +18,7 @@ import {
   pageContinuationError,
   requirePageContinuation,
 } from "./page-continuation";
-const issueKey = (issue: IssueRef, scope: string) =>
-  ["issue", issue.repo, issue.number, scope] as const;
+import { githubIssueKey } from "./github-issue-key";
 export const commentsKey = (issue: IssueRef, scope: string) =>
   ["github", "comments", issue.repo, issue.number, scope] as const;
 export const commentPostsKey = (issue: IssueRef, scope: string) =>
@@ -66,7 +65,7 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
     structuralSharing: (previous, incoming) => {
       const pages = incoming as InfiniteData<CommentPage, number>;
       const current = client.getQueryData<IssueDetail>(
-        issueKey(issue, authScope),
+        githubIssueKey(issue, authScope),
       );
       if (!current) return replaceEqualDeep(previous, pages);
       // A continuation can finish after a newer detail refresh. Its captured
@@ -86,7 +85,8 @@ export function useGitHubComments(host: ArcoHost, issue: IssueDetail) {
       // continuation pages need additional provider reads during refresh.
       if (pageParam === 1) {
         const page = firstCommentPage(
-          client.getQueryData<IssueDetail>(issueKey(issue, authScope)) ?? issue,
+          client.getQueryData<IssueDetail>(githubIssueKey(issue, authScope)) ??
+            issue,
         );
         return requirePageContinuation(page, page.nextPage, "GitHub comments");
       }

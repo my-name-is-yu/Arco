@@ -134,6 +134,74 @@ describe("UI draft revisions across independent views", () => {
     expect(server.writes()).toBe(1);
     expect(server.reads()).toBe(2);
   });
+  it.each([
+    { cachedRevision: 0, readback: "missing" },
+    { cachedRevision: 1, readback: "missing" },
+    { cachedRevision: 0, readback: "unavailable" },
+  ])(
+    "preserves the deletion error with cached revision $cachedRevision and $readback readback",
+    async ({ cachedRevision, readback }) => {
+      const failure = new Error("Deletion could not be confirmed.");
+      let reads = 0;
+      let deletes = 0;
+      const host: Pick<ArcoHost, "call"> = {
+        async call<T>(name: string): Promise<T> {
+          if (name === "arco_read_draft") {
+            reads++;
+            if (reads > 1 && readback === "unavailable")
+              throw new Error("Readback is unavailable.");
+            return {
+              revision: reads === 1 ? cachedRevision : 0,
+              draft:
+                reads === 1 && cachedRevision > 0
+                  ? draft("Cached input")
+                  : null,
+            } as T;
+          }
+          deletes++;
+          throw failure;
+        },
+      };
+      await expect(createLocalDrafts(host).remove(key)).rejects.toBe(failure);
+      expect(deletes).toBe(1);
+    },
+  );
+
+  it("retains another view's input when deletion readback finds a newer draft", async () => {
+    const server = endpoint();
+    const local = createLocalDrafts(server.host);
+    await local.save(key, draft("Original input"));
+    const call = server.host.call;
+    const other = draft("Another view's new input");
+    let deletes = 0;
+    server.host.call = async <T>(
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<T> => {
+      const result = await call<T>(name, args);
+      if (name === "arco_delete_draft") {
+        deletes++;
+        await call("arco_write_draft", {
+          key,
+          expectedRevision: 2,
+          draft: other,
+        });
+        throw new Error("The deletion acknowledgement was lost.");
+      }
+      return result;
+    };
+    await expect(local.remove(key)).rejects.toMatchObject({
+      remote: { revision: 3, draft: other },
+    });
+    await expect(local.remove(key)).rejects.toBeInstanceOf(LocalDraftConflict);
+    expect(deletes).toBe(1);
+    expect(server.record()).toEqual({ revision: 3, draft: other });
+    await expect(local.resolve(key, "use-saved")).resolves.toEqual({
+      revision: 3,
+      draft: other,
+    });
+  });
+
   it("serializes rapid input snapshots and saves the newest text", async () => {
     const server = endpoint();
     const local = createLocalDrafts(server.host);

@@ -36,7 +36,7 @@ export function registerStateTools(
           title: name,
           description:
             "Read or explicitly save Arco settings, unsent drafts, or annotation positions on this device. Contains no source credentials.",
-          inputSchema: stateToolSchemas[name].shape,
+          inputSchema: stateToolSchemas[name],
           annotations: {
             readOnlyHint: [
               "arco_get_settings",
