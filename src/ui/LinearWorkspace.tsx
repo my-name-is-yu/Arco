@@ -237,11 +237,12 @@ export function LinearWorkspace({
     refetchInterval: authPending && !disconnecting ? 2000 : false,
   });
   useEffect(() => {
-    if (!disconnecting && auth.data?.state === "connected") {
+    if (disconnecting || !authPending) return;
+    if (auth.data?.state === "connected") {
       setAuthPending(false);
       void cache.invalidateQueries({ queryKey: ["linear-connection"] });
-    }
-  }, [auth.data?.state, cache, disconnecting, setAuthPending]);
+    } else if (auth.data?.state === "failed") setAuthPending(false);
+  }, [auth.data?.state, authPending, cache, disconnecting, setAuthPending]);
   const scopes = useQuery({
     queryKey: [
       "linear-scopes",
@@ -907,6 +908,11 @@ export function LinearWorkspace({
                     },
                   );
                   await host.openLink(result.authorizationUrl);
+                  await cache.cancelQueries({ queryKey: authKey, exact: true });
+                  cache.setQueryData(authKey, {
+                    state: "pending",
+                    message: "",
+                  });
                   setAuthPending(true);
                 })
               }
