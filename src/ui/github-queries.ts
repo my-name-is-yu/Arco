@@ -5,6 +5,7 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import type {
   ArcoHost,
   AccountIssuePage,
@@ -43,15 +44,17 @@ export function useGitHubIssueList(
     sort,
     order,
     enabled,
+    visible,
   }: Pick<ListInput, "repo" | "query" | "state" | "sort" | "order"> & {
     connection: Connection | undefined;
     accountView: AccountIssuesInput["filter"];
     enabled: boolean;
+    visible: boolean;
   },
 ) {
   const authScope = useGitHubAuthScope();
   const call = useGitHubCall(host);
-  return useInfiniteQuery<
+  const result = useInfiniteQuery<
     IssuePage,
     Error,
     InfiniteData<IssuePage>,
@@ -73,11 +76,15 @@ export function useGitHubIssueList(
     ],
     // Bound automatic refresh to one page. Explicit refresh updates every page.
     refetchInterval: (query) =>
-      query.state.data?.pages.length === 1 && query.state.status !== "error"
+      visible &&
+      query.state.data?.pages.length === 1 &&
+      query.state.status !== "error"
         ? 30_000
         : false,
     refetchOnWindowFocus: (query) =>
-      query.state.data?.pages.length === 1 && query.state.status !== "error",
+      visible &&
+      query.state.data?.pages.length === 1 &&
+      query.state.status !== "error",
     queryFn: async ({ pageParam, signal }) => {
       const result = await (repo
         ? call<IssuePage>(
@@ -106,12 +113,23 @@ export function useGitHubIssueList(
       };
     },
   });
+  const wasVisible = useRef(visible);
+  const { isStale, isError, refetch } = result;
+  const pageCount = result.data?.pages.length;
+  useEffect(() => {
+    const returning = visible && !wasVisible.current;
+    wasVisible.current = visible;
+    if (returning && enabled && isStale && !isError && pageCount === 1)
+      void refetch({ cancelRefetch: false });
+  }, [visible, enabled, isStale, isError, pageCount, refetch]);
+  return result;
 }
 
 export function useGitHubIssue(
   host: ArcoHost,
   issue: IssueRef | null,
   enabled: boolean,
+  visible: boolean,
 ) {
   const client = useQueryClient();
   const authScope = useGitHubAuthScope();
@@ -119,9 +137,10 @@ export function useGitHubIssue(
   const key = issue
     ? githubIssueKey(issue, authScope)
     : ["issue", "none", authScope];
-  return useQuery({
+  const result = useQuery({
     queryKey: key,
-    refetchInterval: 30_000,
+    refetchInterval: visible ? 30_000 : false,
+    refetchOnWindowFocus: visible,
     queryFn: ({ signal }) =>
       call<IssueDetail>(
         "arco_get_issue",
@@ -133,6 +152,14 @@ export function useGitHubIssue(
       ),
     enabled,
   });
+  const wasVisible = useRef(visible);
+  const { isStale, refetch } = result;
+  useEffect(() => {
+    const returning = visible && !wasVisible.current;
+    wasVisible.current = visible;
+    if (returning && enabled && isStale) void refetch({ cancelRefetch: false });
+  }, [visible, enabled, isStale, refetch]);
+  return result;
 }
 
 export function useGitHubMetadata(

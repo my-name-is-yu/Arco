@@ -76,6 +76,136 @@ for (const kind of ["issue", "project"] as const) {
   });
 }
 
+for (const pendingRead of ["list", "issue"] as const) {
+  test(`a GitHub save acknowledged inline survives an older hidden ${pendingRead} read and refreshes the reopened list`, async ({
+    page,
+  }) => {
+    let releaseReads!: () => void;
+    const pendingReads = new Promise<void>((resolve) => {
+      releaseReads = resolve;
+    });
+    let releaseWrite!: () => void;
+    const pendingWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    let releaseLaterIssueReads!: () => void;
+    const laterIssueReads = new Promise<void>((resolve) => {
+      releaseLaterIssueReads = resolve;
+    });
+    let holdReads = false;
+    let heldRead = false;
+    let oldReadReady = false;
+    let openListReads = 0;
+    let writeAccepted = false;
+    let verifyAcceptedCache = false;
+    const writes: Record<string, unknown>[] = [];
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as {
+        name: string;
+        arguments: { number?: number; state?: string };
+      };
+      const list = input.name === "arco_list_issues";
+      const issue =
+        input.name === "arco_get_issue" && input.arguments.number === 43;
+      if (list && input.arguments.state === "open") openListReads += 1;
+      if (holdReads && !heldRead && (pendingRead === "list" ? list : issue)) {
+        heldRead = true;
+        const response = await route.fetch();
+        oldReadReady = true;
+        await pendingReads;
+        return route.fulfill({ response });
+      }
+      if (input.name === "arco_update_issue") {
+        writes.push(input.arguments);
+        const response = await route.fetch();
+        const result = await response.json();
+        expect(result.isError).toBeUndefined();
+        expect(result.structuredContent).toMatchObject({
+          number: 43,
+          state: "closed",
+          stateReason: "completed",
+        });
+        writeAccepted = true;
+        await pendingWrite;
+        return route.fulfill({ response, json: result });
+      }
+      if (issue && verifyAcceptedCache) await laterIssueReads;
+      return route.continue();
+    });
+    try {
+      await page.goto(
+        "/?entry=project&shared=github&sharedRepo=yu/Arco&sharedNumber=42",
+      );
+      const ui = page.frameLocator("#arco");
+      const title = "Separate shared context from sending a request";
+      const row = ui.locator(".issue-row").filter({ hasText: title });
+      await row.click();
+      await expect(
+        ui.getByRole("heading", { name: title, exact: true }),
+      ).toBeVisible();
+      holdReads = true;
+      await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect.poll(() => oldReadReady).toBe(true);
+      const beforeSaveListReads = openListReads;
+      await choose(ui, "Change issue state", "completed");
+      await expect.poll(() => writeAccepted).toBe(true);
+      await page
+        .getByRole("button", { name: "Mock inline", exact: true })
+        .click();
+      const card = ui.locator(".inline-mode");
+      await expect(
+        card.getByRole("heading", {
+          name: "Preserve issue selection and scroll position",
+          exact: true,
+        }),
+      ).toBeVisible();
+      const acknowledged = page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/tool") &&
+          response.request().postDataJSON().name === "arco_update_issue",
+      );
+      releaseWrite();
+      await acknowledged;
+      await ui
+        .locator("body")
+        .evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              ),
+            ),
+        );
+      releaseReads();
+      await expect(
+        selectControl(card, "Change issue state").getByRole("button"),
+      ).not.toHaveAttribute("aria-disabled", "true");
+      // A new source read must not hide a stale overwrite of the accepted cache.
+      verifyAcceptedCache = true;
+      await page
+        .getByRole("button", { name: "Mock fullscreen", exact: true })
+        .click();
+      await expect(row).toHaveCount(0);
+      expect(openListReads).toBeGreaterThan(beforeSaveListReads);
+      await expect(selectControl(ui, "Change issue state")).toHaveAttribute(
+        "data-value",
+        "completed",
+      );
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toMatchObject({
+        repo: "yu/Arco",
+        number: 43,
+        patch: { state: "closed", stateReason: "completed" },
+      });
+      await expect(page.locator("#harness-error")).toBeEmpty();
+    } finally {
+      releaseWrite();
+      releaseReads();
+      releaseLaterIssueReads();
+    }
+  });
+}
+
 test("Linear label definitions reset after confirmed create and delete while retaining failed drafts and successful edits", async ({
   page,
 }) => {
