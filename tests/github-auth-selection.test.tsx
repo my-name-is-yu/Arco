@@ -6,6 +6,7 @@ import type {
 } from "../src/shared/contracts";
 import { useSharedAnnotations } from "../src/ui/useSharedAnnotations";
 import type { Annotation } from "../src/ui/selection-context";
+import type { SelectionAnchor } from "../src/ui/selection-anchor";
 
 const context: SelectionAnnotationContext = {
   number: 1,
@@ -46,8 +47,107 @@ function controller(
   }
   renderToStaticMarkup(<Probe />);
   if (!result) throw new Error("The annotation hook was not rendered.");
-  return { controller: result, host, shareAnnotations, write };
+  return {
+    controller: result,
+    host,
+    shareAnnotations,
+    write,
+    updateContext: (
+      next: SelectionAnnotationContext[],
+      id: string | null = snapshot,
+    ) => {
+      shared = next;
+      snapshot = id;
+    },
+  };
 }
+
+describe("annotation synchronization after a cancelled share", () => {
+  it.each([100, 500])(
+    "reconciles %i annotations with linear number reads",
+    async (size) => {
+      let reads = 0;
+      const existing = Array.from({ length: size }, (_, index) => ({
+        ...context,
+        get number() {
+          reads += 1;
+          return index + 1;
+        },
+      }));
+      const fixture = controller(existing);
+      const updated = existing
+        .map((item) => ({
+          ...item,
+          selection: { ...item.selection, comment: "Updated host comment" },
+        }))
+        .reverse();
+      fixture.updateContext(updated);
+      reads = 0;
+      await expect(fixture.controller.share([], () => false)).resolves.toBe(
+        false,
+      );
+      expect(reads).toBeLessThanOrEqual(size * 4);
+      expect(
+        fixture.controller.current.current.map((item) => item.context),
+      ).toEqual(updated);
+    },
+  );
+
+  it("retains the first matching target across comment edits and drops stale anchors", async () => {
+    const matching = { ...context, number: 7 };
+    const changed = { ...context, number: 9 };
+    const firstTarget = { sourceText: context.selection.text };
+    const laterTarget = { sourceText: context.selection.text };
+    const fixture = controller();
+    fixture.controller.commit([
+      {
+        context: {
+          ...matching,
+          selection: { text: "Other text", origin: "body" },
+        },
+        target: laterTarget,
+      },
+      { context: matching, target: firstTarget },
+      { context: matching, target: laterTarget },
+      { context: { ...context, number: 8 }, target: laterTarget },
+      { context: changed, target: laterTarget },
+    ]);
+    const anchor: SelectionAnchor = {
+      issueKey: "owner/private#42",
+      rootKind: ".detail-pane",
+      sourceText: context.selection.text,
+      target: {
+        kind: "range",
+        start: { path: [], offset: 0 },
+        end: { path: [], offset: 1 },
+      },
+    };
+    for (const number of [7, 8, 9])
+      fixture.controller.anchors.current.set(number, anchor);
+    const updated = [
+      {
+        ...matching,
+        selection: { ...matching.selection, comment: "Changed note only" },
+      },
+      {
+        ...changed,
+        selection: { ...changed.selection, commentId: "different-comment" },
+      },
+    ];
+    fixture.updateContext(updated);
+    await fixture.controller.share([], () => false);
+    expect(fixture.controller.current.current[0].target).toBe(firstTarget);
+    expect(fixture.controller.current.current[1].target).toBeNull();
+    expect([...fixture.controller.anchors.current]).toEqual([[7, anchor]]);
+
+    fixture.updateContext(updated, crypto.randomUUID());
+    await fixture.controller.share([], () => false);
+    expect(
+      fixture.controller.current.current.every((item) => item.target === null),
+    ).toBe(true);
+    expect(fixture.controller.anchors.current.size).toBe(0);
+  });
+});
 
 describe("new GitHub selection sharing authentication", () => {
   it("rechecks the candidate generation after the snapshot write and leaves existing attachments unchanged", async () => {
