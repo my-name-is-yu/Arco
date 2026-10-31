@@ -45,10 +45,13 @@ export type Connection<T> = {
 
 export async function all<T>(value: PromiseLike<Connection<T>>): Promise<T[]> {
   const connection = await value;
+  const seen = new Set<string | null | undefined>();
   while (connection.pageInfo.hasNextPage) {
     const before = connection.pageInfo.endCursor;
+    seen.add(before);
     await connection.fetchNext();
-    if (connection.pageInfo.endCursor === before)
+    const next = connection.pageInfo.endCursor;
+    if (next === before || (connection.pageInfo.hasNextPage && seen.has(next)))
       throw new LinearServiceError(
         "Linear pagination did not advance. Refresh and try again.",
         "invalid-response",
