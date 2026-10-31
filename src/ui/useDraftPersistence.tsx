@@ -95,6 +95,7 @@ export function draftController(host: ArcoHost) {
           if (recovered.draft && !sameDraft(recovered.draft, draft))
             throw new LocalDraftConflict(recovered);
         }
+        if (versions.get(id) !== version) return;
         await store.save(key, draft);
         failedLoads.delete(id);
         if (versions.get(id) === version) {

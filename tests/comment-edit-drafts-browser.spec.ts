@@ -194,6 +194,53 @@ function savedDraft(
   };
 }
 
+test("a submitted comment draft stays removed after a delayed initial read and new edits still save", async ({
+  page,
+}) => {
+  const state = storage();
+  let release!: () => void;
+  state.blockedRead = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.clock.install();
+  await intercept(page, "github", state);
+  const comment = await commentEditor(page, "github", state);
+  const reading = page.waitForRequest((request) => {
+    if (!request.url().endsWith("/tool")) return false;
+    const input = request.postDataJSON() as ToolInput;
+    return (
+      input.name === "arco_read_draft" &&
+      input.arguments.key?.issue.includes(":comment:") === true
+    );
+  });
+  try {
+    await comment.open();
+    await reading;
+    const submitted = "Submitted while the initial draft read was pending";
+    await comment.editor.fill(submitted);
+    await page.clock.fastForward(1000);
+    await comment.save();
+    await expect(comment.editor).toHaveCount(0);
+    expect(state.providerWrites.at(-1)?.arguments.body).toBe(submitted);
+    release();
+    await expect.poll(() => state.writes.length).toBeGreaterThanOrEqual(1);
+
+    await comment.open();
+    await comment.editor.fill("A genuinely new unsent edit");
+    await page.clock.fastForward(1000);
+    await expect
+      .poll(() => state.record.draft?.comment)
+      .toBe("A genuinely new unsent edit");
+    expect(state.writes.map((input) => input.name)).toEqual([
+      "arco_delete_draft",
+      "arco_write_draft",
+    ]);
+    expect(state.record.revision).toBe(2);
+  } finally {
+    release();
+  }
+});
+
 for (const source of ["github", "linear"] as const) {
   test(`${source} comment input and its source revision survive a delayed initial draft read`, async ({
     page,
