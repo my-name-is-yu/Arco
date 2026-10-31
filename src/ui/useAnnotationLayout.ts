@@ -89,6 +89,15 @@ export function useAnnotationLayout(
         );
         if (cancelled || current.current !== original) return;
         if (next.some((item, index) => item !== original[index])) commit(next);
+        // Only the currently edited annotation renders a comment editor.
+        const editor = next.some((item) => item.target)
+          ? document.querySelector<HTMLElement>(
+              "[data-arco-annotation] .selection-comment",
+            )
+          : null;
+        const editorNumber = editor?.closest<HTMLElement>(
+          "[data-arco-annotation]",
+        )?.dataset.arcoAnnotation;
         const badgeSlots = new Map<string, number>();
         const badgeOffset = (rect: DOMRect) => {
           const key = `${Math.round(rect.right)}:${Math.round(rect.top)}`;
@@ -99,13 +108,12 @@ export function useAnnotationLayout(
         const measured = new Map<number, AnnotationLayout>();
         for (const { context, target } of next) {
           if (!target) continue;
-          const editor = document.querySelector<HTMLElement>(
-            `[data-arco-annotation="${context.number}"] .selection-comment`,
-          );
           const layout = measureSelectionAnnotation(
             target,
             badgeOffset,
-            editor?.offsetHeight,
+            editorNumber === String(context.number)
+              ? editor?.offsetHeight
+              : undefined,
           );
           if (layout) measured.set(context.number, layout);
         }
