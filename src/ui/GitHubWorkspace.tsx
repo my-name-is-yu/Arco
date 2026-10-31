@@ -489,11 +489,19 @@ export function GitHubWorkspace({
     activeKey: activeRef ? refKey(activeRef) : null,
     keyForRow: refKey,
     onSelect: (issue) => {
+      urlRequest.current += 1;
+      setUrlBusy(false);
       setSelected({ repo: issue.repo, number: issue.number });
       setShowDetail(true);
     },
-    onClose: () => setShowDetail(false),
+    onClose: () => {
+      urlRequest.current += 1;
+      setUrlBusy(false);
+      setShowDetail(false);
+    },
     onGoToList: () => {
+      urlRequest.current += 1;
+      setUrlBusy(false);
       if (mode === "inline") openRetainedDetails();
       setShowDetail(false);
     },
