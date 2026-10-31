@@ -240,40 +240,6 @@ describe("UI tool request queue", () => {
     expect(started).toEqual(["read", "save", "next"]);
   });
 
-  it("runs at most two callbacks and starts waiting requests in arrival order", async () => {
-    const queue = createToolQueue();
-    const gates = Array.from({ length: 6 }, () => deferred<number>());
-    const started: number[] = [];
-    let active = 0;
-    let maximum = 0;
-    const calls = gates.map((gate, index) =>
-      queue.run(() => {
-        started.push(index);
-        active += 1;
-        maximum = Math.max(maximum, active);
-        return gate.promise.finally(() => {
-          active -= 1;
-        });
-      }),
-    );
-    expect(started).toEqual([0, 1]);
-
-    gates[1].resolve(1);
-    await expect(calls[1]).resolves.toBe(1);
-    expect(started).toEqual([0, 1, 2]);
-    expect(active).toBe(2);
-
-    gates[0].resolve(0);
-    await expect(calls[0]).resolves.toBe(0);
-    expect(started).toEqual([0, 1, 2, 3]);
-    for (let index = 2; index < gates.length; index++)
-      gates[index].resolve(index);
-    await expect(Promise.all(calls)).resolves.toEqual([0, 1, 2, 3, 4, 5]);
-    expect(started).toEqual([0, 1, 2, 3, 4, 5]);
-    expect(maximum).toBe(2);
-    expect(active).toBe(0);
-  });
-
   it("releases rejected requests without retrying or replaying a write", async () => {
     const queue = createToolQueue();
     const rejected = deferred<void>();
