@@ -327,7 +327,7 @@ export function createLinearOperation(options: {
     scope: LinearScope,
     fields: readonly (keyof LinearMetadata)[],
   ): Promise<LinearMetadata> {
-    const { organization, team } = await context(scope);
+    const { client, organization, team } = await context(scope);
     const wants = (field: keyof LinearMetadata) => fields.includes(field);
     const chain = [team];
     while (wants("states") || wants("labels") || wants("estimateValues")) {
@@ -356,17 +356,43 @@ export function createLinearOperation(options: {
           : [],
         wants("cycles") ? all(team.cycles({ first: 100 })) : [],
       ]);
-    const milestones = await Promise.all(
-      (wants("milestones") ? projects : []).map(async (project) =>
-        (await all(project.projectMilestones({ first: 100 }))).map(
-          (milestone) => ({
-            id: milestone.id,
-            name: milestone.name,
-            projectId: project.id,
-          }),
-        ),
-      ),
-    );
+    let milestones: LinearMetadata["milestones"] = [];
+    if (wants("milestones") && projects.length) {
+      const groups = new Map<string, LinearMetadata["milestones"]>(
+        projects.map((project) => [project.id, []]),
+      );
+      const filter = { project: { id: { in: [...groups.keys()] } } };
+      const cursors = new Set<string>();
+      let cursor: string | undefined;
+      while (true) {
+        // Read fresh pages instead of copying the SDK's accumulated nodes.
+        const page = await client.projectMilestones({
+          first: 100,
+          filter,
+          ...(cursor ? { after: cursor } : {}),
+        });
+        for (const milestone of page.nodes) {
+          const projectId = milestone.projectId;
+          const group = projectId ? groups.get(projectId) : undefined;
+          if (!projectId || !group)
+            throw new LinearServiceError(
+              "Linear returned a milestone outside the selected projects.",
+              "invalid-response",
+            );
+          group.push({ id: milestone.id, name: milestone.name, projectId });
+        }
+        if (!page.pageInfo.hasNextPage) break;
+        const next = page.pageInfo.endCursor;
+        if (!page.nodes.length || !next || cursors.has(next))
+          throw new LinearServiceError(
+            "Linear pagination did not advance. Refresh and try again.",
+            "invalid-response",
+          );
+        cursors.add(next);
+        cursor = next;
+      }
+      milestones = projects.flatMap((project) => groups.get(project.id)!);
+    }
     return {
       states: states.map((item) => ({
         id: item.id,
@@ -388,7 +414,7 @@ export function createLinearOperation(options: {
         id: item.id,
         name: item.name ?? `Cycle ${item.number}`,
       })),
-      milestones: milestones.flat(),
+      milestones,
       estimateValues: wants("estimateValues")
         ? estimateValues(estimateTeam)
         : [],
