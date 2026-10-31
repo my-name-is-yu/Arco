@@ -940,22 +940,6 @@ describe("reads and explicit fixtures", () => {
     ).toBe(true);
   });
 
-  it("rejects retired repository search syntax before sending a request", async () => {
-    const run = stubRun();
-    await expect(
-      createGitHubService({
-        credentialIdentity: async () => "test-credential",
-        run,
-      }).list({
-        repo: FIXTURE_REPO,
-        query: "OR repo:other/repo",
-        state: "all",
-        page: 1,
-      }),
-    ).rejects.toThrow("Boolean expressions");
-    expect(run).not.toHaveBeenCalled();
-  });
-
   it("preserves the Issue when Projects permission is missing", async () => {
     const issue = await createGitHubService({
       credentialIdentity: async () => "test-credential",

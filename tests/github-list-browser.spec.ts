@@ -27,6 +27,7 @@ async function listFixture(
   result: (call: ListCall) => ListResult | Promise<ListResult>,
 ) {
   const calls: ListCall[] = [];
+  let fixtureMode = false;
   await page.route("**/tool", async (route) => {
     const input = route.request().postDataJSON() as {
       name: string;
@@ -49,9 +50,11 @@ async function listFixture(
       // The launch result triggers a coalesced data notification after 100ms.
       // Finish startup before measuring user-driven pagination requests.
       await page.waitForTimeout(150);
+      fixtureMode = true;
       return route.fulfill({ response });
     }
     if (input.name !== "arco_account_issues") return route.continue();
+    expect(fixtureMode).toBe(true);
     const call = {
       page: input.arguments.page ?? 1,
       filter: input.arguments.filter ?? "assigned",
@@ -88,6 +91,18 @@ async function open(page: Page) {
 test("a PR-only first page continues automatically in the same account scope", async ({
   page,
 }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  await page.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+      document.documentElement.dataset.accountCspViolations = JSON.stringify([
+        ...JSON.parse(
+          document.documentElement.dataset.accountCspViolations ?? "[]",
+        ),
+        event.effectiveDirective,
+      ]);
+    });
+  });
   const calls = await listFixture(page, ({ page: number }) => ({
     issues: number === 1 ? [] : [issue()],
     hasMore: number === 1,
@@ -97,11 +112,31 @@ test("a PR-only first page continues automatically in the same account scope", a
   await expect(
     app(page).getByRole("heading", { name: firstTitle, exact: true }),
   ).toBeVisible();
+  await expect(
+    app(page).getByRole("button", {
+      name: "View issues created by me",
+      exact: true,
+    }),
+  ).toBeHidden();
+  await expect(app(page).locator(".issue-kicker")).toContainText("yu/Arco #42");
   expect(calls.map((call) => call.page)).toEqual([1, 2]);
   expect(calls.every((call) => call.filter === "assigned")).toBe(true);
   await expect(
     app(page).getByRole("button", { name: "Load more" }),
   ).toBeHidden();
+  const violations = await Promise.all(
+    page
+      .frames()
+      .map((frame) =>
+        frame.evaluate(() =>
+          JSON.parse(
+            document.documentElement.dataset.accountCspViolations ?? "[]",
+          ),
+        ),
+      ),
+  );
+  expect(violations.flat()).toEqual([]);
+  expect(browserErrors).toEqual([]);
 });
 
 test("scrolling the list continues past a PR-heavy page and keeps selection and scroll", async ({
