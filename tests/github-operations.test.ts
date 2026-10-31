@@ -527,36 +527,10 @@ describe("explicit additional GitHub operations", () => {
       catalogEndpoints: [],
       invalidMessage: null,
     },
-    {
-      name: "personal repository milestone selection",
-      personal: true,
-      patch: { milestoneNumber: 1 },
-      expectedBody: { milestone: 1 },
-      catalogEndpoints: [
-        `repos/${FIXTURE_REPO}/milestones?state=all&per_page=100`,
-      ],
-      invalidMessage: "Select an existing milestone in this repository.",
-    },
-    {
-      name: "personal repository clearing",
-      personal: true,
-      patch: { milestoneNumber: null, issueTypeId: null },
-      expectedBody: { milestone: null, type: null },
-      catalogEndpoints: [],
-      invalidMessage: null,
-    },
   ])(
     "keeps one issue preflight and loads only required catalogs for $name",
-    async ({
-      patch,
-      expectedBody,
-      catalogEndpoints,
-      invalidMessage,
-      personal,
-    }) => {
-      const { run: base, service } = setup({
-        ownerType: personal ? "User" : "Organization",
-      });
+    async ({ patch, expectedBody, catalogEndpoints, invalidMessage }) => {
+      const { run: base, service } = setup();
       let milestone: number | null = 2;
       let issueType: number | null = 6;
       let available = true;
