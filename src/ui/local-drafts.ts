@@ -134,13 +134,28 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
         entry.loaded = true;
       }
       if (entry.conflict) throw new LocalDraftConflict(entry.conflict);
-      entry.record = readDraftRecord(
-        await host.call("arco_delete_draft", {
-          key: entry.key,
-          expectedRevision: entry.record.revision,
-        }),
-      );
-      return entry.record;
+      const expectedRevision = entry.record.revision;
+      try {
+        entry.record = readDraftRecord(
+          await host.call("arco_delete_draft", {
+            key: entry.key,
+            expectedRevision,
+          }),
+        );
+        return entry.record;
+      } catch (error) {
+        const latest = await read(entry).catch(() => null);
+        // A missing revision-0 record is not a persisted deletion tombstone.
+        if (latest?.draft === null && latest.revision > expectedRevision) {
+          entry.record = latest;
+          return latest;
+        }
+        if (latest && latest.revision > expectedRevision) {
+          entry.conflict = latest;
+          throw new LocalDraftConflict(latest);
+        }
+        throw error;
+      }
     });
   }
   return {
