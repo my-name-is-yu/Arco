@@ -133,7 +133,7 @@ export function classifyMarkdownTemplate(
   const metadata: Record<string, string> = {};
   for (const line of match[1].split(/\r?\n/)) {
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const entry = /^([a-z_]+):\s*(.*?)\s*$/.exec(line);
+    const entry = /^([a-z_]+):/.exec(line);
     if (
       !entry ||
       !["name", "about", "title", "labels", "assignees", "type"].includes(
@@ -142,7 +142,10 @@ export function classifyMarkdownTemplate(
       entry[1] in metadata
     )
       return fallback;
-    const value = templateScalar(entry[2]);
+    const raw = line.slice(entry[0].length).trim();
+    // Keep the single-line rule before decoding quoted escape sequences.
+    if (/[\r\n\u2028\u2029]/.test(raw)) return fallback;
+    const value = templateScalar(raw);
     if (value === undefined) return fallback;
     metadata[entry[1]] = value;
   }
