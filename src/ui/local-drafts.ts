@@ -78,37 +78,38 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
   }
   async function save(key: DraftKey, draft: Draft, onlyIfEmpty = false) {
     const entry = entryFor(key);
-    return queue(entry, async () => {
-      if (!entry.loaded || onlyIfEmpty) {
-        entry.record = await read(entry);
-        entry.loaded = true;
+    return queue(entry, () => saveEntry(entry, draft, onlyIfEmpty));
+  }
+  async function saveEntry(entry: Entry, draft: Draft, onlyIfEmpty = false) {
+    if (!entry.loaded || onlyIfEmpty) {
+      entry.record = await read(entry);
+      entry.loaded = true;
+    }
+    if (entry.conflict) throw new LocalDraftConflict(entry.conflict);
+    if (onlyIfEmpty && entry.record.draft)
+      throw new LocalDraftConflict(entry.record);
+    try {
+      entry.record = readDraftRecord(
+        await host.call("arco_write_draft", {
+          key: entry.key,
+          expectedRevision: entry.record.revision,
+          draft,
+        }),
+      );
+      return entry.record;
+    } catch (error) {
+      // A response can be lost after the atomic write. Read, never replay blindly.
+      const latest = await read(entry).catch(() => null);
+      if (latest && sameDraft(latest.draft, draft)) {
+        entry.record = latest;
+        return latest;
       }
-      if (entry.conflict) throw new LocalDraftConflict(entry.conflict);
-      if (onlyIfEmpty && entry.record.draft)
-        throw new LocalDraftConflict(entry.record);
-      try {
-        entry.record = readDraftRecord(
-          await host.call("arco_write_draft", {
-            key: entry.key,
-            expectedRevision: entry.record.revision,
-            draft,
-          }),
-        );
-        return entry.record;
-      } catch (error) {
-        // A response can be lost after the atomic write. Read, never replay blindly.
-        const latest = await read(entry).catch(() => null);
-        if (latest && sameDraft(latest.draft, draft)) {
-          entry.record = latest;
-          return latest;
-        }
-        if (latest && latest.revision !== entry.record.revision) {
-          entry.conflict = latest;
-          throw new LocalDraftConflict(latest);
-        }
-        throw error;
+      if (latest && latest.revision !== entry.record.revision) {
+        entry.conflict = latest;
+        throw new LocalDraftConflict(latest);
       }
-    });
+      throw error;
+    }
   }
   async function resolve(
     key: DraftKey,
@@ -116,13 +117,14 @@ export function createLocalDrafts(host: Pick<ArcoHost, "call">) {
     draft?: Draft,
   ) {
     const entry = entryFor(key);
-    await entry.tail.catch(() => undefined);
-    entry.record = await read(entry);
-    entry.loaded = true;
-    entry.conflict = null;
-    if (choice === "use-saved") return entry.record;
-    if (!draft) throw new Error("There is no draft to save.");
-    return save(key, draft);
+    return queue(entry, async () => {
+      entry.record = await read(entry);
+      entry.loaded = true;
+      entry.conflict = null;
+      if (choice === "use-saved") return entry.record;
+      if (!draft) throw new Error("There is no draft to save.");
+      return saveEntry(entry, draft);
+    });
   }
   async function remove(key: DraftKey) {
     const entry = entryFor(key);
