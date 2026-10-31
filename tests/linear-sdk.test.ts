@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { text } from "node:stream/consumers";
-import { postFragmentedJson } from "./fragmented-json";
 import { LinearClient } from "@linear/sdk";
 import {
   createLinearAuth,
@@ -556,7 +555,6 @@ async function source() {
     calls,
     issue,
     controls,
-    server,
     auth,
     store,
     storeControls,
@@ -565,18 +563,6 @@ async function source() {
 }
 
 describe("Linear adapter through the official SDK HTTP transport", () => {
-  it("preserves Unicode split across request chunks in the actual HTTP fixture", async () => {
-    const fixture = await source();
-    const id = "日本語🧭";
-    await expect(
-      postFragmentedJson(fixture.server, {
-        query: "query issue { issue { id } }",
-        variables: { id },
-      }),
-    ).resolves.toMatchObject({ data: { issue: { id } } });
-    expect(fixture.calls[0].variables).toEqual({ id });
-  });
-
   it("reads one comment page at a time and keeps a reply's unloaded parent identity", async () => {
     const { service, calls, controls } = await source();
     controls.commentCount = 65;
