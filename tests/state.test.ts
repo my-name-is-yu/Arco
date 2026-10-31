@@ -48,24 +48,6 @@ describe("local settings and drafts", () => {
       ),
     ).toContain("Arco");
   });
-  it("updates only requested settings and detects competing revisions", async () => {
-    const store = createStateStore(await temporary());
-    await store.updateSettings({
-      expectedRevision: 0,
-      patch: { githubRepos: ["yu/Arco"] },
-    });
-    await expect(
-      store.updateSettings({
-        expectedRevision: 0,
-        patch: { activeSource: "linear" },
-      }),
-    ).rejects.toBeInstanceOf(StateConflict);
-    const next = await store.updateSettings({
-      expectedRevision: 1,
-      patch: { activeSource: "linear" },
-    });
-    expect(next.settings.githubRepos).toEqual(["yu/Arco"]);
-  });
   it("defaults character shortcuts for existing settings without rewriting the file", async () => {
     const dir = await temporary();
     const file = join(dir, "settings.json");

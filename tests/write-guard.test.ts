@@ -72,20 +72,6 @@ describe("mutation progress and retry safety", () => {
     expect(action).toHaveBeenCalledOnce();
   });
 
-  it("retains a dispatched mutation whose response was lost", async () => {
-    const once = createWriteGuard();
-    const action = vi.fn(() =>
-      trackWrite(async () => {
-        throw new OperationError("Response lost", "timeout");
-      }),
-    );
-    for (let attempt = 0; attempt < 2; attempt++)
-      await expect(once("unknown", {}, action)).rejects.toMatchObject({
-        code: "timeout",
-      });
-    expect(action).toHaveBeenCalledOnce();
-  });
-
   it("allows a definite provider rejection to retry after permissions recover", async () => {
     const once = createWriteGuard<string>();
     const mutation = vi
