@@ -299,6 +299,51 @@ describe("Linear source contracts", () => {
       }).supported,
     ).toBe(false);
   });
+  it.each([
+    { content: "[[]]", supported: true },
+    { content: "[[[]]", supported: false },
+    { content: "[[a]b]]", supported: true },
+    { content: "[[a][[b]]", supported: false },
+    { content: "[[\n🧭]]", supported: false },
+    { content: "{{ name }}", supported: false },
+    { content: "<INPUT/>", supported: false },
+    { content: "<SeLeCt>", supported: false },
+    { content: "<input_field> <selection>", supported: true },
+    { content: "<inputé>", supported: false },
+  ])(
+    "keeps template marker detection for $content",
+    ({ content, supported }) => {
+      expect(
+        describeTemplate({
+          id: "marker",
+          name: "Marker",
+          description: null,
+          type: "issue",
+          templateData: {},
+          content,
+        }).supported,
+      ).toBe(supported);
+    },
+  );
+  it("keeps a long literal template body and its defaults unchanged", () => {
+    const content = "[".repeat(64_000);
+    expect(
+      describeTemplate({
+        id: "literal",
+        name: "Literal",
+        description: null,
+        type: "issue",
+        templateData: { title: "Source title", priority: 2 },
+        content,
+      }),
+    ).toEqual({
+      id: "literal",
+      name: "Literal",
+      description: null,
+      supported: true,
+      defaults: { title: "Source title", priority: 2, body: content },
+    });
+  });
   it("keeps source template defaults unless the description is explicitly cleared", async () => {
     const service = createLinearFixtureService();
     const inherited = (await service.call("linear_create_issue", {
