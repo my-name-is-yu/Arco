@@ -4,6 +4,7 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import type { ArcoHost } from "../shared/contracts";
 import type {
   LinearIssue,
@@ -41,7 +42,7 @@ export function useLinearIssueList(
     autoRefresh: boolean;
   },
 ) {
-  return useInfiniteQuery<
+  const result = useInfiniteQuery<
     LinearPage,
     Error,
     InfiniteData<LinearPage>,
@@ -85,6 +86,16 @@ export function useLinearIssueList(
     },
     enabled,
   });
+  const wasRefreshing = useRef(autoRefresh);
+  const { isStale, isError, refetch } = result;
+  const pageCount = result.data?.pages.length;
+  useEffect(() => {
+    const returning = autoRefresh && !wasRefreshing.current;
+    wasRefreshing.current = autoRefresh;
+    if (returning && enabled && isStale && !isError && pageCount === 1)
+      void refetch({ cancelRefetch: false });
+  }, [autoRefresh, enabled, isStale, isError, pageCount, refetch]);
+  return result;
 }
 
 export function useLinearIssue(
@@ -95,9 +106,10 @@ export function useLinearIssue(
 ) {
   const client = useQueryClient();
   const key = ["linear-issue", issue];
-  return useQuery({
+  const result = useQuery({
     queryKey: key,
     refetchInterval: poll ? 30_000 : false,
+    refetchOnWindowFocus: poll,
     queryFn: ({ signal }) =>
       host.call<LinearIssue>(
         "linear_get_issue",
@@ -109,6 +121,14 @@ export function useLinearIssue(
       ),
     enabled,
   });
+  const wasPolling = useRef(poll);
+  const { isStale, refetch } = result;
+  useEffect(() => {
+    const returning = poll && !wasPolling.current;
+    wasPolling.current = poll;
+    if (returning && enabled && isStale) void refetch({ cancelRefetch: false });
+  }, [poll, enabled, isStale, refetch]);
+  return result;
 }
 
 export function useLinearMetadata(

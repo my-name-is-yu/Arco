@@ -146,6 +146,71 @@ async function restoreFocus(page: Page) {
     });
 }
 
+test("Linear focus refreshes the inline issue and stale browsing data refreshes once on return", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const reads: string[] = [];
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON();
+    if (input.name === "linear_get_issue") reads.push(input.arguments.issueId);
+    else if (input.name === "linear_list_issues") reads.push("list");
+    await route.continue();
+  });
+  await open(page);
+  const ui = app(page);
+  const secondTitle = "Share a Linear issue with the Codex chat";
+  await expect(
+    ui.getByRole("heading", { name: firstTitle, exact: true }),
+  ).toBeVisible();
+  await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
+  await expect(ui.getByRole("note")).toHaveText("In chat");
+  await ui.locator(".issue-row").filter({ hasText: secondTitle }).click();
+  await expect(
+    ui.getByRole("heading", { name: secondTitle, exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Mock inline", exact: true }).click();
+  await expect(
+    ui.getByRole("heading", { name: firstTitle, exact: true }),
+  ).toBeVisible();
+  let before = reads.length;
+  await page.clock.fastForward(16_000);
+  await page.waitForTimeout(200);
+  expect(reads.slice(before)).toEqual([]);
+  await restoreFocus(page);
+  await expect.poll(() => reads.slice(before)).toEqual(["fixture-linear-42"]);
+  await expect(
+    selectControl(ui, "Linear Workflow state").getByRole("button"),
+  ).not.toHaveAttribute("aria-disabled", "true");
+  before = reads.length;
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect
+    .poll(() => reads.slice(before).sort())
+    .toEqual(["fixture-linear-43", "list"]);
+  await expect(ui.locator(".issue-list")).toHaveAttribute("aria-busy", "false");
+  await expect(ui.locator(".detail-pane")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
+  before = reads.length;
+  await page.getByRole("button", { name: "Mock inline", exact: true }).click();
+  await expect(ui.locator(".inline-issue-card")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(
+    ui.getByRole("heading", { name: secondTitle, exact: true }),
+  ).toBeVisible();
+  await page.waitForTimeout(200);
+  expect(reads.slice(before)).toEqual([]);
+  await page.clock.fastForward(16_000);
+  await page.waitForTimeout(200);
+  expect(reads.slice(before)).toEqual([]);
+  await expect(page.locator("#harness-error")).toBeEmpty();
+});
+
 test("a short Linear page continues with its opaque cursor", async ({
   page,
 }) => {
@@ -390,6 +455,15 @@ test("multiple Linear pages skip polling and focus replays while Refresh reloads
   expect(calls).toHaveLength(2);
   await page.clock.fastForward(31_000);
   await restoreFocus(page);
+  await page.waitForTimeout(200);
+  expect(calls).toHaveLength(2);
+  await page.getByRole("button", { name: "Mock inline", exact: true }).click();
+  await expect(app(page).locator(".inline-issue-card")).toBeVisible();
+  await page.clock.fastForward(16_000);
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(app(page).locator(".issue-row")).toHaveCount(2);
   await page.waitForTimeout(200);
   expect(calls).toHaveLength(2);
   await app(page)
