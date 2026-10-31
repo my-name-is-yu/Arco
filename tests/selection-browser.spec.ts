@@ -5,6 +5,7 @@ type SelectionProbe = {
   observers: number;
   toggleListeners: number;
   rectReads: number;
+  editorQueries: number;
   measuring: boolean;
 };
 
@@ -44,6 +45,7 @@ test.beforeEach(async ({ page }) => {
       observers: 0,
       toggleListeners: 0,
       rectReads: 0,
+      editorQueries: 0,
       measuring: false,
     };
     Object.assign(window, { arcoSelectionProbe: probe });
@@ -99,6 +101,12 @@ test.beforeEach(async ({ page }) => {
       if (probe.measuring) probe.rectReads += 1;
       return rects.call(this);
     };
+    const query = document.querySelector.bind(document);
+    document.querySelector = ((selector: string) => {
+      if (probe.measuring && selector.includes(".selection-comment"))
+        probe.editorQueries += 1;
+      return query(selector);
+    }) as typeof document.querySelector;
   });
   await page.goto("/?entry=project");
   await expect(page.locator("#bridge-status")).toHaveText("ready");
@@ -115,6 +123,18 @@ test("annotation count does not add document observers or listeners and scroll b
   page,
 }) => {
   const app = page.frameLocator("#arco");
+  expect(
+    await app.locator("body").evaluate(async () => {
+      const probe = window.arcoSelectionProbe;
+      probe.measuring = true;
+      document.dispatchEvent(new Event("scroll"));
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+      probe.measuring = false;
+      return probe.editorQueries;
+    }),
+  ).toBe(0);
   for (let number = 1; number <= 3; number += 1) {
     await annotate(app, ".issue-heading h1");
     await expect(app.locator(".selection-annotation-number")).toHaveCount(
@@ -127,6 +147,7 @@ test("annotation count does not add document observers or listeners and scroll b
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
     probe.rectReads = 0;
+    probe.editorQueries = 0;
     probe.measuring = true;
     for (let index = 0; index < 25; index += 1)
       document.dispatchEvent(new Event("scroll"));
@@ -140,6 +161,8 @@ test("annotation count does not add document observers or listeners and scroll b
   expect(measured.toggleListeners).toBe(1);
   expect(measured.rectReads).toBeGreaterThanOrEqual(3);
   expect(measured.rectReads).toBeLessThanOrEqual(6);
+  expect(measured.editorQueries).toBeGreaterThanOrEqual(1);
+  expect(measured.editorQueries).toBeLessThanOrEqual(2);
   const bounds = await app
     .locator(".selection-annotation-number")
     .evaluateAll((elements) =>
