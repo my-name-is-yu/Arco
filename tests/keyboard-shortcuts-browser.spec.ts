@@ -106,6 +106,22 @@ for (const source of ["github", "linear"] as const) {
   test(`${source} navigation stops at list boundaries and G then I restores list focus`, async ({
     page,
   }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.addInitScript(() => {
+      document.addEventListener("securitypolicyviolation", (event) => {
+        document.documentElement.dataset.cspViolations = JSON.stringify([
+          ...JSON.parse(document.documentElement.dataset.cspViolations ?? "[]"),
+          {
+            directive: event.effectiveDirective,
+            blocked: event.blockedURI,
+            source: event.sourceFile,
+            line: event.lineNumber,
+            column: event.columnNumber,
+          },
+        ]);
+      });
+    });
     await openWorkspace(page, source);
     const ui = app(page);
     const rows = ui.locator(".issue-list .issue-row");
@@ -208,6 +224,17 @@ for (const source of ["github", "linear"] as const) {
       .poll(() => detail.evaluate((element) => element.scrollTop))
       .toBe(narrowReadingPosition);
     await expectNoSharing(page);
+    const violations = await Promise.all(
+      page
+        .frames()
+        .map((frame) =>
+          frame.evaluate(() =>
+            JSON.parse(document.documentElement.dataset.cspViolations ?? "[]"),
+          ),
+        ),
+    );
+    expect(violations.flat()).toEqual([]);
+    expect(pageErrors).toEqual([]);
   });
 
   test(`${source} a delayed issue load preserves focus after the reader moves to search`, async ({

@@ -530,7 +530,7 @@ describe("explicit additional GitHub operations", () => {
   });
 
   it("detects comment version conflicts and keeps user text out of argv", async () => {
-    const { operations, writes } = setup();
+    const { operations, writes, service } = setup();
     await expect(
       operations.editComment({
         ...ref,
@@ -546,6 +546,7 @@ describe("explicit additional GitHub operations", () => {
       commentId: 101,
       body: "@file\n$(never)",
     });
+    expect(edited).toMatchObject({ issue: await service.get(ref) });
     expect("changedComment" in edited && edited.changedComment).toEqual({
       id: "IC_101",
       databaseId: 101,
