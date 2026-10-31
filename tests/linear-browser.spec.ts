@@ -2572,6 +2572,161 @@ test("Linear disconnect stays reachable with no issues or connection errors and 
   expect(authorization.disconnects).toHaveLength(2);
 });
 
+test("Linear authorization stops failed attempts and retries without accepting an old status response", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const authorization = await mockLinearAuthorization(page);
+  const ui = app(page);
+  await disconnectLinear(page);
+  let state = "idle";
+  let holdStatus = false;
+  let statusHeld = false;
+  let statusCompleted = false;
+  let releaseStatus!: () => void;
+  const oldStatus = new Promise<void>((resolve) => {
+    releaseStatus = resolve;
+  });
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as { name: string };
+    if (input.name === "linear_auth_begin") {
+      state = "pending";
+      return route.fallback();
+    }
+    if (input.name !== "linear_auth_status") return route.fallback();
+    const result = {
+      state,
+      connected: authorization.connected,
+      message: state === "failed" ? "Authorization cancelled" : "",
+    };
+    const held = holdStatus;
+    if (held) {
+      holdStatus = false;
+      statusHeld = true;
+      await oldStatus;
+    }
+    await route.fulfill({ json: { structuredContent: result } });
+    if (held) statusCompleted = true;
+  });
+  const statusReads = async () =>
+    ((await events(page, "tool")) as { name: string }[]).filter(
+      (call) => call.name === "linear_auth_status",
+    ).length;
+  const authorize = ui.getByRole("button", {
+    name: "Authorize in Linear",
+    exact: true,
+  });
+  const waiting = ui.getByText(
+    "Complete authorization in Linear, then return to Arco.",
+    { exact: true },
+  );
+  try {
+    await authorize.click();
+    await expect(waiting).toBeVisible();
+    state = "failed";
+    await page.clock.fastForward(2100);
+    await expect(ui.getByRole("alert")).toHaveText("Authorization cancelled");
+    const failedReads = await statusReads();
+    await page.clock.fastForward(6100);
+    expect(await statusReads()).toBe(failedReads);
+
+    holdStatus = true;
+    await ui
+      .getByRole("button", { name: "Check connection", exact: true })
+      .click();
+    await expect.poll(() => statusHeld).toBe(true);
+    await authorize.click();
+    await expect(waiting).toBeVisible();
+    releaseStatus();
+    await expect.poll(() => statusCompleted).toBe(true);
+    await expect(waiting).toBeVisible();
+    await expect(ui.getByRole("alert")).toHaveCount(0);
+    state = "connected";
+    authorization.connected = true;
+    await page.clock.fastForward(2100);
+    await expect(
+      ui.getByRole("heading", { name: firstTitle, exact: true }),
+    ).toBeVisible();
+    const connectedReads = await statusReads();
+    await page.clock.fastForward(6100);
+    expect(await statusReads()).toBe(connectedReads);
+    expect(
+      ((await events(page, "tool")) as { name: string }[]).filter(
+        (call) => call.name === "linear_auth_begin",
+      ),
+    ).toHaveLength(2);
+  } finally {
+    releaseStatus();
+  }
+});
+
+test("Linear connected status does not duplicate connection reads on initial load or cached remount", async ({
+  page,
+}) => {
+  await mockLinearAuthorization(page);
+  const ui = app(page);
+  let connectionReads = 0;
+  let statusCompleted = false;
+  let releaseStatus!: () => void;
+  const pendingStatus = new Promise<void>((resolve) => {
+    releaseStatus = resolve;
+  });
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as { name: string };
+    if (input.name === "linear_connection") connectionReads += 1;
+    if (input.name === "linear_auth_status") {
+      await pendingStatus;
+      const response = await route.fetch();
+      await route.fulfill({ response });
+      statusCompleted = true;
+      return;
+    }
+    return route.fallback();
+  });
+  try {
+    const frame = page
+      .frames()
+      .find((candidate) => candidate.url().endsWith("/arco.html"))!;
+    await frame.goto(frame.url());
+    await expect(
+      ui.getByRole("heading", { name: firstTitle, exact: true }),
+    ).toBeVisible();
+    releaseStatus();
+    await expect.poll(() => statusCompleted).toBe(true);
+    await ui
+      .locator("body")
+      .evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+    expect(connectionReads).toBe(1);
+    await choose(ui, "Issue source", "github");
+    await expect(
+      ui.getByRole("heading", {
+        name: "Preserve issue selection and scroll position",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await choose(ui, "Issue source", "linear");
+    await expect(
+      ui.getByRole("heading", { name: firstTitle, exact: true }),
+    ).toBeVisible();
+    await ui
+      .locator("body")
+      .evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+    expect(connectionReads).toBe(1);
+  } finally {
+    releaseStatus();
+  }
+});
+
 test("Linear external authorization keeps waiting guidance until a connected workspace is available", async ({
   page,
 }) => {
