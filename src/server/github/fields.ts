@@ -20,23 +20,34 @@ export function createFieldsOperations(context: GitHubOperationContext) {
       context.issueRecord(input),
       context.repoOwner(input.repo),
     ]);
-    return readCatalog(input, issue, owner);
+    const milestones = await readMilestones(input.repo);
+    const { issueTypes, errors } = await readIssueTypes(owner);
+    return {
+      repo: input.repo,
+      number: input.number,
+      milestoneNumber: issue.milestone?.number ?? null,
+      issueTypeId: issue.type?.id ?? null,
+      milestones,
+      issueTypes,
+      errors,
+    };
   }
 
-  async function readCatalog(
-    input: Input<"arco_issue_catalog">,
-    issue: Awaited<ReturnType<typeof context.issueRecord>>,
-    owner: Awaited<ReturnType<typeof context.repoOwner>>,
-  ): Promise<IssueCatalog> {
-    const errors: string[] = [];
-    const milestones = await context.pages(
-      `repos/${input.repo}/milestones?state=all&per_page=100`,
+  function readMilestones(repo: string) {
+    return context.pages(
+      `repos/${repo}/milestones?state=all&per_page=100`,
       z.object({
         number: z.number(),
         title: z.string(),
         state: z.enum(["open", "closed"]),
       }),
     );
+  }
+
+  async function readIssueTypes(
+    owner: Awaited<ReturnType<typeof context.repoOwner>>,
+  ) {
+    const errors: string[] = [];
     let issueTypes: IssueCatalog["issueTypes"] = [];
     if (owner.type === "Organization") {
       try {
@@ -62,15 +73,7 @@ export function createFieldsOperations(context: GitHubOperationContext) {
         );
       }
     }
-    return {
-      repo: input.repo,
-      number: input.number,
-      milestoneNumber: issue.milestone?.number ?? null,
-      issueTypeId: issue.type?.id ?? null,
-      milestones,
-      issueTypes,
-      errors,
-    };
+    return { issueTypes, errors };
   }
 
   function issueAttributes(input: Input<"arco_issue_attributes">) {
@@ -89,21 +92,23 @@ export function createFieldsOperations(context: GitHubOperationContext) {
             "This issue has changed. Refresh before saving.",
             "conflict",
           );
-        const catalog = await readCatalog(
-          input,
-          issue,
-          await context.repoOwner(input.repo),
-        );
         const { milestoneNumber, issueTypeId } = input.patch;
+        const milestones =
+          milestoneNumber != null ? await readMilestones(input.repo) : [];
         if (
           milestoneNumber != null &&
-          !catalog.milestones.some((item) => item.number === milestoneNumber)
+          !milestones.some((item) => item.number === milestoneNumber)
         )
           return invalid("Select an existing milestone in this repository.");
+        const issueTypes =
+          issueTypeId != null
+            ? (await readIssueTypes(await context.repoOwner(input.repo)))
+                .issueTypes
+            : [];
         const issueType =
           issueTypeId == null
             ? null
-            : catalog.issueTypes.find((item) => item.id === issueTypeId);
+            : issueTypes.find((item) => item.id === issueTypeId);
         if (issueTypeId != null && !issueType)
           return invalid("Select an existing issue type in this organization.");
         await context.api("write", issuePath(input), "PATCH", {
