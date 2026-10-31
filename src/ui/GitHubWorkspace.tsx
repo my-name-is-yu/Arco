@@ -400,6 +400,7 @@ export function GitHubWorkspace({
     state: filter.state,
     sort: filter.sort,
     order: filter.order,
+    visible: mode !== "inline" || (!shared && !selected),
     enabled:
       !targetedInline &&
       connection.data?.connected === true &&
@@ -452,16 +453,19 @@ export function GitHubWorkspace({
     !targetedInline &&
       Boolean(activeRef) &&
       connection.data?.connected === true,
+    mode !== "inline" || !shared,
   );
   const sharedDetail = useGitHubIssue(
     host,
     shared,
     !targetedInline && Boolean(shared) && connection.data?.connected === true,
+    mode === "inline",
   );
   const targetDetail = useGitHubIssue(
     host,
     target,
     targetedInline && connection.data?.connected === true,
+    targetedInline,
   );
   const metadataRepo = targetedInline
     ? target!.repo
@@ -713,11 +717,10 @@ export function GitHubWorkspace({
   };
   const compactFailure = targetedInline
     ? (targetDetail.error ?? connection.error ?? settings.query.error)
-    : (sharedDetail.error ??
-      detail.error ??
+    : ((shared ? sharedDetail.error : detail.error) ??
       connection.error ??
       settings.query.error ??
-      issues.error);
+      (!shared && !activeRef ? issues.error : null));
   const compactError = compactFailure ? errorText(compactFailure) : null;
   const compactReady =
     connection.data?.connected === true && settings.query.isSuccess;
@@ -796,9 +799,11 @@ export function GitHubWorkspace({
     connection.data?.connected &&
     (targetedInline
       ? targetDetail.isPending
-      : initialIssuesLoading ||
-        (detail.isPending && Boolean(activeRef)) ||
-        (sharedDetail.isPending && Boolean(shared)))
+      : shared
+        ? sharedDetail.isPending
+        : activeRef
+          ? detail.isPending
+          : initialIssuesLoading)
   )
     return <InlineSkeleton />;
 

@@ -130,6 +130,21 @@ async function events(page: Page, type: string) {
   return log.filter((event) => event.type === type).map((event) => event.value);
 }
 
+async function updateHostContext(page: Page, params: Record<string, unknown>) {
+  await page.evaluate((params) => {
+    document
+      .querySelector<HTMLIFrameElement>("#arco")!
+      .contentWindow!.postMessage(
+        {
+          jsonrpc: "2.0",
+          method: "ui/notifications/host-context-changed",
+          params,
+        },
+        "*",
+      );
+  }, params);
+}
+
 async function decorationColor(
   visual: Locator,
   property: "color" | "backgroundColor" = "color",
@@ -239,6 +254,259 @@ async function addOtherBrowsingScope(page: Page, source: Source) {
     return route.fulfill({ response, json: result });
   });
 }
+
+test("GitHub polls the visible inline issue and refreshes browsing data when returning to PIP or fullscreen", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const session = await createSession(page);
+  await openSource(page, session, "github");
+  const ui = app(page);
+  const reads = async () =>
+    ((await events(page, "tool")) as ToolCall[])
+      .filter((call) =>
+        ["arco_get_issue", "arco_list_issues", "arco_account_issues"].includes(
+          call.name,
+        ),
+      )
+      .map((call) =>
+        call.name === "arco_get_issue"
+          ? `issue:${call.arguments.number}`
+          : call.name,
+      );
+  await ui.getByRole("button", { name: "Add to chat", exact: true }).click();
+  await expect.poll(() => events(page, "context")).toHaveLength(1);
+  await ui.locator(".issue-row").filter({ hasText: titles.github[1] }).click();
+  await expect(
+    ui.getByRole("heading", { name: titles.github[1], exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Mock inline", exact: true }).click();
+  await expect(
+    ui.getByRole("heading", { name: titles.github[0], exact: true }),
+  ).toBeVisible();
+  let before = (await reads()).length;
+  await page.clock.fastForward(31_000);
+  await expect
+    .poll(async () => (await reads()).slice(before))
+    .toEqual(["issue:42"]);
+
+  await page.clock.fastForward(16_000);
+  before = (await reads()).length;
+  await ui.locator("html").evaluate(() => {
+    for (const value of ["hidden", "visible"]) {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value,
+      });
+      window.dispatchEvent(new Event("visibilitychange"));
+    }
+  });
+  await expect
+    .poll(async () => (await reads()).slice(before))
+    .toEqual(["issue:42"]);
+
+  before = (await reads()).length;
+  await updateHostContext(page, { displayMode: "pip" });
+  await expect(ui.locator(".workspace")).toBeVisible();
+  await expect(
+    ui.getByRole("heading", { name: titles.github[1], exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(async () => (await reads()).slice(before).sort())
+    .toEqual(["arco_list_issues", "issue:43"]);
+
+  await updateHostContext(page, { displayMode: "inline" });
+  await expect(ui.locator(".inline-issue-card")).toBeVisible();
+  await page.clock.fastForward(16_000);
+  before = (await reads()).length;
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(ui.locator(".workspace")).toBeVisible();
+  await expect
+    .poll(async () => (await reads()).slice(before).sort())
+    .toEqual(["arco_list_issues", "issue:43"]);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("GitHub inline empty feeds refresh into a card and resume the selected issue after shared context removal", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let empty = true;
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as ToolCall;
+    if (input.name !== "arco_account_issues" || !empty) return route.continue();
+    return route.fulfill({
+      json: {
+        structuredContent: {
+          scope: "account",
+          filter: "assigned",
+          issues: [],
+          page: 1,
+          hasMore: false,
+        },
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(selectControl(app(page), "GitHub view")).toBeVisible();
+  await page.getByRole("button", { name: "Mock inline", exact: true }).click();
+  const ui = app(page);
+  await expect(
+    ui.getByRole("heading", { name: "No matching issues", exact: true }),
+  ).toBeVisible();
+  empty = false;
+  await page
+    .getByRole("button", { name: "Mock external update #42", exact: true })
+    .click();
+  await expect(
+    ui.getByRole("heading", {
+      name: "Issue updated by a Codex tool",
+      exact: true,
+    }),
+  ).toBeVisible();
+  const calls = async () => (await events(page, "tool")) as ToolCall[];
+  const feedReads = async () =>
+    (await calls()).filter((call) => call.name === "arco_account_issues")
+      .length;
+  const issueReads = async (number: number) =>
+    (await calls()).filter(
+      (call) =>
+        call.name === "arco_get_issue" && call.arguments.number === number,
+    ).length;
+  const beforeFeed = await feedReads();
+  await updateHostContext(page, {
+    "openai/modelContext": {
+      updateId: "visible-shared-43",
+      content: [],
+      structuredContent: {
+        source: "github",
+        repo: githubRepo,
+        number: 43,
+        arcoSharedIssue: 1,
+      },
+    },
+  });
+  await expect(
+    ui.getByRole("heading", { name: titles.github[1], exact: true }),
+  ).toBeVisible();
+  await page.clock.fastForward(31_000);
+  const beforeResume = await issueReads(42);
+  await updateHostContext(page, { "openai/modelContext": null });
+  await expect(
+    ui.getByRole("heading", {
+      name: "Issue updated by a Codex tool",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect.poll(() => issueReads(42)).toBe(beforeResume + 1);
+  expect(await feedReads()).toBe(beforeFeed);
+
+  await updateHostContext(page, {
+    "openai/modelContext": {
+      updateId: "visible-shared-42",
+      content: [],
+      structuredContent: {
+        source: "github",
+        repo: githubRepo,
+        number: 42,
+        arcoSharedIssue: 1,
+      },
+    },
+  });
+  const beforeSame = await issueReads(42);
+  await page.clock.fastForward(31_000);
+  await expect.poll(() => issueReads(42)).toBe(beforeSame + 1);
+  expect(await feedReads()).toBe(beforeFeed);
+  expect(await events(page, "message")).toEqual([]);
+});
+
+test("a hidden GitHub issue error does not replace the pending visible shared issue", async ({
+  page,
+}) => {
+  const session = await createSession(page);
+  await openSource(page, session, "github");
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = false;
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as ToolCall & {
+      session: string;
+    };
+    if (input.name !== "arco_get_issue") return route.continue();
+    if (input.arguments.number === 43)
+      return route.fulfill({
+        json: {
+          isError: true,
+          content: [{ type: "text", text: "Hidden issue unavailable" }],
+          structuredContent: {
+            error: {
+              kind: "unavailable",
+              message: "Hidden issue unavailable",
+            },
+          },
+        },
+      });
+    if (input.arguments.number !== 99) return route.continue();
+    const response = await route.fetch({
+      postData: JSON.stringify({
+        ...input,
+        arguments: { repo: githubRepo, number: 42 },
+      }),
+    });
+    const result = (await response.json()) as {
+      structuredContent: IssueDetail;
+    };
+    result.structuredContent = {
+      ...result.structuredContent,
+      number: 99,
+      id: "fixture-visible-99",
+      title: "Visible shared issue",
+      url: `https://github.com/${githubRepo}/issues/99`,
+    };
+    held = true;
+    await pending;
+    return route.fulfill({ response, json: result });
+  });
+  try {
+    const ui = app(page);
+    await ui
+      .locator(".issue-row")
+      .filter({ hasText: titles.github[1] })
+      .click();
+    await expect(ui.getByRole("alert")).toContainText(
+      "Hidden issue unavailable",
+    );
+    await updateHostContext(page, {
+      displayMode: "inline",
+      "openai/modelContext": {
+        updateId: "pending-visible-99",
+        content: [],
+        structuredContent: {
+          source: "github",
+          repo: githubRepo,
+          number: 99,
+          arcoSharedIssue: 1,
+        },
+      },
+    });
+    await expect.poll(() => held).toBe(true);
+    await expect(ui.locator('[data-loading-skeleton="inline"]')).toBeVisible();
+    await expect(
+      ui.getByText("Hidden issue unavailable", { exact: true }),
+    ).toHaveCount(0);
+    release();
+    await expect(
+      ui.getByRole("heading", { name: "Visible shared issue", exact: true }),
+    ).toBeVisible();
+    expect(await events(page, "message")).toEqual([]);
+  } finally {
+    release();
+  }
+});
 
 for (const source of ["github", "linear"] as const) {
   test(`${source} inline Markdown scrolls immediately in a compact body and keeps properties above it at narrow widths`, async ({
