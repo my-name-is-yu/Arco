@@ -7,7 +7,7 @@ import {
 } from "../../shared/linear";
 import { createWriteGuard, getWriteProgress } from "../write-guard";
 import { createAttachmentsHandlers } from "./attachments";
-import { createLinearAuth, type LinearAuth } from "./auth";
+import type { LinearAuth } from "./auth";
 import { createBulkHandlers } from "./bulk";
 import { createCommentsHandlers } from "./comments";
 import { createConnectionsHandlers } from "./connections";
@@ -21,14 +21,12 @@ import { createQueriesHandlers } from "./queries";
 import { createRelationsHandlers } from "./relations";
 import { LinearServiceError, linearFailure } from "./errors";
 export { describeTemplate, estimateValues } from "./operation";
-export function createLinearService(
-  options: {
-    auth?: LinearAuth;
-    client?: (accessToken: string) => LinearClient;
-    fetch?: typeof fetch;
-  } = {},
-): LinearService {
-  const auth = options.auth ?? createLinearAuth();
+export function createLinearService(options: {
+  auth: LinearAuth;
+  client?: (accessToken: string) => LinearClient;
+  fetch?: typeof fetch;
+}): LinearService {
+  const auth = options.auth;
   const makeClient =
     options.client ??
     ((accessToken: string) => new LinearClient({ accessToken }));
