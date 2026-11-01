@@ -99,6 +99,15 @@ function WorkCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const runtime = item.runtime;
+  const reason =
+    runtime?.error ??
+    (runtime && runtime.runtimeStatus !== "running"
+      ? (runtime.lastMessage ??
+        (runtime.retryAttempt !== null
+          ? `Attempt ${runtime.retryAttempt}`
+          : null))
+      : null);
   return (
     <button
       type="button"
@@ -109,33 +118,21 @@ function WorkCard({
       onClick={onSelect}
     >
       <span className="symphony-card-kicker">
-        {item.title !== item.identifier ? (
-          <span>{item.identifier}</span>
-        ) : (
-          <strong>{item.identifier}</strong>
-        )}
+        <span>{item.identifier}</span>
         <NativeState item={item} />
       </span>
       {item.title !== item.identifier && <strong>{item.title}</strong>}
       <span className="symphony-card-runtime">
         <SymphonyRuntimeStatus item={item} />
-        {item.runtime && (
-          <span className="symphony-card-reason">
-            {item.runtime.error ??
-              item.runtime.lastMessage ??
-              (item.runtime.retryAttempt !== null
-                ? `Attempt ${item.runtime.retryAttempt}`
-                : "")}
+        {item.issue?.source === "github" && item.issue.labels.length > 0 && (
+          <span className="row-labels">
+            {item.issue.labels.slice(0, 3).map((label) => (
+              <span key={label.id}>{label.name}</span>
+            ))}
           </span>
         )}
       </span>
-      {item.issue?.source === "github" && item.issue.labels.length > 0 && (
-        <span className="row-labels">
-          {item.issue.labels.slice(0, 3).map((label) => (
-            <span key={label.id}>{label.name}</span>
-          ))}
-        </span>
-      )}
+      {reason && <span className="symphony-card-reason">{reason}</span>}
     </button>
   );
 }
