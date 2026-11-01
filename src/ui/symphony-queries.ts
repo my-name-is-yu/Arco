@@ -17,7 +17,9 @@ import type {
   LinearIssue,
   LinearIssueSummary,
   LinearPage,
+  LinearRef,
 } from "../shared/linear";
+import { githubIssueUrl, linearIssueUrl } from "../shared/issue-url";
 import {
   symphonyIssueMatches,
   type SymphonyBinding,
@@ -326,21 +328,40 @@ export function useSymphonyIssueContext(
   connection: SymphonyConnection | undefined,
   generation: string | null,
   visible: boolean,
+  runtime?: SymphonyRuntimeRow | null,
 ) {
   const client = useQueryClient();
+  const binding = connection?.binding;
+  let target: { repo: string; number: number } | { url: string } | null = null;
+  if (!issue && runtime?.issueUrl && binding) {
+    try {
+      if (binding.source === "github") {
+        const ref = githubIssueUrl(runtime.issueUrl);
+        if (ref.repo.toLowerCase() === binding.repo.toLowerCase()) target = ref;
+      } else {
+        linearIssueUrl(runtime.issueUrl);
+        target = { url: runtime.issueUrl };
+      }
+    } catch {
+      // An unbound or noncanonical runtime stays visible without native reads.
+    }
+  }
   return useQuery({
     queryKey: [
       "symphony-issue-context",
       symphonyConnectionKey(connection),
       connection?.binding,
       issue?.url,
+      runtime?.issueId,
+      runtime?.issueUrl,
       generation,
     ],
-    enabled: Boolean(issue && generation),
-    queryFn: async ({ signal }): Promise<ConversationIssue> => {
+    enabled: Boolean(binding && generation && (issue || target)),
+    queryFn: async ({ signal }): Promise<ConversationIssue | null> => {
+      if (!binding || (issue && issue.source !== binding.source)) return null;
       const readIdentity = async () => {
         const provider =
-          issue!.source === "github"
+          binding.source === "github"
             ? await host.call<Connection>(
                 "arco_connection",
                 {},
@@ -348,7 +369,7 @@ export function useSymphonyIssueContext(
               )
             : await host.call<LinearConnection>(
                 "linear_connection",
-                { connectionId: issue!.connectionId },
+                { connectionId: binding.connectionId },
                 { signal, priority: "background" },
               );
         const current = nativeGeneration(provider);
@@ -356,8 +377,8 @@ export function useSymphonyIssueContext(
           client.setQueryData(
             [
               "symphony-provider",
-              issue!.source,
-              issue!.source === "linear" ? issue!.connectionId : null,
+              binding.source,
+              binding.source === "linear" ? binding.connectionId : null,
             ],
             provider,
           );
@@ -367,38 +388,97 @@ export function useSymphonyIssueContext(
         throw new Error(
           "The issue account changed. Refresh to load its current context.",
         );
-      const detail =
-        issue!.source === "github"
-          ? await host.call<IssueDetail>(
-              "arco_get_issue",
-              { repo: issue!.repo, number: issue!.number },
-              { signal, priority: "background" },
+      let detail: ConversationIssue;
+      if (binding.source === "github") {
+        const ref = issue?.source === "github" ? issue : target;
+        if (
+          !ref ||
+          !("repo" in ref) ||
+          ref.repo.toLowerCase() !== binding.repo.toLowerCase()
+        )
+          return null;
+        detail = await host.call<IssueDetail>(
+          "arco_get_issue",
+          { repo: ref.repo, number: ref.number },
+          { signal, priority: "background" },
+        );
+      } else {
+        const ref =
+          issue?.source === "linear"
+            ? issue
+            : target && "url" in target
+              ? await host.call<LinearRef>(
+                  "linear_resolve_issue",
+                  { connectionId: binding.connectionId, url: target.url },
+                  { signal, priority: "background" },
+                )
+              : null;
+        if (
+          !ref ||
+          ref.connectionId !== binding.connectionId ||
+          ref.workspaceId !== binding.workspaceId ||
+          ref.teamId !== binding.teamId
+        )
+          return null;
+        // Project membership must be established without reading an out-of-scope body.
+        if (!issue && binding.projectId && target && "url" in target) {
+          const scoped = await host.call<LinearPage>(
+            "linear_list_issues",
+            {
+              connectionId: binding.connectionId,
+              workspaceId: binding.workspaceId,
+              teamId: binding.teamId,
+              projectId: binding.projectId,
+              query: linearIssueUrl(target.url).identifier,
+              order: "updatedAt",
+            },
+            { signal, priority: "background" },
+          );
+          if (
+            !scoped.issues.some(
+              (candidate) =>
+                candidate.issueId === ref.issueId &&
+                candidate.connectionId === ref.connectionId &&
+                candidate.workspaceId === ref.workspaceId &&
+                candidate.teamId === ref.teamId,
             )
-          : await host.call<LinearIssue>(
-              "linear_get_issue",
-              {
-                connectionId: issue!.connectionId,
-                workspaceId: issue!.workspaceId,
-                teamId: issue!.teamId,
-                issueId: issue!.issueId,
-              },
-              { signal, priority: "background" },
-            );
+          )
+            return null;
+        }
+        if ((await readIdentity()) !== generation)
+          throw new Error(
+            "The issue account changed. Refresh to load its current context.",
+          );
+        detail = await host.call<LinearIssue>(
+          "linear_get_issue",
+          {
+            connectionId: ref.connectionId,
+            workspaceId: ref.workspaceId,
+            teamId: ref.teamId,
+            issueId: ref.issueId,
+          },
+          { signal, priority: "background" },
+        );
+      }
       if ((await readIdentity()) !== generation)
         throw new Error(
           "The issue account changed. Refresh to load its current context.",
         );
-      const matches =
-        issue!.source === "github"
+      const matches = issue
+        ? issue.source === "github"
           ? detail.source === "github" &&
-            detail.repo.toLowerCase() === issue!.repo.toLowerCase() &&
-            detail.number === issue!.number
+            detail.repo.toLowerCase() === issue.repo.toLowerCase() &&
+            detail.number === issue.number
           : detail.source === "linear" &&
-            detail.connectionId === issue!.connectionId &&
-            detail.workspaceId === issue!.workspaceId &&
-            detail.teamId === issue!.teamId &&
-            detail.issueId === issue!.issueId;
-      if (!matches)
+            detail.connectionId === issue.connectionId &&
+            detail.workspaceId === issue.workspaceId &&
+            detail.teamId === issue.teamId &&
+            detail.issueId === issue.issueId
+        : runtime && symphonyIssueMatches(binding, runtime, detail);
+      if (
+        !matches ||
+        (runtime && !symphonyIssueMatches(binding, runtime, detail))
+      )
         throw new Error(
           "The provider returned a different issue. Refresh to try again.",
         );

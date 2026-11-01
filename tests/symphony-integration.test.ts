@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBackend } from "../src/server/composition";
 import { createArcoServer } from "../src/server/mcp";
+import { SYMPHONY_FIXTURE_CONNECTIONS } from "../src/server/symphony-fixture";
 import { createStateStore } from "../src/server/state";
 import { defaultSettings } from "../src/shared/state";
 import { runtimeAttachment } from "../src/ui/context-attachment";
@@ -14,6 +15,13 @@ import { readSharedContext } from "../src/ui/shared-context";
 describe("Symphony integration boundaries", () => {
   it("opens explicit and saved Symphony views without contacting issue providers", async () => {
     const backend = await createFixtureBackend();
+    await backend.stateStore.updateSettings({
+      expectedRevision: (await backend.stateStore.readSettings()).revision,
+      patch: {
+        symphonyConnections: SYMPHONY_FIXTURE_CONNECTIONS,
+        activeSymphonyConnectionId: SYMPHONY_FIXTURE_CONNECTIONS[0].id,
+      },
+    });
     const github = vi.spyOn(backend.service, "connection");
     const linear = vi.spyOn(backend.linearService, "call");
     const runtime = vi.spyOn(backend.symphonyService, "getState");

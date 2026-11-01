@@ -1,3 +1,4 @@
+import { SYMPHONY_FIXTURE_CONNECTIONS } from "../src/server/symphony-fixture";
 import { expect, test, type Page } from "./browser-test";
 import type { SettingsRecord } from "../src/shared/state";
 import type { SymphonySnapshot } from "../src/shared/symphony";
@@ -25,6 +26,7 @@ async function open(page: Page) {
         expectedRevision: current.revision,
         patch: {
           activeSource: "symphony",
+          symphonyConnections: SYMPHONY_FIXTURE_CONNECTIONS,
           activeSymphonyConnectionId: githubConnection,
           symphonyLayout: "board",
         },

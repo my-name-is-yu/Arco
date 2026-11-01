@@ -159,7 +159,9 @@ function WorkDetails({
     connection,
     generation,
     visible,
+    item.runtime,
   );
+  const nativeIssue = context.data ?? item.issue;
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => closeRef.current?.focus(), []);
   const closeDetails = () => {
@@ -218,11 +220,11 @@ function WorkDetails({
           connection,
           runtime,
           observedAt,
-          item.issue
+          nativeIssue
             ? {
-                source: item.issue.source,
-                url: item.issue.url,
-                title: item.issue.title,
+                source: nativeIssue.source,
+                url: nativeIssue.url,
+                title: nativeIssue.title,
                 identifier: item.identifier,
               }
             : undefined,
@@ -252,7 +254,7 @@ function WorkDetails({
       <div className="symphony-detail-heading">
         <div>
           <span className="muted">{item.identifier}</span>
-          <h1>{item.title}</h1>
+          <h1>{nativeIssue?.title ?? item.title}</h1>
         </div>
         <button
           type="button"
@@ -339,27 +341,28 @@ function WorkDetails({
       </section>
       <section className="symphony-issue-context">
         <h2>Issue context</h2>
-        {!item.issue ? (
+        {!nativeIssue && !context.isFetching && !context.isError && (
           <p className="muted">
-            Link this connection to its issue scope to show native issue
-            context. Every runtime remains visible here.
+            No matching issue is available in this connection's scope. Every
+            runtime remains visible here.
           </p>
-        ) : (
+        )}
+        {context.isFetching && !context.data && (
+          <AsyncState kind="loading">Loading issue context…</AsyncState>
+        )}
+        {context.isError && (
+          <p className="inline-error" role="alert">
+            {context.error.message}
+          </p>
+        )}
+        {nativeIssue && (
           <>
             <div className="symphony-context-identity">
               <span>
-                {item.issue.source === "github" ? item.issue.repo : "Linear"}
+                {nativeIssue.source === "github" ? nativeIssue.repo : "Linear"}
               </span>
-              <NativeState item={item} />
+              <NativeState item={{ ...item, issue: nativeIssue }} />
             </div>
-            {context.isPending && (
-              <AsyncState kind="loading">Loading issue context…</AsyncState>
-            )}
-            {context.isError && (
-              <p className="inline-error" role="alert">
-                {context.error.message}
-              </p>
-            )}
             {context.data && (
               <>
                 <IssueMarkdown

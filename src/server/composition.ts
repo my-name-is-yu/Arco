@@ -1,8 +1,5 @@
 import { createSymphonyService } from "./symphony";
-import {
-  createSymphonyFixtureService,
-  SYMPHONY_FIXTURE_CONNECTIONS,
-} from "./symphony-fixture";
+import { createSymphonyFixtureService } from "./symphony-fixture";
 import type { SymphonyService } from "../shared/symphony";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
@@ -61,8 +58,6 @@ export async function createFixtureBackend(): Promise<ArcoBackend> {
     expectedRevision: 0,
     patch: {
       activeLinearTeam: LINEAR_FIXTURE_SCOPE.teamId,
-      symphonyConnections: SYMPHONY_FIXTURE_CONNECTIONS,
-      activeSymphonyConnectionId: SYMPHONY_FIXTURE_CONNECTIONS[0].id,
     },
   });
   return {
