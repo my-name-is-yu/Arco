@@ -78,6 +78,7 @@ export type SymphonySelection = {
   connectionId: string;
   issueIdentifier?: string;
   nativeIssue?: SymphonyNativeIssue;
+  runtimeKey?: string;
 };
 export type SymphonyRuntimeStatus = "running" | "retrying" | "blocked";
 export type SymphonyTokens = {
@@ -152,7 +153,7 @@ export const symphonyRuntimeContextSchema = z
                 !url.password &&
                 !url.search &&
                 !url.hash &&
-                issueUrl(value) !== null
+                symphonyIssueUrl(value) !== null
               );
             } catch {
               return false;
@@ -164,7 +165,7 @@ export const symphonyRuntimeContextSchema = z
       .strict()
       .refine(
         (issue) =>
-          issueUrl(issue.url)?.startsWith(
+          symphonyIssueUrl(issue.url)?.startsWith(
             issue.source === "github" ? "github.com/" : "linear.app/",
           ) ?? false,
       )
@@ -228,7 +229,7 @@ export type SymphonyNativeIssue =
       project?: { id: string } | null;
     };
 
-function issueUrl(value: string): string | null {
+export function symphonyIssueUrl(value: string): string | null {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.port)
@@ -266,7 +267,8 @@ export function symphonyIssueMatches(
     const expected = `github.com/${binding.repo.toLowerCase()}/issues/${issue.number}`;
     if (row.issueUrl)
       return (
-        issueUrl(row.issueUrl) === expected && issueUrl(issue.url) === expected
+        symphonyIssueUrl(row.issueUrl) === expected &&
+        symphonyIssueUrl(issue.url) === expected
       );
     return (
       row.issueId === String(issue.number) &&
@@ -282,8 +284,8 @@ export function symphonyIssueMatches(
   )
     return false;
   if (row.issueUrl) {
-    const native = issueUrl(issue.url);
-    return native !== null && issueUrl(row.issueUrl) === native;
+    const native = symphonyIssueUrl(issue.url);
+    return native !== null && symphonyIssueUrl(row.issueUrl) === native;
   }
   return row.issueId === issue.issueId;
 }

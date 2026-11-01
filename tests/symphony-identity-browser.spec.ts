@@ -228,10 +228,14 @@ test("an unloaded native View run target hides remembered runtime details and yi
       ui.getByRole("main", { name: "Symphony workspace" }),
     ).toBeVisible();
     await expect(detail(page)).toHaveCount(0);
+    await expect(ui.getByRole("status")).toContainText(
+      "The selected issue is not in the loaded work.",
+    );
     await expect(foreign).toHaveAttribute("aria-pressed", "false");
   };
   await requestNativeRun();
   await other.click();
+  await expect(ui.getByRole("status")).toHaveCount(0);
   const beforeRefresh = omittedReads;
   await ui
     .getByRole("button", { name: "Refresh Symphony", exact: true })
@@ -384,4 +388,281 @@ test("credential rotation removes the old issue context while the new account sc
   } finally {
     releaseList();
   }
+});
+
+for (const source of ["github", "linear"] as const) {
+  const connectionId =
+    source === "github" ? githubConnection : linearConnection;
+  const identifier = source === "github" ? "GH-42" : "YU-42";
+  const title = source === "github" ? githubTitle : linearTitle;
+
+  test(`${source} selection follows runtime start, stop and restart`, async ({
+    page,
+  }) => {
+    let phase = 0;
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as {
+        name: string;
+        arguments: { connectionId?: string };
+      };
+      if (
+        input.name !== "arco_symphony_state" ||
+        input.arguments.connectionId !== connectionId
+      )
+        return route.continue();
+      const response = await route.fetch();
+      const result = (await response.json()) as {
+        structuredContent: SymphonySnapshot;
+      };
+      result.structuredContent.rows = result.structuredContent.rows.flatMap(
+        (row) =>
+          row.issueIdentifier !== identifier
+            ? [row]
+            : phase % 2 === 0
+              ? []
+              : [
+                  {
+                    ...row,
+                    issueId: `attempt-${phase}`,
+                    key: JSON.stringify([connectionId, `attempt-${phase}`]),
+                    runtimeStatus: "running" as const,
+                    lastMessage: `Execution attempt ${phase}`,
+                    error: null,
+                  },
+                ],
+      );
+      return route.fulfill({ response, json: result });
+    });
+    await open(page);
+    const ui = app(page);
+    if (source === "linear")
+      await choose(ui, "Symphony connection", connectionId);
+    const selected = work(page, identifier, title);
+    await selected.click();
+    await expect(detail(page)).toContainText("No active run");
+    for (phase = 1; phase <= 3; phase += 1) {
+      await ui
+        .getByRole("button", { name: "Refresh Symphony", exact: true })
+        .click();
+      if (phase % 2) {
+        await expect(detail(page)).toContainText(`Execution attempt ${phase}`);
+        await expect(
+          detail(page).getByText("Running", { exact: true }),
+        ).toBeVisible();
+      } else {
+        await expect(detail(page)).toContainText("No active run");
+      }
+      await expect(selected).toHaveAttribute("aria-pressed", "true");
+      await expect(detail(page)).not.toContainText(
+        "This work is no longer in the current snapshot.",
+      );
+    }
+  });
+
+  test(`${source} restores the reading position after View run with delayed context`, async ({
+    page,
+  }) => {
+    await page.clock.install();
+    let restarted = false;
+    let sawRestart = false;
+    let delayContext = false;
+    let contextRequested = false;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as {
+        name: string;
+        arguments: { connectionId?: string; number?: number; issueId?: string };
+      };
+      if (
+        input.name === "arco_symphony_state" &&
+        input.arguments.connectionId === connectionId
+      ) {
+        const response = await route.fetch();
+        const result = (await response.json()) as {
+          structuredContent: SymphonySnapshot;
+        };
+        if (restarted) {
+          const row = result.structuredContent.rows.find(
+            (row) => row.issueIdentifier === identifier,
+          )!;
+          row.issueId = "new-attempt";
+          row.key = JSON.stringify([connectionId, row.issueId]);
+          sawRestart = true;
+        }
+        return route.fulfill({ response, json: result });
+      }
+      if (
+        (source === "github" &&
+          input.name === "arco_get_issue" &&
+          input.arguments.number === 42) ||
+        (source === "linear" &&
+          input.name === "linear_get_issue" &&
+          input.arguments.issueId === "fixture-linear-42")
+      ) {
+        if (delayContext) {
+          contextRequested = true;
+          await pending;
+        }
+        const response = await route.fetch();
+        const result = await response.json();
+        result.structuredContent.body = Array.from(
+          { length: 80 },
+          (_, index) => `Paragraph ${index + 1}. Saved reading position.`,
+        ).join("\n\n");
+        return route.fulfill({ response, json: result });
+      }
+      return route.continue();
+    });
+    try {
+      await open(page);
+      const ui = app(page);
+      if (source === "linear")
+        await choose(ui, "Symphony connection", connectionId);
+      await work(page, identifier, title).click();
+      await expect(detail(page)).toContainText("Paragraph 80.");
+      const position = await detail(page).evaluate((element) => {
+        element.scrollTop = 450;
+        return element.scrollTop;
+      });
+      expect(position).toBe(450);
+      // Invoke navigation without Playwright scrolling the offscreen action into view.
+      await detail(page)
+        .getByRole("button", { name: "Open issue", exact: true })
+        .evaluate((button: HTMLButtonElement) => button.click());
+      await expect(ui.locator(".detail-scroll")).toBeVisible();
+      restarted = true;
+      await page.clock.fastForward(5_100);
+      await expect.poll(() => sawRestart).toBe(true);
+      delayContext = true;
+      await ui
+        .getByRole("region", { name: "Symphony run", exact: true })
+        .getByRole("button", { name: "View run", exact: true })
+        .click();
+      await expect.poll(() => contextRequested).toBe(true);
+      await expect(detail(page)).toContainText("Loading issue context…");
+      await expect(
+        detail(page).getByRole("button", {
+          name: "Close work details",
+          exact: true,
+        }),
+      ).toBeFocused();
+      release();
+      await expect(detail(page)).toContainText("Paragraph 80.");
+      await expect
+        .poll(() => detail(page).evaluate((element) => element.scrollTop))
+        .toBe(position);
+      // Cached context must also preserve the offset despite close-button focus.
+      delayContext = false;
+      await detail(page)
+        .getByRole("button", { name: "Open issue", exact: true })
+        .evaluate((button: HTMLButtonElement) => button.click());
+      await ui
+        .getByRole("region", { name: "Symphony run", exact: true })
+        .getByRole("button", { name: "View run", exact: true })
+        .click();
+      await expect(detail(page)).toContainText("Paragraph 80.");
+      await expect
+        .poll(() => detail(page).evaluate((element) => element.scrollTop))
+        .toBe(position);
+    } finally {
+      release();
+    }
+  });
+}
+
+test("search and layout changes do not repeat the unchanged runtime/issue join", async ({
+  page,
+}) => {
+  await open(page);
+  const ui = app(page);
+  await expect(work(page, "GH-42", githubTitle)).toBeVisible();
+  const root = ui.locator("html");
+  await root.evaluate((element) => {
+    element.setAttribute("data-issue-url-parses", "0");
+    const OriginalURL = URL;
+    window.URL = class extends OriginalURL {
+      constructor(input: string | URL, base?: string | URL) {
+        super(input, base);
+        if (
+          String(input).includes("/issues/") ||
+          String(input).includes("/issue/")
+        )
+          element.setAttribute(
+            "data-issue-url-parses",
+            String(Number(element.getAttribute("data-issue-url-parses")) + 1),
+          );
+      }
+    };
+  });
+  await ui
+    .getByRole("searchbox", { name: "Search Symphony work" })
+    .fill("Preserve");
+  await expect(
+    work(page, "GH-43", "Separate shared context from sending a request"),
+  ).toHaveCount(0);
+  await ui.getByRole("button", { name: "Table view", exact: true }).click();
+  await expect(work(page, "GH-42", githubTitle)).toBeVisible();
+  await expect(root).toHaveAttribute("data-issue-url-parses", "0");
+});
+
+test("runtime-only selection adopts its native identity when a later page arrives", async ({
+  page,
+}) => {
+  let showNative = false;
+  let running = true;
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: { connectionId?: string };
+    };
+    if (
+      (input.name === "arco_list_issues" && !showNative) ||
+      (input.name === "arco_symphony_state" &&
+        input.arguments.connectionId === githubConnection &&
+        !running)
+    ) {
+      const response = await route.fetch();
+      const result = await response.json();
+      if (input.name === "arco_list_issues")
+        result.structuredContent.issues =
+          result.structuredContent.issues.filter(
+            (issue: { number: number }) => issue.number !== 42,
+          );
+      else
+        result.structuredContent.rows = result.structuredContent.rows.filter(
+          (row: { issueIdentifier: string }) => row.issueIdentifier !== "GH-42",
+        );
+      return route.fulfill({ response, json: result });
+    }
+    return route.continue();
+  });
+  await open(page);
+  const ui = app(page);
+  await work(page, "GH-42", "GH-42").click();
+  await expect(
+    detail(page).getByRole("heading", { name: githubTitle, exact: true }),
+  ).toBeVisible();
+  showNative = true;
+  await ui
+    .getByRole("button", { name: "Refresh Symphony", exact: true })
+    .click();
+  await expect(work(page, "GH-42", githubTitle)).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  running = false;
+  await ui
+    .getByRole("button", { name: "Refresh Symphony", exact: true })
+    .click();
+  await expect(work(page, "GH-42", githubTitle)).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(detail(page)).toContainText("No active run");
+  await expect(detail(page)).not.toContainText(
+    "This work is no longer in the current snapshot.",
+  );
 });

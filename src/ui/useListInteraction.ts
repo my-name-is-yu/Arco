@@ -161,8 +161,10 @@ function saveReadingPosition(
   if (positions.size > 100) positions.delete(positions.keys().next().value!);
 }
 
-export function useDetailReadingPosition(host: ArcoHost, issueKey: string) {
-  const element = useRef<HTMLDivElement>(null);
+export function useDetailReadingPosition<
+  T extends HTMLElement = HTMLDivElement,
+>(host: ArcoHost, issueKey: string, ready = true) {
+  const element = useRef<T>(null);
   const positions = useSessionRef(
     host,
     "detail:reading-positions",
@@ -170,13 +172,14 @@ export function useDetailReadingPosition(host: ArcoHost, issueKey: string) {
   );
   useLayoutEffect(() => {
     const current = element.current;
-    if (!current) return;
+    // Wait for asynchronous detail content before restoring a saved offset.
+    if (!current || !ready) return;
     const readingPositions = positions.current;
     current.scrollTop = readingPositions.get(issueKey) ?? 0;
     // A fast issue switch can happen before the browser dispatches scroll.
     return () => saveReadingPosition(readingPositions, issueKey, current);
-  }, [issueKey, positions]);
+  }, [issueKey, positions, ready]);
   const save = () =>
-    saveReadingPosition(positions.current, issueKey, element.current);
+    ready && saveReadingPosition(positions.current, issueKey, element.current);
   return { ref: element, onScroll: save, onKeyDownCapture: save };
 }

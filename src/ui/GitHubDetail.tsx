@@ -1,5 +1,4 @@
 import { SymphonyRunSection } from "./SymphonyRunSection";
-import { openSymphonyRun } from "./symphony-queries";
 import { useState, type ReactNode } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
@@ -586,11 +585,7 @@ export function GitHubDetail({
               />
               <LabelManager host={host} repo={issue.repo} />
             </details>
-            <SymphonyRunSection
-              host={host}
-              issue={issue}
-              onViewRun={(selection) => openSymphonyRun(host, selection)}
-            />
+            <SymphonyRunSection host={host} issue={issue} />
           </aside>
         </div>
       </div>

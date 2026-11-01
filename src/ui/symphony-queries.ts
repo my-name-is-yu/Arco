@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useInfiniteQuery,
   useQuery,
@@ -22,6 +22,7 @@ import type {
 import { githubIssueUrl, linearIssueUrl } from "../shared/issue-url";
 import {
   symphonyIssueMatches,
+  symphonyIssueUrl,
   type SymphonyBinding,
   type SymphonyConnection,
   type SymphonyRuntimeRow,
@@ -91,12 +92,44 @@ export function symphonyWorkItems(
   rows: SymphonyRuntimeRow[],
   issues: SymphonyIssueSummary[],
 ): SymphonyWorkItem[] {
+  const binding = connection.binding;
+  const byUrl = new Map<string, SymphonyIssueSummary>();
+  const byId = new Map<string, SymphonyIssueSummary>();
+  for (const issue of issues) {
+    let id: string;
+    let url: string | null;
+    if (binding?.source === "github" && issue.source === "github") {
+      if (binding.repo.toLowerCase() !== issue.repo.toLowerCase()) continue;
+      id = String(issue.number);
+      const expected = `github.com/${binding.repo.toLowerCase()}/issues/${id}`;
+      url = symphonyIssueUrl(issue.url) === expected ? expected : null;
+    } else if (binding?.source === "linear" && issue.source === "linear") {
+      if (
+        issue.connectionId !== binding.connectionId ||
+        issue.workspaceId !== binding.workspaceId ||
+        issue.teamId !== binding.teamId ||
+        (binding.projectId && issue.project?.id !== binding.projectId)
+      )
+        continue;
+      id = issue.issueId;
+      url = symphonyIssueUrl(issue.url);
+    } else continue;
+    // Keep the first native match, as with the original ordered lookup.
+    if (!byId.has(id)) byId.set(id, issue);
+    if (url && !byUrl.has(url)) byUrl.set(url, issue);
+  }
   const matched = new Set<string>();
   const items = rows.map((runtime): SymphonyWorkItem => {
-    const issue =
-      issues.find((candidate) =>
-        symphonyIssueMatches(connection.binding, runtime, candidate),
-      ) ?? null;
+    let issue = runtime.issueUrl
+      ? (byUrl.get(symphonyIssueUrl(runtime.issueUrl) ?? "") ?? null)
+      : (byId.get(runtime.issueId) ?? null);
+    if (
+      issue &&
+      !runtime.issueUrl &&
+      binding?.source === "github" &&
+      runtime.issueIdentifier !== symphonyIssueIdentifier(issue)
+    )
+      issue = null;
     if (issue) matched.add(issue.url);
     return {
       key: runtime.key,
@@ -310,16 +343,14 @@ export function useSymphonyNativeIssues(
     refetchInterval: visible ? 30_000 : false,
     refetchOnWindowFocus: visible,
   });
-  return {
-    provider,
-    issues,
-    generation,
-    nativeIssues:
+  const nativeIssues = useMemo(
+    () =>
       generation && scopeMatches && !provider.isError
         ? (issues.data?.pages.flatMap((page) => page.issues) ?? [])
         : [],
-    scopeMatches,
-  };
+    [generation, scopeMatches, provider.isError, issues.data?.pages],
+  );
+  return { provider, issues, generation, nativeIssues, scopeMatches };
 }
 
 export function useSymphonyIssueContext(

@@ -1,10 +1,10 @@
 import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { ChevronRight } from "@openai/apps-sdk-ui/components/Icon";
+import { symphonyIssueMatches } from "../shared/symphony";
 import {
-  symphonyIssueMatches,
-  type SymphonySelection,
-} from "../shared/symphony";
-import { symphonyBindingContainsIssue } from "./symphony-navigation";
+  symphonyBindingContainsIssue,
+  symphonyNativeSelection,
+} from "./symphony-navigation";
 import { useSettings } from "./useSettings";
 import {
   openSymphonyRun,
@@ -17,11 +17,9 @@ import "./symphony.css";
 export function SymphonyRunSection({
   host,
   issue,
-  onViewRun,
 }: {
   host: ArcoHost;
   issue: ConversationIssue;
-  onViewRun?: (selection: SymphonySelection) => void;
 }) {
   const settings = useSettings(host);
   const visible = useSymphonyVisible();
@@ -85,31 +83,12 @@ export function SymphonyRunSection({
       <button
         type="button"
         className="symphony-text-link"
-        onClick={() => {
-          const selection: SymphonySelection = {
-            connectionId: connection.id,
-            issueIdentifier: identifier,
-            nativeIssue:
-              issue.source === "github"
-                ? {
-                    source: "github",
-                    repo: issue.repo,
-                    number: issue.number,
-                    url: issue.url,
-                  }
-                : {
-                    source: "linear",
-                    connectionId: issue.connectionId,
-                    workspaceId: issue.workspaceId,
-                    teamId: issue.teamId,
-                    issueId: issue.issueId,
-                    url: issue.url,
-                    project: issue.project ? { id: issue.project.id } : null,
-                  },
-          };
-          if (onViewRun) onViewRun(selection);
-          else openSymphonyRun(host, selection);
-        }}
+        onClick={() =>
+          openSymphonyRun(
+            host,
+            symphonyNativeSelection(connection.id, identifier, issue),
+          )
+        }
       >
         View run <ChevronRight aria-hidden="true" />
       </button>

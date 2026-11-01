@@ -17,13 +17,18 @@ import {
   type SymphonyConnection,
   type SymphonySelection,
 } from "../shared/symphony";
-import { resolveSymphonySelection } from "./symphony-navigation";
+import {
+  resolveSymphonySelection,
+  symphonyNativeSelection,
+  symphonySelectionKey,
+} from "./symphony-navigation";
 import { AsyncState } from "./AsyncState";
 import { SingleSelect } from "./SingleSelect";
 import { IssueStateVisual } from "./IssuePropertyVisual";
 import { IssueMarkdown } from "./MarkdownContent";
 import { SymphonyConnectionEditor } from "./SymphonyConnectionEditor";
 import { useSettings } from "./useSettings";
+import { useDetailReadingPosition } from "./useListInteraction";
 import { selectPresentedIssue, useSessionState } from "./session-state";
 import {
   relativeSymphonyTime,
@@ -144,6 +149,7 @@ function WorkDetails({
   observedAt,
   visible,
   disappeared,
+  selectionKey,
   onClose,
 }: {
   host: ArcoHost;
@@ -153,6 +159,7 @@ function WorkDetails({
   observedAt: string;
   visible: boolean;
   disappeared: boolean;
+  selectionKey: string;
   onClose: () => void;
 }) {
   const context = useSymphonyIssueContext(
@@ -164,8 +171,13 @@ function WorkDetails({
     item.runtime,
   );
   const nativeIssue = context.data ?? item.issue;
+  const readingPosition = useDetailReadingPosition<HTMLElement>(
+    host,
+    JSON.stringify([selectionKey, generation]),
+    Boolean(context.data) || !context.isFetching,
+  );
   const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => closeRef.current?.focus(), []);
+  useEffect(() => closeRef.current?.focus({ preventScroll: true }), []);
   const closeDetails = () => {
     onClose();
     requestAnimationFrame(() =>
@@ -246,6 +258,7 @@ function WorkDetails({
     <aside
       className="symphony-work-details"
       aria-label="Symphony work details"
+      {...readingPosition}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.stopPropagation();
@@ -432,7 +445,7 @@ export function SymphonyWorkspace({
     connection?.baseUrl ?? null,
     connection?.binding ?? null,
   ]);
-  const [selected, setSelected] = useSessionState<string | null>(
+  const [selected, setSelected] = useSessionState<SymphonySelection | null>(
     host,
     `symphony:selection:${scopeKey}`,
     null,
@@ -469,38 +482,48 @@ export function SymphonyWorkspace({
     [connection, snapshot.data, native.nativeIssues],
   );
   const activeIntent = intent?.connectionId === connection?.id ? intent : null;
-  const intendedItem =
-    activeIntent && connection
-      ? resolveSymphonySelection(connection, items, activeIntent)
+  const selection = activeIntent ?? selected;
+  const selectedItem =
+    selection && connection
+      ? resolveSymphonySelection(connection, items, selection)
       : undefined;
   useEffect(() => {
-    if (activeIntent && snapshot.data && intendedItem) {
-      setSelected(intendedItem.key);
-      setIntent(null);
+    if (!selection || !selectedItem) return;
+    // Adopt native identity when a later issue page links a runtime-only choice.
+    if (activeIntent || (!selection.nativeIssue && selectedItem.issue)) {
+      setSelected(
+        selectedItem.issue
+          ? symphonyNativeSelection(
+              selection.connectionId,
+              selectedItem.identifier,
+              selectedItem.issue,
+            )
+          : selection,
+      );
+      if (activeIntent) setIntent(null);
     }
-  }, [activeIntent, snapshot.data, intendedItem, setSelected, setIntent]);
+  }, [activeIntent, selection, selectedItem, setSelected, setIntent]);
   useLayoutEffect(() => {
     if (overviewRef.current)
       overviewRef.current.scrollTop = scroll[layout] ?? 0;
   }, [scopeKey, layout, scroll]);
-  const selectedKey = activeIntent ? (intendedItem?.key ?? null) : selected;
-  const selectedItem = items.find((item) => item.key === selectedKey);
+  const selectionKey = selection
+    ? JSON.stringify([scopeKey, symphonySelectionKey(selection)])
+    : null;
+  const selectedKey = selectedItem?.key;
   const retained = useRef<{
-    connectionKey: string | null;
     generation: string | null;
+    selectionKey: string | null;
     item: SymphonyWorkItem;
   } | null>(null);
   if (selectedItem)
     retained.current = {
-      connectionKey: scopeKey,
       generation: native.generation,
+      selectionKey,
       item: selectedItem,
     };
   const remembered =
-    retained.current?.connectionKey === scopeKey &&
-    retained.current?.item.key === selectedKey
-      ? retained.current
-      : null;
+    retained.current?.selectionKey === selectionKey ? retained.current : null;
   const detail =
     selectedItem ??
     (remembered?.generation === native.generation
@@ -573,9 +596,19 @@ export function SymphonyWorkspace({
     setLayoutOverride(value);
     settings.update("symphony:layout", () => ({ symphonyLayout: value }));
   };
-  const selectWork = (key: string | null) => {
+  const selectWork = (item: SymphonyWorkItem | null) => {
     setIntent(null);
-    setSelected(key);
+    setSelected(
+      item && connection
+        ? item.issue
+          ? symphonyNativeSelection(connection.id, item.identifier, item.issue)
+          : {
+              connectionId: connection.id,
+              issueIdentifier: item.identifier,
+              runtimeKey: item.runtime?.key,
+            }
+        : null,
+    );
   };
   return (
     <main className="arco symphony-workspace" aria-label="Symphony workspace">
@@ -752,6 +785,12 @@ export function SymphonyWorkspace({
                 onChange={(value) => setFilter(value as SymphonyGroup | "all")}
               />
             </div>
+            {activeIntent && snapshot.data && !selectedItem && (
+              <p className="symphony-inline-notice" role="status">
+                The selected issue is not in the loaded work. It may have no
+                active run, be closed, or be on another issue page.
+              </p>
+            )}
             {connection.binding &&
               (native.provider.isError ||
                 native.issues.isError ||
@@ -834,7 +873,7 @@ export function SymphonyWorkspace({
                             key={item.key}
                             item={item}
                             selected={selectedKey === item.key}
-                            onSelect={() => selectWork(item.key)}
+                            onSelect={() => selectWork(item)}
                           />
                         ))}
                     </section>
@@ -865,7 +904,7 @@ export function SymphonyWorkspace({
                             aria-label={`${item.identifier}: ${item.title}`}
                             aria-pressed={selectedKey === item.key}
                             data-symphony-work-key={item.key}
-                            onClick={() => selectWork(item.key)}
+                            onClick={() => selectWork(item)}
                           >
                             <span>{item.identifier}</span>
                             <strong>{item.title}</strong>
@@ -910,7 +949,8 @@ export function SymphonyWorkspace({
           </div>
           {detail && (
             <WorkDetails
-              key={JSON.stringify([connection.id, selectedKey])}
+              key={selectionKey}
+              selectionKey={selectionKey!}
               host={host}
               connection={connection}
               item={detail}

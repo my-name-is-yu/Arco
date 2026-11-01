@@ -6,7 +6,11 @@ import {
   createSymphonyFixtureService,
   SYMPHONY_FIXTURE_CONNECTIONS,
 } from "../src/server/symphony-fixture";
-import { resolveSymphonySelection } from "../src/ui/symphony-navigation";
+import {
+  resolveSymphonySelection,
+  symphonyNativeSelection,
+  symphonySelectionKey,
+} from "../src/ui/symphony-navigation";
 import { symphonyWorkItems } from "../src/ui/symphony-queries";
 
 async function fixtures() {
@@ -90,6 +94,59 @@ it("preserves identifier-only launch resolution within the selected instance", a
       issueIdentifier: "GH-42",
     })?.runtime,
   ).toEqual(foreign);
+});
+
+it("keeps native selection identity through dispatch changes and scopes runtime-only choices by key", async () => {
+  const { connection, issue, runtime } = await fixtures();
+  const selection = symphonyNativeSelection(connection.id, "GH-42", issue);
+  const identity = symphonySelectionKey(selection);
+  for (const rows of [
+    [],
+    [runtime],
+    [],
+    [{ ...runtime, issueId: "restarted", key: "new-key" }],
+  ]) {
+    const selected = resolveSymphonySelection(
+      connection,
+      symphonyWorkItems(connection, rows, [issue]),
+      selection,
+    );
+    expect(selected?.issue).toEqual(issue);
+    expect(selected?.runtime).toEqual(rows[0] ?? null);
+  }
+  expect(
+    symphonySelectionKey(
+      symphonyNativeSelection(connection.id, "renamed", {
+        ...issue,
+        repo: "YU/ARCO",
+        url: `${issue.url}/`,
+      }),
+    ),
+  ).toBe(identity);
+  const foreign = {
+    ...runtime,
+    key: "foreign",
+    issueUrl: "https://github.com/other/project/issues/42",
+  };
+  const runtimeSelection = {
+    connectionId: connection.id,
+    issueIdentifier: "GH-42",
+    runtimeKey: foreign.key,
+  };
+  expect(
+    resolveSymphonySelection(
+      connection,
+      symphonyWorkItems(connection, [runtime, foreign], [issue]),
+      runtimeSelection,
+    )?.runtime,
+  ).toEqual(foreign);
+  expect(
+    resolveSymphonySelection(
+      connection,
+      symphonyWorkItems(connection, [runtime], [issue]),
+      runtimeSelection,
+    ),
+  ).toBeUndefined();
 });
 
 it("keeps Linear View run within its native connection, workspace and team", async () => {

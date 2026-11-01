@@ -44,6 +44,46 @@ function sameNativeIssue(
   );
 }
 
+export function symphonyNativeSelection(
+  connectionId: string,
+  issueIdentifier: string,
+  issue: SymphonyNativeIssue,
+): SymphonySelection {
+  return {
+    connectionId,
+    issueIdentifier,
+    nativeIssue:
+      "repo" in issue
+        ? {
+            source: "github",
+            repo: issue.repo,
+            number: issue.number,
+            url: issue.url,
+          }
+        : {
+            source: "linear",
+            connectionId: issue.connectionId,
+            workspaceId: issue.workspaceId,
+            teamId: issue.teamId,
+            issueId: issue.issueId,
+            url: issue.url,
+            project: issue.project ? { id: issue.project.id } : null,
+          },
+  };
+}
+
+export function symphonySelectionKey(selection: SymphonySelection): string {
+  const issue = selection.nativeIssue;
+  return JSON.stringify([
+    selection.connectionId,
+    issue
+      ? "repo" in issue
+        ? [issue.repo.toLowerCase(), issue.number]
+        : [issue.connectionId, issue.workspaceId, issue.teamId, issue.issueId]
+      : (selection.runtimeKey ?? selection.issueIdentifier),
+  ]);
+}
+
 export function resolveSymphonySelection(
   connection: SymphonyConnection,
   items: SymphonyWorkItem[],
@@ -70,6 +110,8 @@ export function resolveSymphonySelection(
     );
     return native.length === 1 ? native[0] : undefined;
   }
+  if (selection.runtimeKey)
+    return items.find((item) => item.runtime?.key === selection.runtimeKey);
   const candidates = items.filter(
     (item) => item.identifier === selection.issueIdentifier,
   );
