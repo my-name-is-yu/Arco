@@ -27,8 +27,16 @@
   min-width: 0;
 }
 .symphony-connection-fields > p,
-.symphony-connection-fields > button {
+.symphony-connection-fields > button,
+.symphony-connection-fields > h3,
+.symphony-connection-fields > .symphony-scope-field {
   grid-column: 1 / -1;
+}
+.symphony-connection-fields > h3 {
+  border-top: 1px solid var(--arco-border);
+  padding-top: 14px;
+  font-size: 12px;
+  font-weight: 500;
 }
 .symphony-connection-fields > button {
   justify-self: start;

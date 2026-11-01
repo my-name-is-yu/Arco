@@ -608,61 +608,141 @@ test("search and layout changes do not repeat the unchanged runtime/issue join",
   await expect(root).toHaveAttribute("data-issue-url-parses", "0");
 });
 
-test("runtime-only selection adopts its native identity when a later page arrives", async ({
+for (const withUrl of [true, false]) {
+  test(`runtime-only selection preserves its detail and reading position when a later page arrives (${withUrl ? "URL" : "no URL"})`, async ({
+    page,
+  }) => {
+    let showNative = false;
+    let running = true;
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as {
+        name: string;
+        arguments: { connectionId?: string; number?: number };
+      };
+      if (input.name === "arco_get_issue" && input.arguments.number === 42) {
+        const response = await route.fetch();
+        const result = await response.json();
+        result.structuredContent.body = Array.from(
+          { length: 80 },
+          (_, index) => `Paragraph ${index + 1}. Saved reading position.`,
+        ).join("\n\n");
+        return route.fulfill({ response, json: result });
+      }
+      if (
+        (input.name === "arco_list_issues" && !showNative) ||
+        (input.name === "arco_symphony_state" &&
+          input.arguments.connectionId === githubConnection &&
+          (!running || !withUrl))
+      ) {
+        const response = await route.fetch();
+        const result = await response.json();
+        if (input.name === "arco_list_issues")
+          result.structuredContent.issues =
+            result.structuredContent.issues.filter(
+              (issue: { number: number }) => issue.number !== 42,
+            );
+        else {
+          result.structuredContent.rows = result.structuredContent.rows.filter(
+            (row: { issueIdentifier: string }) =>
+              running || row.issueIdentifier !== "GH-42",
+          );
+          if (!withUrl) {
+            const row = result.structuredContent.rows.find(
+              (row: { issueIdentifier: string }) =>
+                row.issueIdentifier === "GH-42",
+            );
+            if (row) {
+              row.issueUrl = null;
+              row.lastMessage = "Runtime event. ".repeat(300);
+            }
+          }
+        }
+        return route.fulfill({ response, json: result });
+      }
+      return route.continue();
+    });
+    await open(page);
+    const ui = app(page);
+    await work(page, "GH-42", "GH-42").click();
+    await expect(detail(page)).toContainText(
+      withUrl ? "Paragraph 80." : "Runtime event.",
+    );
+    await detail(page).evaluate((element) => {
+      element.scrollTop = 450;
+      element.setAttribute("data-continuity", "same-detail");
+    });
+    await expect
+      .poll(() => detail(page).evaluate((element) => element.scrollTop))
+      .toBe(450);
+    showNative = true;
+    await ui
+      .getByRole("button", { name: "Refresh Symphony", exact: true })
+      .click();
+    await expect(work(page, "GH-42", githubTitle)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(detail(page)).toContainText("Paragraph 80.");
+    await expect(detail(page)).toHaveAttribute(
+      "data-continuity",
+      "same-detail",
+    );
+    if (withUrl)
+      await expect
+        .poll(() => detail(page).evaluate((element) => element.scrollTop))
+        .toBe(450);
+    else
+      await expect
+        .poll(() => detail(page).evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(0);
+    const position = await detail(page).evaluate(
+      (element) => element.scrollTop,
+    );
+    await detail(page)
+      .getByRole("button", { name: "Open issue", exact: true })
+      .evaluate((button: HTMLButtonElement) => button.click());
+    await ui
+      .getByRole("region", { name: "Symphony run", exact: true })
+      .getByRole("button", { name: "View run", exact: true })
+      .click();
+    await expect(detail(page)).toContainText("Paragraph 80.");
+    await expect
+      .poll(() => detail(page).evaluate((element) => element.scrollTop))
+      .toBe(position);
+    running = false;
+    await ui
+      .getByRole("button", { name: "Refresh Symphony", exact: true })
+      .click();
+    await expect(work(page, "GH-42", githubTitle)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(detail(page)).toContainText("No active run");
+    await expect(detail(page)).not.toContainText(
+      "This work is no longer in the current snapshot.",
+    );
+  });
+}
+
+test("a connection-only Symphony launch does not report a missing issue", async ({
   page,
 }) => {
-  let showNative = false;
-  let running = true;
   await page.route("**/tool", async (route) => {
-    const input = route.request().postDataJSON() as {
-      name: string;
-      arguments: { connectionId?: string };
-    };
-    if (
-      (input.name === "arco_list_issues" && !showNative) ||
-      (input.name === "arco_symphony_state" &&
-        input.arguments.connectionId === githubConnection &&
-        !running)
-    ) {
-      const response = await route.fetch();
-      const result = await response.json();
-      if (input.name === "arco_list_issues")
-        result.structuredContent.issues =
-          result.structuredContent.issues.filter(
-            (issue: { number: number }) => issue.number !== 42,
-          );
-      else
-        result.structuredContent.rows = result.structuredContent.rows.filter(
-          (row: { issueIdentifier: string }) => row.issueIdentifier !== "GH-42",
-        );
-      return route.fulfill({ response, json: result });
-    }
-    return route.continue();
+    const input = route.request().postDataJSON();
+    if (input.name !== "arco_open") return route.continue();
+    const response = await route.fetch({
+      postData: JSON.stringify({
+        ...input,
+        arguments: {
+          ...input.arguments,
+          symphony: { connectionId: githubConnection },
+        },
+      }),
+    });
+    return route.fulfill({ response });
   });
   await open(page);
-  const ui = app(page);
-  await work(page, "GH-42", "GH-42").click();
-  await expect(
-    detail(page).getByRole("heading", { name: githubTitle, exact: true }),
-  ).toBeVisible();
-  showNative = true;
-  await ui
-    .getByRole("button", { name: "Refresh Symphony", exact: true })
-    .click();
-  await expect(work(page, "GH-42", githubTitle)).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  running = false;
-  await ui
-    .getByRole("button", { name: "Refresh Symphony", exact: true })
-    .click();
-  await expect(work(page, "GH-42", githubTitle)).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(detail(page)).toContainText("No active run");
-  await expect(detail(page)).not.toContainText(
-    "This work is no longer in the current snapshot.",
-  );
+  await expect(work(page, "GH-42", githubTitle)).toBeVisible();
+  await expect(app(page).getByRole("status")).toHaveCount(0);
+  await expect(detail(page)).toHaveCount(0);
 });

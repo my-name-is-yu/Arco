@@ -67,7 +67,7 @@ export function SymphonyRuntimeStatus({
 }
 
 function NativeState({ item }: { item: SymphonyWorkItem }) {
-  if (!item.issue) return <span className="muted">Not linked</span>;
+  if (!item.issue) return <span className="muted">Runtime only</span>;
   return (
     <span className="symphony-native-state">
       <IssueStateVisual
@@ -109,15 +109,14 @@ function WorkCard({
       onClick={onSelect}
     >
       <span className="symphony-card-kicker">
-        <span>{item.identifier}</span>
+        {item.title !== item.identifier ? (
+          <span>{item.identifier}</span>
+        ) : (
+          <strong>{item.identifier}</strong>
+        )}
         <NativeState item={item} />
       </span>
-      <strong>{item.title}</strong>
-      {!item.issue && (
-        <span className="symphony-card-note">
-          Runtime only · issue context not linked
-        </span>
-      )}
+      {item.title !== item.identifier && <strong>{item.title}</strong>}
       <span className="symphony-card-runtime">
         <SymphonyRuntimeStatus item={item} />
         {item.runtime && (
@@ -150,6 +149,7 @@ function WorkDetails({
   visible,
   disappeared,
   selectionKey,
+  panelKey,
   onClose,
 }: {
   host: ArcoHost;
@@ -160,6 +160,7 @@ function WorkDetails({
   visible: boolean;
   disappeared: boolean;
   selectionKey: string;
+  panelKey: string;
   onClose: () => void;
 }) {
   const context = useSymphonyIssueContext(
@@ -175,6 +176,7 @@ function WorkDetails({
     host,
     JSON.stringify([selectionKey, generation]),
     Boolean(context.data) || !context.isFetching,
+    JSON.stringify([panelKey, generation]),
   );
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => closeRef.current?.focus({ preventScroll: true }), []);
@@ -287,8 +289,10 @@ function WorkDetails({
         </p>
       )}
       <section className="symphony-runtime-detail">
-        <h2>Runtime</h2>
-        <SymphonyRuntimeStatus item={{ runtime }} />
+        <div className="symphony-section-heading">
+          <h2>Runtime</h2>
+          <SymphonyRuntimeStatus item={{ runtime }} />
+        </div>
         {runtime ? (
           <>
             {(runtime.error || runtime.lastMessage) && (
@@ -331,13 +335,13 @@ function WorkDetails({
                   </dd>
                 </div>
               )}
+              {runtime.lastEvent && (
+                <div>
+                  <dt>Last event</dt>
+                  <dd>{runtime.lastEvent}</dd>
+                </div>
+              )}
             </dl>
-            {runtime.lastEvent && (
-              <div className="symphony-last-event">
-                <span className="muted">Latest event</span>
-                <p>{runtime.lastEvent}</p>
-              </div>
-            )}
             <Button
               color="primary"
               size="sm"
@@ -347,39 +351,44 @@ function WorkDetails({
               Add run context to chat
             </Button>
           </>
-        ) : (
-          <p className="muted">
-            No current execution is reported. This does not indicate that the
-            issue is complete.
-          </p>
-        )}
+        ) : null}
       </section>
-      <section className="symphony-issue-context">
-        <h2>Issue context</h2>
-        {!nativeIssue && !context.isFetching && !context.isError && (
-          <p className="muted">
-            No matching issue is available in this connection's scope. Every
-            runtime remains visible here.
-          </p>
-        )}
-        {context.isFetching && !context.data && (
-          <AsyncState kind="loading">Loading issue context…</AsyncState>
-        )}
-        {context.isError && (
-          <p className="inline-error" role="alert">
-            {context.error.message}
-          </p>
-        )}
-        {nativeIssue && (
-          <>
-            <div className="symphony-context-identity">
-              <span>
-                {nativeIssue.source === "github" ? nativeIssue.repo : "Linear"}
-              </span>
-              <NativeState item={{ ...item, issue: nativeIssue }} />
-            </div>
+      {(!connection.binding || generation || nativeIssue) && (
+        <section className="symphony-issue-context">
+          <div className="symphony-section-heading">
+            <h2>Issue context</h2>
             {context.data && (
-              <>
+              <button
+                type="button"
+                className="symphony-text-link"
+                onClick={() => void openIssue()}
+              >
+                Open issue <ChevronRight aria-hidden="true" />
+              </button>
+            )}
+          </div>
+          {!nativeIssue && !context.isFetching && !context.isError && (
+            <p className="muted">No linked issue in this scope.</p>
+          )}
+          {context.isFetching && !context.data && (
+            <AsyncState kind="loading">Loading issue context…</AsyncState>
+          )}
+          {context.isError && (
+            <p className="inline-error" role="alert">
+              {context.error.message}
+            </p>
+          )}
+          {nativeIssue && (
+            <>
+              <div className="symphony-context-identity">
+                <span>
+                  {nativeIssue.source === "github"
+                    ? nativeIssue.repo
+                    : "Linear"}
+                </span>
+                <NativeState item={{ ...item, issue: nativeIssue }} />
+              </div>
+              {context.data && (
                 <IssueMarkdown
                   body={context.data.body}
                   onOpen={(url) => {
@@ -388,18 +397,11 @@ function WorkDetails({
                       .catch(() => setError("Could not open this link."));
                   }}
                 />
-                <button
-                  type="button"
-                  className="symphony-text-link"
-                  onClick={() => void openIssue()}
-                >
-                  Open issue <ChevronRight aria-hidden="true" />
-                </button>
-              </>
-            )}
-          </>
-        )}
-      </section>
+              )}
+            </>
+          )}
+        </section>
+      )}
       {error && (
         <p className="inline-error" role="alert">
           {error}
@@ -493,11 +495,14 @@ export function SymphonyWorkspace({
     if (activeIntent || (!selection.nativeIssue && selectedItem.issue)) {
       setSelected(
         selectedItem.issue
-          ? symphonyNativeSelection(
-              selection.connectionId,
-              selectedItem.identifier,
-              selectedItem.issue,
-            )
+          ? {
+              ...symphonyNativeSelection(
+                selection.connectionId,
+                selectedItem.identifier,
+                selectedItem.issue,
+              ),
+              runtimeKey: selection.runtimeKey,
+            }
           : selection,
       );
       if (activeIntent) setIntent(null);
@@ -510,6 +515,10 @@ export function SymphonyWorkspace({
   const selectionKey = selection
     ? JSON.stringify([scopeKey, symphonySelectionKey(selection)])
     : null;
+  // Native metadata enriches the selected runtime without replacing its panel.
+  const panelKey = selection?.runtimeKey
+    ? JSON.stringify([scopeKey, selection.runtimeKey])
+    : selectionKey;
   const selectedKey = selectedItem?.key;
   const retained = useRef<{
     generation: string | null;
@@ -696,12 +705,35 @@ export function SymphonyWorkspace({
           </button>
         </p>
       )}
-      {connection && snapshot.isError && (
+      {connection && snapshot.isError && snapshot.data && (
         <p className="symphony-inline-notice" role="alert">
           {snapshot.error.message}
-          {snapshot.data ? " Last observed work is retained." : ""}
+          {" Last observed work is retained."}
         </p>
       )}
+      {connection?.binding &&
+        (native.provider.isError ||
+          native.issues.isError ||
+          !native.scopeMatches ||
+          native.provider.data?.connected === false) && (
+          <p className="symphony-inline-notice" role="alert">
+            {native.provider.error?.message ??
+              native.issues.error?.message ??
+              (!native.scopeMatches
+                ? "The connected issue workspace does not match this binding."
+                : "Connect the bound issue account to load issue context.")}
+          </p>
+        )}
+      {activeIntent &&
+        (activeIntent.nativeIssue ||
+          activeIntent.runtimeKey ||
+          activeIntent.issueIdentifier) &&
+        snapshot.data &&
+        !selectedItem && (
+          <p className="symphony-inline-notice" role="status">
+            The selected issue is not in the loaded work.
+          </p>
+        )}
       {settings.query.isError ? (
         <AsyncState kind="error" className="symphony-empty">
           <h1>Could not load local settings</h1>
@@ -714,11 +746,7 @@ export function SymphonyWorkspace({
       ) : !connection ? (
         <AsyncState kind="empty" className="symphony-empty">
           <h1>Connect Symphony</h1>
-          <p>See current work alongside the issues you discuss in Codex.</p>
-          <p className="muted">
-            Connect an existing local or remote Symphony instance. Issue
-            connections are optional.
-          </p>
+          <p className="muted">Connect an existing Symphony instance.</p>
           <Button color="primary" size="sm" onClick={() => setEditor("new")}>
             Add connection
           </Button>
@@ -736,33 +764,13 @@ export function SymphonyWorkspace({
             }}
           >
             <div className="symphony-overview-heading">
-              <div>
-                <h1>Work overview</h1>
-                <p className="muted">
-                  {items.length} loaded
-                  {snapshot.data
-                    ? ` · Updated ${relativeSymphonyTime(snapshot.data.fetchedAt)}`
-                    : ""}
-                </p>
-              </div>
-              <div className="symphony-view-toggle" aria-label="Work layout">
-                <button
-                  type="button"
-                  aria-label="Board view"
-                  aria-pressed={layout === "board"}
-                  onClick={() => showLayout("board")}
-                >
-                  <Grid aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Table view"
-                  aria-pressed={layout === "table"}
-                  onClick={() => showLayout("table")}
-                >
-                  <TableCellsFilled aria-hidden="true" />
-                </button>
-              </div>
+              <h1>Work overview</h1>
+              <p className="muted">
+                {items.length} loaded
+                {snapshot.data
+                  ? ` · Updated ${relativeSymphonyTime(snapshot.data.fetchedAt)}`
+                  : ""}
+              </p>
             </div>
             <div className="symphony-filters">
               <input
@@ -784,30 +792,27 @@ export function SymphonyWorkspace({
                 ]}
                 onChange={(value) => setFilter(value as SymphonyGroup | "all")}
               />
+              <div className="symphony-view-toggle" aria-label="Work layout">
+                <button
+                  type="button"
+                  aria-label="Board view"
+                  aria-pressed={layout === "board"}
+                  onClick={() => showLayout("board")}
+                >
+                  <Grid aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Table view"
+                  aria-pressed={layout === "table"}
+                  onClick={() => showLayout("table")}
+                >
+                  <TableCellsFilled aria-hidden="true" />
+                </button>
+              </div>
             </div>
-            {activeIntent && snapshot.data && !selectedItem && (
-              <p className="symphony-inline-notice" role="status">
-                The selected issue is not in the loaded work. It may have no
-                active run, be closed, or be on another issue page.
-              </p>
-            )}
-            {connection.binding &&
-              (native.provider.isError ||
-                native.issues.isError ||
-                !native.scopeMatches ||
-                native.provider.data?.connected === false) && (
-                <p className="symphony-inline-notice" role="alert">
-                  {native.provider.error?.message ??
-                    native.issues.error?.message ??
-                    (!native.scopeMatches
-                      ? "The connected issue workspace does not match this binding."
-                      : "Connect the bound issue account to load issue context.")}{" "}
-                  Runtime work remains available.
-                </p>
-              )}
             {!connection.binding && (
               <p className="symphony-binding-hint">
-                Showing runtime work.{" "}
                 <button
                   type="button"
                   className="symphony-text-link"
@@ -824,7 +829,7 @@ export function SymphonyWorkspace({
             ) : snapshot.isError && !snapshot.data ? (
               <AsyncState kind="error" className="symphony-empty">
                 <h2>Could not load current work</h2>
-                <p>Check the connection route and refresh to try again.</p>
+                <p>{snapshot.error.message}</p>
               </AsyncState>
             ) : !filtered.length ? (
               <AsyncState kind="empty" className="symphony-empty">
@@ -833,19 +838,12 @@ export function SymphonyWorkspace({
                     ? "No work matches these filters"
                     : "No current work"}
                 </h2>
-                <p className="muted">
-                  {snapshot.isError
-                    ? "Refresh the connection to load its current work."
-                    : "Newly observed work appears here automatically."}
-                </p>
               </AsyncState>
             ) : layout === "board" ? (
               <div className="symphony-board">
                 {symphonyGroups
-                  .filter(
-                    (group) =>
-                      group.value !== "other" ||
-                      filtered.some((item) => item.group === "other"),
+                  .filter((group) =>
+                    filtered.some((item) => item.group === group.value),
                   )
                   .map((group) => (
                     <section
@@ -864,7 +862,6 @@ export function SymphonyWorkspace({
                             }
                           </span>
                         </h2>
-                        <p>{group.hint}</p>
                       </div>
                       {filtered
                         .filter((item) => item.group === group.value)
@@ -906,7 +903,9 @@ export function SymphonyWorkspace({
                             data-symphony-work-key={item.key}
                             onClick={() => selectWork(item)}
                           >
-                            <span>{item.identifier}</span>
+                            {item.title !== item.identifier && (
+                              <span>{item.identifier}</span>
+                            )}
                             <strong>{item.title}</strong>
                           </button>
                         </td>
@@ -949,7 +948,8 @@ export function SymphonyWorkspace({
           </div>
           {detail && (
             <WorkDetails
-              key={selectionKey}
+              key={panelKey}
+              panelKey={panelKey!}
               selectionKey={selectionKey!}
               host={host}
               connection={connection}

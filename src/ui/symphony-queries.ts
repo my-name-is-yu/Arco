@@ -37,20 +37,11 @@ export type SymphonyGroup = "preparation" | "working" | "attention" | "other";
 export const symphonyGroups: {
   value: SymphonyGroup;
   label: string;
-  hint: string;
 }[] = [
-  {
-    value: "preparation",
-    label: "Preparation",
-    hint: "Configured issue states or labels",
-  },
-  { value: "working", label: "Working", hint: "Running or retrying" },
-  {
-    value: "attention",
-    label: "Needs attention",
-    hint: "Blocked or ready for review",
-  },
-  { value: "other", label: "Other", hint: "Unmapped work" },
+  { value: "preparation", label: "Preparation" },
+  { value: "working", label: "Working" },
+  { value: "attention", label: "Needs attention" },
+  { value: "other", label: "Other" },
 ];
 export interface SymphonyWorkItem {
   key: string;

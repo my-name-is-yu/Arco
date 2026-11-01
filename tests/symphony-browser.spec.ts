@@ -500,15 +500,25 @@ test("narrow Symphony details are keyboard reachable without horizontal overflow
   await expect(
     detail.getByRole("button", { name: "Add run context to chat" }),
   ).toBeVisible();
+  await expect(
+    detail.getByRole("button", { name: "Close work details", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    detail.getByRole("button", { name: "Add run context to chat" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    detail.getByRole("button", { name: "Open issue", exact: true }),
+  ).toBeFocused();
   expect(
     await ui
       .locator("body")
       .evaluate((element) => element.scrollWidth <= element.clientWidth),
   ).toBe(true);
-  await detail
-    .getByRole("button", { name: "Close work details", exact: true })
-    .click();
+  await page.keyboard.press("Escape");
   await expect(work(page, "GH-42")).toBeVisible();
+  await expect(work(page, "GH-42")).toBeFocused();
   await ui.getByRole("button", { name: "Table view", exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect(
@@ -561,4 +571,65 @@ test("runtime polling pauses while the Symphony surface is hidden", async ({
     });
   await page.clock.fastForward(5_100);
   await expect.poll(() => reads).toBeGreaterThan(hiddenReads);
+});
+
+test("an issue-account failure stays visible once above narrow runtime details", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let offline = false;
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as { name: string };
+    if (offline && input.name === "arco_connection")
+      return route.fulfill({
+        json: toolFailure(
+          "The issue account could not be reached. Reconnect or retry.",
+        ),
+      });
+    return route.continue();
+  });
+  const session = await sessionWithSettings(page);
+  await open(page, session);
+  await work(page, "GH-42").click();
+  const details = app(page).getByRole("complementary", {
+    name: "Symphony work details",
+  });
+  await expect(details).toContainText("Return to the same position");
+  offline = true;
+  await app(page)
+    .getByRole("button", { name: "Refresh Symphony", exact: true })
+    .click();
+  const notice = app(page)
+    .getByRole("alert")
+    .filter({ hasText: "The issue account could not be reached." });
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toBeVisible();
+  await expect(details).toContainText("Running");
+  await expect(details).not.toContainText("No linked issue");
+  await expect(work(page, "GH-42")).toBeHidden();
+});
+
+test("an initial runtime failure shows the actual error in one place", async ({
+  page,
+}) => {
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as { name: string };
+    if (input.name === "arco_symphony_state")
+      return route.fulfill({
+        json: toolFailure("Symphony could not be reached."),
+      });
+    return route.continue();
+  });
+  const session = await sessionWithSettings(page);
+  await open(page, session);
+  await expect(app(page).getByRole("alert")).toHaveCount(1);
+  await expect(app(page).getByRole("alert")).toContainText(
+    "Symphony could not be reached.",
+  );
+  await expect(
+    app(page).getByText("Symphony could not be reached.", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    app(page).getByRole("button", { name: "Refresh Symphony", exact: true }),
+  ).toBeEnabled();
 });

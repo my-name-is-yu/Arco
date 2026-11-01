@@ -174,7 +174,7 @@ test("canonical runtime from another GitHub repository does not read a native bo
     return route.fulfill({ response, json: result });
   });
   const detail = await open(page, await setup(page, github), "GH-42");
-  await expect(detail).toContainText("No matching issue is available");
+  await expect(detail).toContainText("No linked issue in this scope.");
   await expect(
     detail.getByRole("button", { name: "Open issue", exact: true }),
   ).toHaveCount(0);
@@ -209,7 +209,7 @@ for (const mismatch of ["team", "project"] as const) {
       connection.binding.projectId = "another-project";
     const detail = await open(page, await setup(page, connection), "YU-42");
     await expect.poll(() => resolutionFinished).toBe(true);
-    await expect(detail).toContainText("No matching issue is available");
+    await expect(detail).toContainText("No linked issue in this scope.");
     await expect(
       detail.getByRole("button", { name: "Open issue", exact: true }),
     ).toHaveCount(0);

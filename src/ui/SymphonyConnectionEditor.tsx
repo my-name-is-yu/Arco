@@ -335,7 +335,7 @@ export function SymphonyConnectionEditor({
       titleId={titleId}
       closeLabel="Close Symphony connection"
       onClose={onClose}
-      scope="Connect an existing Symphony instance. Settings stay on this device."
+      scope="Settings stay on this device."
     >
       <form
         className="symphony-connection-editor"
@@ -414,11 +414,6 @@ export function SymphonyConnectionEditor({
             }}
           />
         </label>
-        <p className="muted">
-          Link an existing issue scope to show issue context and group
-          preparation and review work. This does not change issues or Symphony
-          dispatch rules.
-        </p>
         {source === "github" && (
           <div className="symphony-connection-fields">
             {github.data && !github.data.connected && (
@@ -426,7 +421,7 @@ export function SymphonyConnectionEditor({
                 Connect GitHub in Arco to select a repository.
               </p>
             )}
-            <label>
+            <label className="symphony-scope-field">
               Repository
               <SingleSelect
                 label="GitHub repository"
@@ -464,6 +459,7 @@ export function SymphonyConnectionEditor({
                 Load more repositories
               </button>
             )}
+            <h3>Work groups in Arco</h3>
             <label>
               Preparation labels
               <MultiSelect
@@ -535,6 +531,7 @@ export function SymphonyConnectionEditor({
                 onChange={setProjectId}
               />
             </label>
+            <h3>Work groups in Arco</h3>
             <label>
               Preparation states
               <MultiSelect
