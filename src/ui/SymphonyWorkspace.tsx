@@ -172,6 +172,7 @@ function WorkDetails({
     item.runtime,
   );
   const nativeIssue = context.data ?? item.issue;
+  const title = nativeIssue?.title ?? item.title;
   const readingPosition = useDetailReadingPosition<HTMLElement>(
     host,
     JSON.stringify([selectionKey, generation]),
@@ -270,8 +271,10 @@ function WorkDetails({
     >
       <div className="symphony-detail-heading">
         <div>
-          <span className="muted">{item.identifier}</span>
-          <h1>{nativeIssue?.title ?? item.title}</h1>
+          {title !== item.identifier && (
+            <span className="muted">{item.identifier}</span>
+          )}
+          <h1>{title}</h1>
         </div>
         <button
           type="button"
