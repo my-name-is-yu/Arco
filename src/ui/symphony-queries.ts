@@ -123,7 +123,7 @@ export function symphonyWorkItems(
 
 export function openSymphonyRun(host: ArcoHost, selection: SymphonySelection) {
   setSessionState(host, "symphony:connectionId", selection.connectionId);
-  setSessionState(host, "symphony:selected", selection.issueIdentifier ?? null);
+  setSessionState(host, "symphony:selected", selection);
   setSessionState(host, "active-source", "symphony");
 }
 

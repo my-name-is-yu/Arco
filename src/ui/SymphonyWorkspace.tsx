@@ -15,7 +15,9 @@ import type { SettingsRecord } from "../shared/state";
 import {
   symphonyRuntimeContext,
   type SymphonyConnection,
+  type SymphonySelection,
 } from "../shared/symphony";
+import { resolveSymphonySelection } from "./symphony-navigation";
 import { AsyncState } from "./AsyncState";
 import { SingleSelect } from "./SingleSelect";
 import { IssueStateVisual } from "./IssuePropertyVisual";
@@ -407,7 +409,7 @@ export function SymphonyWorkspace({
   const [connectionOverride, setConnectionOverride] = useSessionState<
     string | null
   >(host, "symphony:connectionId", null);
-  const [intent, setIntent] = useSessionState<string | null>(
+  const [intent, setIntent] = useSessionState<SymphonySelection | null>(
     host,
     "symphony:selected",
     null,
@@ -466,26 +468,23 @@ export function SymphonyWorkspace({
         : [],
     [connection, snapshot.data, native.nativeIssues],
   );
+  const activeIntent = intent?.connectionId === connection?.id ? intent : null;
+  const intendedItem =
+    activeIntent && connection
+      ? resolveSymphonySelection(connection, items, activeIntent)
+      : undefined;
   useEffect(() => {
-    if (!intent || !snapshot.data) return;
-    const candidates = items.filter((item) => item.identifier === intent);
-    const runtime = candidates.filter((item) => item.runtime);
-    const match =
-      runtime.length === 1
-        ? runtime[0]
-        : candidates.length === 1
-          ? candidates[0]
-          : undefined;
-    if (match) {
-      setSelected(match.key);
+    if (activeIntent && snapshot.data && intendedItem) {
+      setSelected(intendedItem.key);
       setIntent(null);
     }
-  }, [intent, snapshot.data, items, setSelected, setIntent]);
+  }, [activeIntent, snapshot.data, intendedItem, setSelected, setIntent]);
   useLayoutEffect(() => {
     if (overviewRef.current)
       overviewRef.current.scrollTop = scroll[layout] ?? 0;
   }, [scopeKey, layout, scroll]);
-  const selectedItem = items.find((item) => item.key === selected);
+  const selectedKey = activeIntent ? (intendedItem?.key ?? null) : selected;
+  const selectedItem = items.find((item) => item.key === selectedKey);
   const retained = useRef<{
     connectionKey: string | null;
     generation: string | null;
@@ -499,7 +498,7 @@ export function SymphonyWorkspace({
     };
   const remembered =
     retained.current?.connectionKey === scopeKey &&
-    retained.current?.item.key === selected
+    retained.current?.item.key === selectedKey
       ? retained.current
       : null;
   const detail =
@@ -564,6 +563,7 @@ export function SymphonyWorkspace({
     }
   };
   const selectConnection = (id: string) => {
+    setIntent(null);
     setConnectionOverride(id);
     settings.update("symphony:connection", () => ({
       activeSymphonyConnectionId: id,
@@ -572,6 +572,10 @@ export function SymphonyWorkspace({
   const showLayout = (value: "board" | "table") => {
     setLayoutOverride(value);
     settings.update("symphony:layout", () => ({ symphonyLayout: value }));
+  };
+  const selectWork = (key: string | null) => {
+    setIntent(null);
+    setSelected(key);
   };
   return (
     <main className="arco symphony-workspace" aria-label="Symphony workspace">
@@ -659,6 +663,12 @@ export function SymphonyWorkspace({
           </button>
         </p>
       )}
+      {connection && snapshot.isError && (
+        <p className="symphony-inline-notice" role="alert">
+          {snapshot.error.message}
+          {snapshot.data ? " Last observed work is retained." : ""}
+        </p>
+      )}
       {settings.query.isError ? (
         <AsyncState kind="error" className="symphony-empty">
           <h1>Could not load local settings</h1>
@@ -742,12 +752,6 @@ export function SymphonyWorkspace({
                 onChange={(value) => setFilter(value as SymphonyGroup | "all")}
               />
             </div>
-            {snapshot.isError && (
-              <p className="symphony-inline-notice" role="alert">
-                {snapshot.error.message}
-                {snapshot.data ? " Last observed work is retained." : ""}
-              </p>
-            )}
             {connection.binding &&
               (native.provider.isError ||
                 native.issues.isError ||
@@ -829,8 +833,8 @@ export function SymphonyWorkspace({
                           <WorkCard
                             key={item.key}
                             item={item}
-                            selected={selected === item.key}
-                            onSelect={() => setSelected(item.key)}
+                            selected={selectedKey === item.key}
+                            onSelect={() => selectWork(item.key)}
                           />
                         ))}
                     </section>
@@ -852,16 +856,16 @@ export function SymphonyWorkspace({
                       <tr
                         key={item.key}
                         className={
-                          selected === item.key ? "selected" : undefined
+                          selectedKey === item.key ? "selected" : undefined
                         }
                       >
                         <td>
                           <button
                             type="button"
                             aria-label={`${item.identifier}: ${item.title}`}
-                            aria-pressed={selected === item.key}
+                            aria-pressed={selectedKey === item.key}
                             data-symphony-work-key={item.key}
-                            onClick={() => setSelected(item.key)}
+                            onClick={() => selectWork(item.key)}
                           >
                             <span>{item.identifier}</span>
                             <strong>{item.title}</strong>
@@ -906,7 +910,7 @@ export function SymphonyWorkspace({
           </div>
           {detail && (
             <WorkDetails
-              key={JSON.stringify([connection.id, selected])}
+              key={JSON.stringify([connection.id, selectedKey])}
               host={host}
               connection={connection}
               item={detail}
@@ -914,7 +918,7 @@ export function SymphonyWorkspace({
               observedAt={snapshot.data?.fetchedAt ?? new Date().toISOString()}
               visible={visible}
               disappeared={!selectedItem}
-              onClose={() => setSelected(null)}
+              onClose={() => selectWork(null)}
             />
           )}
         </div>

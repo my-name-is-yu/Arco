@@ -54,7 +54,7 @@ function work(page: Page, identifier: string, title: string) {
   });
 }
 
-test("same-number runtime from another repository stays separate from the native issue", async ({
+test("same-number runtime from another repository stays separate through native View run @smoke", async ({
   page,
 }) => {
   await page.route("**/tool", async (route) => {
@@ -99,6 +99,27 @@ test("same-number runtime from another repository stays separate from the native
     detail(page).getByRole("button", { name: "Add run context to chat" }),
   ).toHaveCount(0);
 
+  await detail(page)
+    .getByRole("button", { name: "Open issue", exact: true })
+    .click();
+  const runSection = ui.getByRole("region", {
+    name: "Symphony run",
+    exact: true,
+  });
+  await expect(runSection).toContainText("No active run");
+  await runSection
+    .getByRole("button", { name: "View run", exact: true })
+    .click();
+  await expect(
+    detail(page).getByRole("heading", { name: githubTitle, exact: true }),
+  ).toBeVisible();
+  await expect(native).toHaveAttribute("aria-pressed", "true");
+  await expect(runtime).toHaveAttribute("aria-pressed", "false");
+  await expect(detail(page)).toContainText("No active run");
+  await expect(detail(page)).not.toContainText(
+    "This runtime belongs to another repository.",
+  );
+
   await runtime.click();
   await expect(runtime).toHaveAttribute("aria-pressed", "true");
   await expect(native).toHaveAttribute("aria-pressed", "false");
@@ -114,13 +135,124 @@ test("same-number runtime from another repository stays separate from the native
   await expect(
     detail(page).getByRole("button", { name: "Open issue", exact: true }),
   ).toHaveCount(0);
+  await choose(ui, "Issue source", "github");
+  await expect(
+    ui.getByRole("heading", { name: githubTitle, exact: true }),
+  ).toBeVisible();
+  await ui
+    .getByRole("region", { name: "Symphony run", exact: true })
+    .getByRole("button", { name: "View run", exact: true })
+    .click();
+  await expect(
+    detail(page).getByRole("heading", { name: githubTitle, exact: true }),
+  ).toBeVisible();
+  await expect(detail(page)).toContainText("No active run");
+  await expect(runtime).toHaveAttribute("aria-pressed", "false");
   await ui.getByRole("button", { name: "Table view", exact: true }).click();
-  await expect(runtime).toHaveAttribute("aria-pressed", "true");
+  await expect(native).toHaveAttribute("aria-pressed", "true");
   await native.click();
   await expect(
     detail(page).getByRole("heading", { name: githubTitle, exact: true }),
   ).toBeVisible();
   await expect(detail(page)).toContainText("No active run");
+});
+
+test("an unloaded native View run target hides remembered runtime details and yields to explicit navigation", async ({
+  page,
+}) => {
+  let hideNativeIssue = false;
+  let omittedReads = 0;
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: { connectionId?: string };
+    };
+    if (input.name === "arco_list_issues" && hideNativeIssue) {
+      const response = await route.fetch();
+      const result = await response.json();
+      result.structuredContent.issues = result.structuredContent.issues.filter(
+        (issue: { number: number }) => issue.number !== 42,
+      );
+      omittedReads += 1;
+      return route.fulfill({ response, json: result });
+    }
+    if (
+      input.name === "arco_symphony_state" &&
+      input.arguments.connectionId === githubConnection
+    ) {
+      const response = await route.fetch();
+      const result = (await response.json()) as {
+        structuredContent: SymphonySnapshot;
+      };
+      const runtime = result.structuredContent.rows.find(
+        (row) => row.issueIdentifier === "GH-42",
+      )!;
+      runtime.issueUrl = "https://github.com/other/project/issues/42";
+      return route.fulfill({ response, json: result });
+    }
+    return route.continue();
+  });
+  await open(page);
+  const ui = app(page);
+  const native = work(page, "GH-42", githubTitle);
+  const foreign = work(page, "GH-42", "GH-42");
+  const otherTitle = "Separate shared context from sending a request";
+  const other = work(page, "GH-43", otherTitle);
+
+  await native.click();
+  await detail(page)
+    .getByRole("button", { name: "Open issue", exact: true })
+    .click();
+  await choose(ui, "Issue source", "symphony");
+  await choose(ui, "Symphony connection", linearConnection);
+  await work(page, "YU-42", linearTitle).click();
+  await choose(ui, "Symphony connection", githubConnection);
+  await foreign.click();
+  hideNativeIssue = true;
+  await ui
+    .getByRole("button", { name: "Refresh Symphony", exact: true })
+    .click();
+  await expect(native).toHaveCount(0);
+  await expect(foreign).toHaveAttribute("aria-pressed", "true");
+
+  const requestNativeRun = async () => {
+    await choose(ui, "Issue source", "github");
+    await expect(
+      ui.getByRole("heading", { name: githubTitle, exact: true }),
+    ).toBeVisible();
+    await ui
+      .getByRole("region", { name: "Symphony run", exact: true })
+      .getByRole("button", { name: "View run", exact: true })
+      .click();
+    await expect(
+      ui.getByRole("main", { name: "Symphony workspace" }),
+    ).toBeVisible();
+    await expect(detail(page)).toHaveCount(0);
+    await expect(foreign).toHaveAttribute("aria-pressed", "false");
+  };
+  await requestNativeRun();
+  await other.click();
+  const beforeRefresh = omittedReads;
+  await ui
+    .getByRole("button", { name: "Refresh Symphony", exact: true })
+    .click();
+  await expect.poll(() => omittedReads).toBeGreaterThan(beforeRefresh);
+  await expect(other).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    detail(page).getByRole("heading", { name: otherTitle, exact: true }),
+  ).toBeVisible();
+
+  await requestNativeRun();
+  await choose(ui, "Symphony connection", linearConnection);
+  await expect(work(page, "YU-42", linearTitle)).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    detail(page).getByRole("heading", { name: linearTitle, exact: true }),
+  ).toBeVisible();
+  await choose(ui, "Symphony connection", githubConnection);
+  await expect(other).toHaveAttribute("aria-pressed", "true");
 });
 
 test("each Symphony connection restores its own search, filter, and selected work", async ({

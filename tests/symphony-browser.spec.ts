@@ -289,61 +289,80 @@ for (const source of ["github", "linear"] as const) {
   });
 }
 
-test("a failed runtime refresh keeps the last snapshot and disappearance never means completion", async ({
-  page,
-}) => {
-  let state: "online" | "offline" | "empty" = "online";
-  await page.route("**/tool", async (route) => {
-    const input = route.request().postDataJSON() as { name: string };
-    if (input.name !== "arco_symphony_state") return route.continue();
-    if (state === "offline")
-      return route.fulfill({
-        json: toolFailure("Symphony could not be reached."),
-      });
-    const response = await route.fetch();
-    if (state !== "empty") return route.fulfill({ response });
-    const result = (await response.json()) as {
-      structuredContent: SymphonySnapshot;
-    };
-    result.structuredContent.rows = [];
-    return route.fulfill({ response, json: result });
+for (const narrow of [false, true]) {
+  test(`a failed runtime refresh keeps the last snapshot and disappearance never means completion${narrow ? " in narrow details @smoke" : ""}`, async ({
+    page,
+  }) => {
+    if (narrow) await page.setViewportSize({ width: 540, height: 1000 });
+    let state: "online" | "offline" | "empty" = "online";
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as { name: string };
+      if (input.name !== "arco_symphony_state") return route.continue();
+      if (state === "offline")
+        return route.fulfill({
+          json: toolFailure("Symphony could not be reached."),
+        });
+      const response = await route.fetch();
+      if (state !== "empty") return route.fulfill({ response });
+      const result = (await response.json()) as {
+        structuredContent: SymphonySnapshot;
+      };
+      result.structuredContent.rows = [];
+      return route.fulfill({ response, json: result });
+    });
+    const runtimeOnly = { ...githubConnection, binding: undefined };
+    const session = await sessionWithSettings(page, {
+      symphonyConnections: [runtimeOnly],
+    });
+    await open(page, session);
+    await work(page, "GH-42").click();
+    state = "offline";
+    await app(page)
+      .getByRole("button", { name: "Refresh Symphony", exact: true })
+      .click();
+    await expect(
+      app(page)
+        .getByRole("alert")
+        .filter({ hasText: "Symphony could not be reached." }),
+    ).toBeVisible();
+    await expect(
+      app(page).getByText("Last observed work is retained.", { exact: false }),
+    ).toBeVisible();
+    if (narrow) await expect(work(page, "GH-42")).toBeHidden();
+    else await expect(work(page, "GH-42")).toBeVisible();
+    await expect(
+      app(page).getByRole("complementary", { name: "Symphony work details" }),
+    ).toContainText("Running");
+    state = "online";
+    await app(page)
+      .getByRole("button", { name: "Refresh Symphony", exact: true })
+      .click();
+    await expect(
+      app(page)
+        .getByRole("alert")
+        .filter({ hasText: "Symphony could not be reached." }),
+    ).toHaveCount(0);
+    await expect(
+      app(page).getByRole("complementary", { name: "Symphony work details" }),
+    ).toContainText("Running");
+    state = "empty";
+    await app(page)
+      .getByRole("button", { name: "Refresh Symphony", exact: true })
+      .click();
+    await expect(
+      app(page).getByText("This work is no longer in the current snapshot.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    const detail = app(page).getByRole("complementary", {
+      name: "Symphony work details",
+    });
+    await expect(detail).not.toContainText("Completed");
+    await expect(
+      detail.getByRole("button", { name: "Add run context to chat" }),
+    ).toHaveCount(0);
   });
-  const runtimeOnly = { ...githubConnection, binding: undefined };
-  const session = await sessionWithSettings(page, {
-    symphonyConnections: [runtimeOnly],
-  });
-  await open(page, session);
-  await work(page, "GH-42").click();
-  state = "offline";
-  await app(page)
-    .getByRole("button", { name: "Refresh Symphony", exact: true })
-    .click();
-  await expect(
-    app(page)
-      .getByRole("alert")
-      .filter({ hasText: "Symphony could not be reached." }),
-  ).toBeVisible();
-  await expect(work(page, "GH-42")).toBeVisible();
-  await expect(
-    app(page).getByRole("complementary", { name: "Symphony work details" }),
-  ).toContainText("Running");
-  state = "empty";
-  await app(page)
-    .getByRole("button", { name: "Refresh Symphony", exact: true })
-    .click();
-  await expect(
-    app(page).getByText("This work is no longer in the current snapshot.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  const detail = app(page).getByRole("complementary", {
-    name: "Symphony work details",
-  });
-  await expect(detail).not.toContainText("Completed");
-  await expect(
-    detail.getByRole("button", { name: "Add run context to chat" }),
-  ).toHaveCount(0);
-});
+}
 
 test("connection setup validates URLs, tests the API, and saves edits without issue writes", async ({
   page,

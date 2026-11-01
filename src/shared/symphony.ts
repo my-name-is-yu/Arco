@@ -77,6 +77,7 @@ export type SymphonyBinding = z.infer<typeof symphonyBindingSchema>;
 export type SymphonySelection = {
   connectionId: string;
   issueIdentifier?: string;
+  nativeIssue?: SymphonyNativeIssue;
 };
 export type SymphonyRuntimeStatus = "running" | "retrying" | "blocked";
 export type SymphonyTokens = {

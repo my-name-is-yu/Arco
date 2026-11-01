@@ -2,9 +2,9 @@ import type { ArcoHost, ConversationIssue } from "../shared/contracts";
 import { ChevronRight } from "@openai/apps-sdk-ui/components/Icon";
 import {
   symphonyIssueMatches,
-  type SymphonyBinding,
   type SymphonySelection,
 } from "../shared/symphony";
+import { symphonyBindingContainsIssue } from "./symphony-navigation";
 import { useSettings } from "./useSettings";
 import {
   openSymphonyRun,
@@ -13,22 +13,6 @@ import {
   useSymphonyVisible,
 } from "./symphony-queries";
 import "./symphony.css";
-
-function bindingContainsIssue(
-  binding: SymphonyBinding | undefined,
-  issue: ConversationIssue,
-) {
-  if (binding?.source === "github" && issue.source === "github")
-    return binding.repo.toLowerCase() === issue.repo.toLowerCase();
-  return (
-    binding?.source === "linear" &&
-    issue.source === "linear" &&
-    binding.connectionId === issue.connectionId &&
-    binding.workspaceId === issue.workspaceId &&
-    binding.teamId === issue.teamId &&
-    (!binding.projectId || binding.projectId === issue.project?.id)
-  );
-}
 
 export function SymphonyRunSection({
   host,
@@ -43,7 +27,7 @@ export function SymphonyRunSection({
   const visible = useSymphonyVisible();
   const matches =
     settings.query.data?.settings.symphonyConnections.filter((connection) =>
-      bindingContainsIssue(connection.binding, issue),
+      symphonyBindingContainsIssue(connection.binding, issue),
     ) ?? [];
   const connection =
     matches.find(
@@ -102,9 +86,26 @@ export function SymphonyRunSection({
         type="button"
         className="symphony-text-link"
         onClick={() => {
-          const selection = {
+          const selection: SymphonySelection = {
             connectionId: connection.id,
             issueIdentifier: identifier,
+            nativeIssue:
+              issue.source === "github"
+                ? {
+                    source: "github",
+                    repo: issue.repo,
+                    number: issue.number,
+                    url: issue.url,
+                  }
+                : {
+                    source: "linear",
+                    connectionId: issue.connectionId,
+                    workspaceId: issue.workspaceId,
+                    teamId: issue.teamId,
+                    issueId: issue.issueId,
+                    url: issue.url,
+                    project: issue.project ? { id: issue.project.id } : null,
+                  },
           };
           if (onViewRun) onViewRun(selection);
           else openSymphonyRun(host, selection);
