@@ -2,7 +2,7 @@
 
 Arco is an MIT-licensed Codex plugin that lets you browse and edit GitHub and Linear issues alongside your chat, and pull selected issue passages directly into your conversation context.
 
-[Install](#install)
+<a href="https://www.producthunt.com/products/arco-4?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-arco-4" target="_blank" rel="noopener noreferrer"><img alt="Arco - GitHub and Linear issues, right inside your Codex | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1296725&amp;theme=light&amp;t=1793511881859"></a>
 
 ## Keep issues beside the conversation
 
