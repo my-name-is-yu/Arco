@@ -1,3 +1,4 @@
+import type { WorkspaceSource } from "../shared/state";
 import {
   useContext,
   type ReactNode,
@@ -14,7 +15,7 @@ export function WorkspaceLayout({
   viewer,
   children,
 }: {
-  source: "github" | "linear";
+  source: WorkspaceSource;
   detailOpen: boolean;
   viewer?: "project" | "personal";
   children: ReactNode;
@@ -72,8 +73,8 @@ export function WorkspaceHeader({
   createTitle,
   actions,
 }: {
-  source: "github" | "linear";
-  onSourceChange: (source: "github" | "linear") => void;
+  source: WorkspaceSource;
+  onSourceChange: (source: WorkspaceSource) => void;
   onCreate: () => void;
   createDisabled: boolean;
   createLabel: string;
@@ -91,9 +92,15 @@ export function WorkspaceHeader({
           options={[
             { value: "github", label: "GitHub" },
             { value: "linear", label: "Linear" },
+            { value: "symphony", label: "Symphony" },
           ]}
           onChange={(value) => {
-            if (value === "github" || value === "linear") onSourceChange(value);
+            if (
+              value === "github" ||
+              value === "linear" ||
+              value === "symphony"
+            )
+              onSourceChange(value);
           }}
         />
       </div>

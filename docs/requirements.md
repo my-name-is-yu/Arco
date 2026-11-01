@@ -4,7 +4,7 @@ This document defines what Arco does, where its boundaries lie, and the behavior
 
 ## Overview and Distribution
 
-Arco lets users find, read, and update GitHub and Linear issues while discussing the same work in Codex.
+Arco lets users find, read, and update GitHub and Linear issues, observe Symphony runs, and discuss the same work in Codex.
 
 It is distributed as MIT-licensed source code and a local MCP plugin:
 
@@ -14,17 +14,19 @@ It is distributed as MIT-licensed source code and a local MCP plugin:
 
 ## Responsibilities and Boundaries
 
-Arco works alongside GitHub, Linear, and Codex with clear ownership boundaries:
+Arco works alongside GitHub, Linear, Symphony, and Codex with clear ownership boundaries:
 
 - **GitHub and Linear** own the underlying issue records and access permissions.
+- **Symphony** owns orchestration, workspaces, workers, and observed runtime state.
 - **Codex** owns the conversation, message sending, attachment list, and AI execution.
-- **Arco** owns issue interaction, local preferences, unsent drafts, and the handoff of explicitly selected context to Codex. Detailed operation categories are defined in [Issue operations](issue-operations.md).
+- **Arco** owns issue interaction, runtime observation, local preferences, unsent drafts, and the handoff of explicitly selected context to Codex. Detailed issue operation categories are defined in [Issue operations](issue-operations.md).
 
 ### What Arco supports
 
 - Reading, creating, and editing issues across both GitHub and Linear, including native states, assignments, labels, comments, relationships, and explicitly supported existing attributes.
 - Selecting existing projects, milestones, cycles, and supported native field values.
 - Managing supported label definitions.
+- Reading the official Symphony Elixir v0.0.3 HTTP API, associating its current runs with explicitly scoped GitHub or Linear issues, and sharing selected runtime context.
 
 ### What is out of scope
 
@@ -32,6 +34,7 @@ Arco works alongside GitHub, Linear, and Codex with clear ownership boundaries:
 - **Upstream-only operations:** Issue transfers, duplicate merges, destructive lifecycle actions, and complex issue forms remain in the source service. When an operation isn't supported locally, Arco provides a direct link to the source service.
 - **Platform expansion:** Arco is not an independent issue tracker, general project-management tool, cross-service sync or migration engine, notification inbox, autonomous triage system, or agent execution service.
 - **Hosted infrastructure:** Arco does not introduce an Arco account, a hosted issue backend, billing, entitlement servers, or paid tiers.
+- **Runtime administration:** Arco does not install, launch, deploy, or configure Symphony workers, manage tunnels or Symphony authentication, or provide agent start/stop/approval/resume controls.
 
 ## Browsing and Discovery
 
@@ -73,9 +76,20 @@ Arco matches its UI footprint to the user's intent, keeping inline cards, panel 
 | Ask Codex to summarize or update an issue   | Run via data tools; a UI panel is not required just to complete the task.                              |
 | View full details or click **Open details** | Open the issue in the expanded side panel. (A long description alone does not trigger the side panel.) |
 | Browse a list or compare multiple issues    | Open the full list/detail workspace.                                                                   |
+| Inspect Symphony work                       | Open the dedicated Symphony board/list workspace.                                                      |
 | Share an issue or text selection            | Attach the selected context to Codex, leaving the user in control of sending the message.              |
 
 Host initialization must not overwrite the user's saved source or scope preferences merely because a card was opened.
+
+### Symphony observation
+
+- **Navigation and identity:** The existing view selector contains GitHub, Linear, and Symphony as three flat choices. Symphony is a view over runtime information, not a third native issue provider; issue references, drafts, and writes retain GitHub or Linear identity.
+- **Connections and scope:** Save multiple explicitly entered connection URLs, display one at a time, and allow runtime reads without a tracker sign-in. Optional issue context binds a connection to an explicit GitHub repository or Linear connection/workspace/team and optional project. Never infer that scope from a short issue identifier.
+- **Data sources:** Runtime comes from Symphony snapshots. Titles, descriptions, native states, preparation, and review classifications come from the tracker. Match within the configured scope using canonical issue references, not unrelated ID formats. Unmatched runtime rows remain visible without an invented issue context.
+- **Classification:** Blocked runtime is Needs attention; Running or Retrying is Working. With no observed runtime, configured review criteria take precedence over preparation criteria. Criteria use existing GitHub labels or Linear workflow states. Unclassified work remains Other; missing runtime alone never means ready, queued, or done.
+- **Current observations:** Keep snapshots in memory rather than a persistent run history. Preserve prior data and label it stale on a failed refresh. A missing run or runtime-detail 404 is not proof of completion or tracker deletion. Pagination captions describe loaded work, with explicit additional loading.
+- **Updates and edits:** While visible, refresh runtime every five seconds and tracker lists every thirty seconds, deduplicating concurrent reads. Pause polling when hidden. Native issue changes use existing editing controls and do not claim to send instructions to a running agent.
+- **State retention and sharing:** Board/list views share data, filters, and selection. Preserve navigation, drafts, and reading positions when moving between issue and run details. Runtime sharing uses an explicit snapshot with collection time and attribution, leaves sending to the user, and preserves existing issue/annotation contracts.
 
 ### Context sharing and annotations
 

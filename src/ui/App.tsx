@@ -1,3 +1,7 @@
+import { useEffect } from "react";
+import { openSymphonyRun } from "./symphony-queries";
+import type { WorkspaceSource } from "../shared/state";
+import { SymphonyWorkspace } from "./SymphonyWorkspace";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ArcoHost } from "../shared/contracts";
 import type { LaunchContext, NativeIssueTarget } from "../shared/launch";
@@ -26,7 +30,10 @@ function Workspace({
 }) {
   const { mode, sharedIssue } = useHostView();
   const settings = useSettings(host);
-  const [override, setOverride] = useSessionState<"github" | "linear" | null>(
+  useEffect(() => {
+    if (launch.symphony) openSymphonyRun(host, launch.symphony);
+  }, [host, launch.symphony]);
+  const [override, setOverride] = useSessionState<WorkspaceSource | null>(
     host,
     "active-source",
     () => {
@@ -59,12 +66,14 @@ function Workspace({
     (mode === "inline" ? launch.target?.source : undefined) ??
     override ??
     settings.query.data.settings.activeSource;
-  const changeSource = (next: "github" | "linear") => {
+  const changeSource = (next: WorkspaceSource) => {
     setOverride(next);
     if (launch.view !== "project")
       settings.update("source", () => ({ activeSource: next }));
   };
-  return source === "github" ? (
+  return source === "symphony" ? (
+    <SymphonyWorkspace host={host} onSourceChange={changeSource} />
+  ) : source === "github" ? (
     <GitHubAuthBoundary host={host}>
       {(scope) => (
         <GitHubWorkspace

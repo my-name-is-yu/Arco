@@ -6,6 +6,8 @@ This document defines the trust boundaries and data handling rules for Arco. For
 
 GitHub and Linear are the single sources of truth for issue data and permissions. Arco does not run an issue backend, persistent issue mirror, analytics service, or background full-account mirror. Provider requests and explicit sharing with Codex send data outside your device.
 
+Symphony is the source of current runtime observations. Arco reads its optional HTTP API through the local MCP backend and does not control the orchestrator or maintain a permanent runtime history.
+
 | Boundary                   | Required Behavior                                                                                                                               |
 | :------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Provider credentials**   | Never expose credentials in the UI, model-facing outputs, local drafts, settings, or logs.                                                      |
@@ -37,6 +39,14 @@ Linear authentication must use OAuth with PKCE, state parameter validation, and 
 ### Disconnecting vs. Revoking
 
 Disconnecting a provider in Arco only removes the local connection; revoking an OAuth grant on the provider's side is a separate action. Neither action may silently delete remote issues, unsent local drafts, or existing Codex attachments.
+
+### Symphony Connections
+
+- **Explicit endpoints:** Store only user-entered base URLs and nonsecret connection metadata. Reject embedded credentials, query parameters, and fragments. HTTP is limited to loopback hosts; remote connections require HTTPS with normal certificate verification. Do not follow authentication or cross-origin redirects.
+- **Existing transport:** Arco does not store Symphony tokens, perform browser sign-in, manage VPNs or SSH forwards, or inherit browser cookies. The HTTP endpoint must already be reachable through the user's existing connection route. Symphony's SSH worker configuration is separate from access to its HTTP endpoint.
+- **Backend boundary:** Read endpoints only through the Node MCP backend after an explicit request. UI resources retain their self-contained CSP; server startup and tool discovery do not make Symphony requests. Bound request duration and response size, validate JSON at the HTTP boundary, and inspect snapshot errors even when HTTP status is 200.
+- **Scope isolation:** Runtime cache is isolated by connection and endpoint configuration; joined issue data is additionally isolated by the provider credential generation and native scope. Never forward GitHub or Linear credentials to Symphony. Provider logout must not erase independent runtime observations.
+- **Runtime attribution:** Match issue context using the configured tracker scope and canonical reference. Short identifiers and unrelated native ID schemes are not sufficient. Keep unmatched runtime data distinct from an authorized native issue rather than exposing edits against a guessed target.
 
 ---
 
@@ -112,6 +122,7 @@ Draft keys incorporate the provider's stable public user ID. This partitions app
 Using **Add to chat** is an explicit, user-driven handoff:
 
 - **Payload separation:** Sharing a whole issue and sharing a specific passage use distinct payloads. Sharing a highlighted passage must never silently attach the full issue or comment history.
+- **Runtime snapshots:** Runtime sharing has its own explicit payload containing collection time, connection attribution, native reference when resolved, and the displayed runtime information. Reading, refreshing, or changing views never attaches it automatically or sends a message. Preserve existing issue and annotation restoration behavior.
 - **Origin attribution:** Only attach a native origin reference when the selected text comes from a single, well-defined issue or comment. If a selection spans multiple issues, do not assign it to an arbitrary single target.
 
 ### Independent Content Blocks

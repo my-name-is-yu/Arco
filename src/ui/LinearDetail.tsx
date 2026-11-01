@@ -1,3 +1,5 @@
+import { SymphonyRunSection } from "./SymphonyRunSection";
+import { openSymphonyRun } from "./symphony-queries";
 import { LinearLabelManager } from "./LinearLabelManager";
 import { LinearRelations } from "./LinearRelations";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -1012,6 +1014,11 @@ export function LinearDetail({
                 Transfers, deletion and full history in Linear ↗
               </button>
             </details>
+            <SymphonyRunSection
+              host={host}
+              issue={issue}
+              onViewRun={(selection) => openSymphonyRun(host, selection)}
+            />
           </aside>
         </div>
       </div>

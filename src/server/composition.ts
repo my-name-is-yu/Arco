@@ -1,3 +1,9 @@
+import { createSymphonyService } from "./symphony";
+import {
+  createSymphonyFixtureService,
+  SYMPHONY_FIXTURE_CONNECTIONS,
+} from "./symphony-fixture";
+import type { SymphonyService } from "../shared/symphony";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,6 +29,7 @@ export interface ArcoBackend {
   linearService: LinearService;
   operations: ReturnType<typeof createGitHubOperations>;
   stateStore: ReturnType<typeof createStateStore>;
+  symphonyService: SymphonyService;
   fixture: boolean;
   cleanup(): void;
 }
@@ -31,11 +38,15 @@ export function createLiveBackend(): ArcoBackend {
   const authSession = createGitHubAuthSession(credentialIdentity);
   const service = createGitHubService({ authSession });
   const linearAuth = createLinearAuth();
+  const stateStore = createStateStore();
   return {
     service,
     linearService: createLinearService({ auth: linearAuth }),
     operations: createGitHubOperations({ service, authSession }),
-    stateStore: createStateStore(),
+    stateStore,
+    symphonyService: createSymphonyService({
+      readSettings: stateStore.readSettings,
+    }),
     fixture: false,
     cleanup: linearAuth.close,
   };
@@ -48,13 +59,20 @@ export async function createFixtureBackend(): Promise<ArcoBackend> {
   // Routine fixtures represent an explicitly saved team. First-run tests clear it.
   await stateStore.updateSettings({
     expectedRevision: 0,
-    patch: { activeLinearTeam: LINEAR_FIXTURE_SCOPE.teamId },
+    patch: {
+      activeLinearTeam: LINEAR_FIXTURE_SCOPE.teamId,
+      symphonyConnections: SYMPHONY_FIXTURE_CONNECTIONS,
+      activeSymphonyConnectionId: SYMPHONY_FIXTURE_CONNECTIONS[0].id,
+    },
   });
   return {
     service,
     linearService: createLinearFixtureService(),
     operations: createFixtureGitHubOperations({ service }),
     stateStore,
+    symphonyService: createSymphonyFixtureService({
+      readSettings: stateStore.readSettings,
+    }),
     fixture: true,
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
   };

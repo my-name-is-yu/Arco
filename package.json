@@ -28,6 +28,7 @@
     "test:browser:smoke": "playwright test --grep @smoke",
     "dev:fixture": "node scripts/dev-host.mjs",
     "test:live": "node scripts/validate-live.mjs",
+    "test:symphony:live": "node scripts/validate-symphony.mjs",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:docs && npm test && npm run build && npm run smoke && npm run check:artifact && npm run check:package"
   },
   "dependencies": {
