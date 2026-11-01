@@ -14,11 +14,11 @@ It is distributed as MIT-licensed source code and a local MCP plugin:
 
 ## Responsibilities and Boundaries
 
-Arco works alongside GitHub, Linear, and Codex with clear ownership boundaries:
+GitHub and Linear store the issue records; Codex runs the conversation. Arco connects the two:
 
 - **GitHub and Linear** own the underlying issue records and access permissions.
 - **Codex** owns the conversation, message sending, attachment list, and AI execution.
-- **Arco** owns issue interaction, local preferences, unsent drafts, and the handoff of explicitly selected context to Codex. Detailed operation categories are defined in [Issue operations](issue-operations.md).
+- **Arco** lets users interact with issues, saves local preferences and unsent drafts, and passes explicitly selected context to Codex. Detailed operation categories are defined in [Issue operations](issue-operations.md).
 
 ### What Arco supports
 
@@ -54,17 +54,17 @@ Arco works alongside GitHub, Linear, and Codex with clear ownership boundaries:
 
 - Respect each platform's native constraints and leave unspecified attributes untouched. Do not invent a unified status, priority, or label model across GitHub and Linear.
 - Keep standard GitHub issue state separate from GitHub Projects Status.
-- If a write operation requires complete membership or option validation, reject incomplete scope or field catalogs rather than proceeding with partial data.
+- For writes that require complete membership or option validation, load the full scope or field catalog first. Reject the write if that catalog is incomplete.
 - Apply simple issue templates only when their supported contents can be faithfully represented without silently dropping required fields or behavior.
 
 ### Error handling and bulk updates
 
 - Never lose user input when validation errors, conflicts, connection drops, or uncertain writes occur.
-- Track bulk operations per issue so failures are isolated: keep successful rows quiet, surface the failed targets, and allow retrying just the failures. Never guess values across incompatible selections.
+- Track each issue in a bulk operation separately. Show failed targets and allow retrying only failures known to be safe to retry. Keep successful rows free of extra success notices. Never guess values across incompatible selections.
 
 ## Codex Conversation and Display
 
-Arco matches its UI footprint to the user's intent, keeping inline cards, panel views, and shared conversation targets independent of one another:
+Choose the display that matches the user's request. Opening a card or panel must not change which issue is attached to the conversation:
 
 | User intent                                 | Expected behavior                                                                                      |
 | :------------------------------------------ | :----------------------------------------------------------------------------------------------------- |
@@ -84,7 +84,7 @@ Conversation integration centers on four workflows: sharing whole issues, sharin
 For passage sharing and annotations:
 
 - **Ownership:** Arco manages text selection, numbered markers, and comment editing; Codex manages the attachment list and message sending.
-- **Structure:** Package each annotation—the selected text plus its optional comment—as a single, individually removable content block within the same attachment group. Do not generate aggregate copies for the model.
+- **Structure:** Package each annotation—the selected text plus its optional comment—as one content block in the same attachment group. Users must be able to remove each block individually. Do not generate aggregate copies for the model.
 - **Numbering:** Keep internal block keys stable, but update visible marker numbers dynamically to match the current attachment order.
 - **Marker restoration:** Restore selection markers only when they match the originating card, currently attached blocks, and matching content. Once context is removed, never recreate it from background metadata or cached local offsets.
 
@@ -92,7 +92,7 @@ For passage sharing and annotations:
 
 - **Credentials and storage:** Keep credentials strictly out of the UI and model-facing results. Store local preferences and unsent drafts locally without maintaining a persistent mirror of remote issues. See [Security and privacy](security-and-privacy.md) for full details.
 - **Write safety:** Source data may only be modified by explicit, user-authorized actions.
-- **Idempotency and retries:** Only reuse a request ID when repeating the exact same operation. If a write outcome is uncertain, inspect the remote state before retrying. If a write succeeds but the follow-up read fails, report the read failure accurately rather than telling the user the write failed.
+- **Idempotency and retries:** Reuse a request ID only for the exact same operation. If the write outcome is uncertain, inspect the remote state before retrying. If the write succeeds but the follow-up read fails, report that the save succeeded and the refreshed data could not be read.
 
 ## Usability, Accessibility, and Copy
 

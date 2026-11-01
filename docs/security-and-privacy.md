@@ -4,7 +4,7 @@ This document defines the trust boundaries and data handling rules for Arco. For
 
 ## Core Principles and Trust Boundaries
 
-GitHub and Linear are the single sources of truth for issue data and permissions. Arco does not run an issue backend, persistent issue mirror, analytics service, or background full-account mirror. Provider requests and explicit sharing with Codex send data outside your device.
+GitHub and Linear are the single sources of truth for issue data and permissions. Arco reads and modifies those records through provider requests; these requests send data outside your device. Sharing selected context with Codex also sends data outside your device and requires an explicit user action. Arco does not run an issue backend, persistent issue mirror, analytics service, or background full-account mirror.
 
 | Boundary                   | Required Behavior                                                                                                                               |
 | :------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -66,7 +66,7 @@ Only explicit user-authorized operations may modify source data:
 
 - Validate every target and attribute before sending a write request.
 - Preserve any fields that the operation did not request to change.
-- Use request IDs to deduplicate identical operations. An uncertain or missing transport response is an unconfirmed outcome, not permission to replay the change or blindly retry it with a new request ID.
+- Use request IDs to deduplicate identical operations. If a transport response is missing or uncertain, the write may already have reached the provider. Check the provider's current state before retrying; do not replay the change or bypass deduplication with a new request ID.
 
 ### Accurate Status Reporting
 
@@ -91,17 +91,17 @@ Raw exceptions from providers, SDKs, or subprocesses can contain request payload
 Because drafts may contain confidential issue text, local storage must be carefully isolated and protected:
 
 - **Scope and concurrency:** Isolate drafts by their native scope and prevent concurrent saves from overwriting changes made in another view.
-- **Handling unreadable data:** While missing records may fall back to default values, corrupted or invalid existing records must fail visibly. Never automatically repair, migrate, reset, or overwrite the original bytes of an invalid record.
+- **Handling unreadable data:** A missing record may fall back to default values. If an existing record is corrupted or invalid, report the failure visibly. Never automatically repair, migrate, reset, or overwrite the original bytes of an invalid record.
 - **Failure modes:** If settings cannot be read, block access to the workspace. If a draft cannot be read, preserve any new input the user has typed without overwriting the unreadable file on disk.
 - **Metadata privacy:** Store chat-to-repository associations using opaque keys rather than raw chat IDs or filesystem paths. Bound retained associations and annotation position snapshots. Treat backups from older app versions with the same protections as active drafts, and never delete them automatically.
 
 ### Draft Ownership and Legacy Migration
 
-Draft keys incorporate the provider's stable public user ID. This partitions application state between accounts within the same OS user profile (this is not an additional OS or provider access-control boundary):
+Draft keys include the provider's stable public user ID, so each account uses its own drafts within the same OS user profile. This does not add an OS or provider access-control boundary:
 
 - **Account switching vs. token rotation:** Rotating a credential keeps draft ownership intact, whereas switching provider accounts changes the owner.
 - **In-flight saves:** Queued saves remain tied to the user who was active when the input was entered, even if the user disconnects or closes the view before the save completes.
-- **Legacy drafts:** Never automatically adopt older drafts that lack an owner ID, and keep legacy keys read-only via the app-only draft tool. Instead, let the user explicitly review and copy a legacy draft into an empty, account-owned draft—preserving all saved fields alongside the original file. If an imported issue draft does not have an editing baseline, use the current provider snapshot as its baseline so standard conflict checks still protect the user's changes.
+- **Legacy drafts:** Never automatically adopt older drafts that lack an owner ID. Keep legacy keys read-only via the app-only draft tool. Let the user explicitly review and copy a legacy draft into an empty, account-owned draft, preserving every saved field and the original file. If an imported issue draft lacks an editing baseline, use the current provider snapshot as its baseline so standard conflict checks still protect the user's changes.
 
 ---
 
@@ -126,7 +126,7 @@ When attaching annotations to Codex, the host's current content blocks are the s
 Local position snapshots help re-anchor markers in the UI; they must not contain selected text or annotation comments:
 
 - **No content storage:** Position snapshots must never store the selected text or the annotation comment itself.
-- **Strict restoration:** Only restore markers when the originating card, currently attached blocks, and surrounding text context still match. If the underlying content has changed or position data is missing, do not guess marker placement, and never use local position data to resurrect an attachment the user has removed.
+- **Strict restoration:** Only restore markers when the originating card, currently attached blocks, and surrounding text context still match. If the underlying content has changed or position data is missing, do not guess marker placement. Never use local position data to resurrect an attachment the user has removed.
 - **Legacy attachment conversion:** Only convert recognized older annotation formats when they exactly match remaining visible blocks. Remove any aggregate source copies during conversion, and always let a native removal or replacement take precedence over an in-flight conversion.
 
 ---
