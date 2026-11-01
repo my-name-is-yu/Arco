@@ -24,11 +24,7 @@ import {
   IssuePriorityVisual,
   IssueStateVisual,
 } from "./IssuePropertyVisual";
-import {
-  DraftStatus,
-  draftStorageId,
-  useDraftPersistence,
-} from "./useDraftPersistence";
+import { DraftStatus, useDraftPersistence } from "./useDraftPersistence";
 import { resolveContentDraft, contentConflict } from "./content-drafts";
 import type { ArcoHost } from "../shared/contracts";
 import { LINEAR_UPLOAD_MAX_BYTES } from "../shared/linear";
@@ -219,8 +215,6 @@ export function LinearDetail({
 
   const composer = useRef<HTMLTextAreaElement>(null);
   const hostLock = useRef(false);
-  const persistence = useDraftPersistence(host);
-  const { load } = persistence;
   const key: DraftKey = useMemo(
     () => ({
       source: "linear",
@@ -231,6 +225,8 @@ export function LinearDetail({
     }),
     [issue.workspaceId, issue.teamId, issue.issueId, ownerId],
   );
+  const persistence = useDraftPersistence(host, key);
+  const { load } = persistence;
   useEffect(() => {
     let alive = true;
     void load(key).then((saved) => {
@@ -531,7 +527,7 @@ export function LinearDetail({
           </p>
         </div>
         <DraftStatus
-          status={persistence.statuses[draftStorageId(key)]}
+          status={persistence.status}
           onRetry={() => {
             void persistence.retry(key, draft, issue).then((saved) => {
               if (saved?.baseUpdatedAt) setEditing(true);
