@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import type { z } from "zod";
 import { apiIssueSummarySchema } from "./issue-model";
 import { GitHubError, parse, type GhRunner } from "./transport";
 
@@ -77,7 +78,7 @@ export function createConditionalReader(options: {
     endpoint: string,
     projection: string,
     scopeIdentity: string,
-  ): Promise<unknown> {
+  ): Promise<z.infer<typeof apiIssueSummarySchema>[]> {
     // Detail, comment, and image reads must never enter this cache.
     if (!endpoint.startsWith("issues?"))
       throw new GitHubError("Conditional reads require an account issue list.");
@@ -163,7 +164,8 @@ export function createConditionalReader(options: {
       pending.set(key, request);
     }
     try {
-      // Callers cannot mutate summaries retained for a later 304 response.
+      // Only validated summaries enter this private cache. Decode a separate
+      // copy so callers cannot change a later 304 response.
       return JSON.parse(await request);
     } finally {
       if (pending.get(key) === request) pending.delete(key);
