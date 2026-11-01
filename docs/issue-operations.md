@@ -1,6 +1,6 @@
 # Issue operations
 
-This document defines what Arco can and cannot do as an issue client for GitHub and Linear. Every operation requires two prerequisites: the upstream service must expose the capability, and the connected user must have permission to use it.
+This document defines the issue operations available in Arco. An operation is available only when GitHub or Linear exposes it through its API and the connected user has permission to perform it.
 
 For broader product and security boundaries, see [Product requirements](requirements.md) and [Security and privacy](security-and-privacy.md).
 
@@ -55,7 +55,7 @@ Arco organizes issue operations around native provider concepts.
 - **`O08` — Apply labels**
   - **GitHub:** Apply existing repository labels.
   - **Linear:** Apply existing workspace and team labels.
-  - **Boundary:** Leave unspecified labels untouched and respect native label-group constraints.
+  - **Boundary:** Adding or removing a label must leave other labels untouched and respect native label-group constraints.
 - **`O09` — Manage labels**
   - **GitHub & Linear:** List, create, edit, and delete label definitions within the supported scope.
   - **Boundary:** Label-group administration and moving labels across scopes remain upstream.
@@ -94,7 +94,7 @@ Arco organizes issue operations around native provider concepts.
   - **GitHub & Linear:** Update compatible states, assignees, labels, and existing attribute values across multiple issues.
   - **Boundary:** Bulk operations cannot edit issue bodies, comments, or relationships, manage definitions, or transfer issues.
 - **`O19` — Codex context**
-  - **GitHub & Linear:** Whole-issue sharing, selected passages, mentions, and refresh after tool execution.
+  - **GitHub & Linear:** Share whole issues or selected passages with Codex, use mentions, and refresh issue data after tool execution.
   - **Boundary:** Sharing must be explicit; Arco never sends messages to Codex automatically.
 - **`O20` — Source handoff**
   - **GitHub & Linear:** Copy an issue or comment URL/identifier, or open it directly in GitHub or Linear.
@@ -104,14 +104,14 @@ Arco organizes issue operations around native provider concepts.
 
 ## Supported attribute types
 
-Arco reads and writes existing attribute values (`O12`), while leaving schema administration—field definitions, select options, iteration periods, and estimate scales—to the upstream service:
+Arco reads and changes values on existing attributes (`O12`). Create or change field definitions, select options, iteration periods, and estimate scales in the upstream service. Arco supports these attribute types:
 
 - **GitHub issue:** An existing issue type.
 - **GitHub organization issue fields:** Existing text, number, date, single-select, and multi-select values.
 - **GitHub Project fields:** Existing text, number, date, single-select, and iteration values (`Status` is treated as one Project single-select field).
 - **Linear:** Priority, estimate (using the selected team's scale), and due date.
 
-> **Note on GitHub field storage:** Organization issue fields and Project fields live in separate storage locations. Even if two fields share the same name, that does not imply matching definitions or synchronization.
+> **GitHub field storage:** Organization issue fields and Project fields are stored separately. Fields with the same name can have different definitions; Arco does not synchronize them based on their names.
 
 ---
 
@@ -124,7 +124,7 @@ Arco splits operations between lightweight inline cards and the full expanded wo
 
 ### Multi-issue inline tabs
 
-When 2 to 4 issues are explicitly selected, inline tabs display them in the exact order supplied and deduplicate repeated native references. Inline tabs never expand the requested set on their own or introduce cross-provider actions. Selecting **Open details** opens that same issue in the expanded workspace.
+When 2 to 4 issue references are explicitly supplied, Arco removes repeated native references and displays the remaining issues in the supplied order. At least two distinct issues are required. Inline tabs never add unrequested issues or introduce cross-provider actions. Selecting **Open details** opens the active issue in the expanded workspace.
 
 ### Safe checklist updates
 
@@ -147,11 +147,11 @@ Every write operation follows strict validation and state-reconciliation rules (
 
 1. **Pre-save validation:** Before sending a write, validate the native source, issue ID, repository or team, and any required Project, field, or option IDs.
 2. **Minimal payloads:** Write only the attributes that were explicitly supplied.
-3. **Bulk action resilience:** Bulk writes require compatible target issues, track outcomes per issue, and surface any failed targets with an option to retry only the failures.
+3. **Bulk action resilience:** Require compatible target issues and track each issue's outcome. Show failed targets and allow retrying only failures known to be safe to retry. An uncertain result requires checking the source before submitting a new write.
 4. **Respect upstream automation:** Leave source-service automation intact. After a write completes, re-read the issue from the source service rather than trying to reproduce or counteract upstream rules.
-5. **Clear outcome states:** Strictly distinguish between four outcomes:
-   - A successful write
-   - A failed write
-   - An uncertain outcome
-   - A successful write followed by a failed re-read
+5. **Clear outcome states:** Distinguish between four outcomes so the user can decide whether to retry the write or refresh the issue:
+   - The provider confirmed the write and the issue was re-read.
+   - The write failed.
+   - The write's outcome is uncertain.
+   - The provider confirmed the write, but the subsequent re-read failed.
 6. **Idempotency:** Never automatically retry an uncertain mutation with a new request ID.

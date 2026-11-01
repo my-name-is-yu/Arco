@@ -4,14 +4,14 @@ Link to the issue and the maintainer comment approving this scope. Pull requests
 
 ## Summary of changes
 
-Briefly describe the problem and how this pull request changes the behavior, in your own words.
+In your own words, explain the problem, what this pull request changes, and why.
 
 ## Verification
 
 List the checks you ran and their results, and note any behavior that was skipped or left unverified:
 
 - **Code changes:** Run `npm run check` and `npm run test:browser:smoke`. If the change affects behavior, also run the relevant browser specs.
-- **Documentation-only changes:** Run `npm run check:docs` locally along with any relevant command checks. (Note that CI Quality runs—including manual runs and those on documentation-only PRs—still execute the browser smoke suite.)
+- **Documentation-only changes:** Run `npm run check:docs` locally and test any commands you modified. CI Quality runs, including manual runs and documentation-only PRs, still execute the browser smoke suite.
 - **Full browser validation and releases:** Run full browser validation locally with `npm run test:browser`. Before publishing a release, both a full local browser test run and a manual Quality run must pass on the exact release commit.
 - **UI changes:** Include screenshots using fictional or redacted data. Distinguish fixture, native Codex, and live provider evidence.
 

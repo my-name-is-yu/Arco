@@ -1,6 +1,6 @@
 # Screen Structure and Conversation Behavior
 
-Arco adapts its layout to the task at hand: it uses an inline card for a single issue, compact inline tabs for a small set of issues, and an expanded workspace for browsing lists or working through full issue details. Regardless of the view, the host application ultimately controls the rendered surface.
+Arco requests an inline card for one issue, compact inline tabs for a small set of issues, and an expanded workspace for lists or full issue details. The host application controls which surface is rendered.
 
 ---
 
@@ -20,7 +20,7 @@ Different user requests map to specific entry tools and surfaces:
 ### Context Separation and Persistence
 
 - **Consistent card behavior:** Both the initial card and any subsequent issue cards follow the same display rules. Long descriptions scroll within the card's compact body rather than using expand/collapse toggles or automatically opening a side panel. Asking for a deeper explanation in chat does not trigger a new screen.
-- **Independent targets:** Keep the inline card target, the expanded panel's browsing target, and the shared chat context separate. Displaying a second issue inline must not overwrite the first issue's chat attachment or change what is currently open in the panel.
+- **Independent targets:** An inline card, the expanded panel, and a chat attachment can each refer to a different issue. Displaying another issue inline must not replace the existing chat attachment or change the issue open in the panel.
 - **Navigation memory:** Clicking **Open details** on an inline card always opens that specific card's native issue. Even if the user browses to other issues inside the expanded panel, returning to the inline card preserves its original target.
 - **Preference stability:** Opening an inline card never overwrites saved source, repository, or team preferences, nor does it automatically switch display modes. However, if a user explicitly specifies a source when requesting a list, that source takes precedence for that launch.
 
@@ -31,7 +31,7 @@ Different user requests map to specific entry tools and surfaces:
 Inline cards use a single-column layout designed for quick reading and lightweight triage directly within the conversation:
 
 - **Header and metadata:** The top row displays the repository or native identifier, an **Open details** action, and an overflow menu, followed immediately by the issue title. Below the title, state, assignees, labels, and Linear priority sit on a single row that wraps on narrower screens.
-- **Scrollable description:** The full source description renders immediately without an **Expand description** or **Collapse description** button. Short descriptions take up their natural height, while longer ones scroll vertically inside a container capped at roughly `190px` (preserving the card's width). The named body region supports keyboard scrolling, text selection, clickable links, and interactive Markdown checklists throughout. Each issue remembers its scroll position when switching tabs or returning from the detail view.
+- **Scrollable description:** The full source description renders immediately without an **Expand description** or **Collapse description** button. Short descriptions use their natural height; longer descriptions scroll vertically in a container capped at roughly `190px`, preserving the card's width. The body region has an accessible name and supports keyboard scrolling, text selection, links, and interactive Markdown checklists. Each issue retains its scroll position when switching tabs or returning from the detail view.
 - **Compact chrome:** To keep the reading area focused, conversation cards omit the updated timestamp and the browsing/shared-state footer.
 
 ### Supported Quick Operations
@@ -50,12 +50,14 @@ All available options and save actions stay scoped to the card's own repository 
 
 ### Multi-Issue Cards (`arco_show_issues`)
 
-When 2 to 4 issues are requested together, Arco displays them in a single inline card using compact rounded tabs:
+`arco_show_issues` accepts 2 to 4 native references and removes duplicates. At least two distinct issues must remain. Arco displays them in a single inline card using compact rounded tabs:
 
 - **Tab ordering and labels:** Issues appear in the exact order requested, with duplicate native references removed. Each tab shows the native identifier and a truncated preview of the title (no status icon). The full title remains available through the accessible name and tooltip; the native state remains in the tooltip and accessible description. Tabs wrap on narrow cards and support keyboard navigation (`Left`/`Right` arrows, `Home`, and `End`).
-- **Fast switching and image loading:** Selecting a tab stays inline and promptly shows that issue's prepared body, native properties, quick actions, and **Open details** button, reflecting any recently saved changes. Each tab preserves its own scroll position. To keep switching fast, Arco prefetches the first body image of each issue in the background and lazy-loads remaining images as needed. Broken images never block text, properties, or tab navigation.
+- **Tab switching:** Selecting a tab stays inline and shows that issue's prepared body, native properties, quick actions, and **Open details** button, including recently saved changes. Each tab preserves its own scroll position.
+- **Image loading:** Arco prefetches the first body image of each issue in the background and lazy-loads remaining images as needed. Broken images never block text, properties, or tab navigation.
 - **Cross-provider support:** GitHub and Linear issues can coexist in the same tab group without merging workflows or inventing shared status values.
-- **Isolation:** Opening the active tab in the expanded details view keeps the inline tab group intact; returning to the card restores the previously selected tab. Switching tabs does not attach context to the chat, alter saved provider preferences, or change the workspace layout. Text selection stays scoped to the active tab's native reference—selections that span across tabs must not attach to an arbitrary issue. If any source read fails, return an error rather than rendering a partial or fallback set of issues.
+- **Navigation and selection:** Opening the active tab in the expanded details view keeps the inline tab group intact; returning to the card restores the selected tab. Switching tabs does not attach context to the chat, alter saved provider preferences, or change the workspace layout. A text selection belongs to the active tab's native issue. Selections spanning multiple issues must not attach to an arbitrary issue.
+- **Read failures:** If any source read fails while opening the issue set, return an error rather than rendering a partial or fallback set.
 
 ---
 
@@ -78,7 +80,7 @@ Both GitHub and Linear share a unified bulk-action panel anchored at the bottom 
 - **Provider capabilities:**
   - _GitHub:_ Issue state, labels, assignees, milestone, and issue type. (Custom Issue and Project fields are edited per-issue in the detail view.)
   - _Linear:_ Status, assignee, priority, labels, estimate, and due date.
-- **Error recovery:** If a bulk update partially fails, retain clear per-issue failure details and allow retrying only the failed items.
+- **Error recovery:** If a bulk update partially fails, show each issue's outcome and allow retrying only failures known to be safe to retry. Keep uncertain outcomes and saved issues that need a refresh distinct from retryable failures.
 
 ### Issue Details
 
@@ -86,7 +88,7 @@ The detail view prioritizes reading and editing the issue content without stacki
 
 - **Sticky toolbar:** As the user scrolls, the toolbar keeps the native issue identifier visible alongside **Add to chat** and the issue-actions menu.
 - **Shared chat indicator:** Context status appears once in the toolbar: **In chat** when the currently viewed issue is attached, or **Chat: [native reference]** when a different issue is attached. GitHub references include the repository name; Linear comparisons preserve connection, workspace, team, and issue identity.
-- **Reading and editing:** The issue body and comments form a continuous reading column. This view houses all heavy workflows: free-form title and body editing, comments and replies, project and relationship management, custom fields, and bulk operations. Any unsupported operation links out to the source service.
+- **Reading and editing:** The issue body and comments form a continuous reading column. Use the detail view for free-form title and body editing, comments and replies, project and relationship management, and custom fields. Bulk operations remain in the list's bulk-action panel. Unsupported operations link to the source service.
 
 ---
 
@@ -123,7 +125,7 @@ The **Keyboard shortcuts** action is reachable by click from the workspace heade
 
 ## "Add to Chat" and Passage Annotations
 
-Responsibilities are split cleanly between Arco and the host: **Arco** owns selecting context and managing inline passage annotations, while **Codex** owns the conversation composer, attachment list UI, previews, removal controls, and message sending. Arco never renders a duplicate attachment list, composer, or microphone button, nor does it send messages on its own. Simply browsing an issue row or highlighting text never shares context automatically.
+**Arco** lets users select context and manage inline passage annotations. **Codex** displays the composer, attachment list, previews, and removal controls, and sends messages. Arco never renders a duplicate attachment list, composer, or microphone button, nor does it send messages on its own. Browsing an issue or highlighting text does not share context; the user must choose **Add to chat**.
 
 ### Attaching Whole Issues
 
@@ -160,8 +162,8 @@ Arco displays notices when user action is required or when the interface cannot 
 
 - **Errors and limits:** Clearly state what failed and how to fix or retry it—covering authorization, permission, input, upload, and local-storage errors.
 - **Edit conflicts and draft protection:** Explain why an operation was blocked and provide direct actions to compare changes, save, or discard the draft.
-- **Uncertain or incomplete writes:** Distinguish between changes that were confirmed by the provider and subsequent UI refreshes that failed, instructing the user how to verify the state in the source app before resubmitting.
-- **Partial bulk failures:** List the specific issues that failed to update and offer a retry action scoped strictly to those failed targets without resubmitting successful ones.
+- **Uncertain or incomplete writes:** State whether the provider confirmed the change. If the write succeeded but the UI refresh failed, offer a refresh without repeating the write. If the write's outcome is uncertain, explain how to check the source app before submitting another write.
+- **Partial bulk failures:** List each issue that failed to update and offer a retry action only for failures known to be safe to retry, without resubmitting successful or unconfirmed changes.
 - **External authorization:** When waiting on an OAuth or external sign-in flow, explain how to complete the step in the source application and return. If authorization fails, replace the waiting prompt with the error details.
 
 ### Silent Successes and Loading States
