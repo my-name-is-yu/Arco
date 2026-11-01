@@ -189,6 +189,131 @@ describe("declared MCP input schemas", () => {
     expectInputError(nested, "unexpected");
   });
 
+  it("keeps GitHub patch fields operation-specific and rejects invalid bulk values before dispatch", async () => {
+    const update = vi.spyOn(backend.service, "update");
+    const attributes = vi.spyOn(backend.operations, "issueAttributes");
+    const bulk = vi.spyOn(backend.operations, "bulkUpdate");
+    const issue = { repo: FIXTURE_REPO, number: 42 };
+    for (const [name, patch, invalid] of [
+      [
+        "arco_bulk_update",
+        { title: "Only a single issue can edit this" },
+        "title",
+      ],
+      ["arco_bulk_update", { body: "" }, "body"],
+      ["arco_update_issue", { milestoneNumber: 1 }, "milestoneNumber"],
+      ["arco_update_issue", { issueTypeId: 1 }, "issueTypeId"],
+      ["arco_issue_attributes", { state: "closed" }, "state"],
+      ["arco_bulk_update", { state: "closed", unexpected: true }, "unexpected"],
+      ["arco_bulk_update", { issueTypeId: 0 }, "issueTypeId"],
+      [
+        "arco_bulk_update",
+        { assignees: Array(101).fill("fixture-user") },
+        "assignees",
+      ],
+    ] as const) {
+      const result = await client.callTool({
+        name,
+        arguments: {
+          ...(name === "arco_bulk_update" ? { issues: [issue] } : issue),
+          requestId: randomUUID(),
+          patch,
+        },
+      });
+      expectInputError(result, invalid);
+    }
+    expect(update).not.toHaveBeenCalled();
+    expect(attributes).not.toHaveBeenCalled();
+    expect(bulk).not.toHaveBeenCalled();
+  });
+
+  it("preserves core text edits and native attribute values and clears through bulk changes", async () => {
+    const issue = { repo: FIXTURE_REPO, number: 42 };
+    const title = "Only a core issue update edits the title";
+    const updated = await client.callTool({
+      name: "arco_update_issue",
+      arguments: {
+        ...issue,
+        requestId: randomUUID(),
+        patch: { title, body: "" },
+      },
+    });
+    expect(updated.isError).not.toBe(true);
+    expect(updated.structuredContent).toMatchObject({ title, body: "" });
+    const attributes = await client.callTool({
+      name: "arco_issue_attributes",
+      arguments: {
+        ...issue,
+        requestId: randomUUID(),
+        patch: { milestoneNumber: 1, issueTypeId: 1 },
+      },
+    });
+    expect(attributes.isError).not.toBe(true);
+    for (const clear of [false, true]) {
+      const result = await client.callTool({
+        name: "arco_bulk_update",
+        arguments: {
+          issues: [issue],
+          requestId: randomUUID(),
+          patch: {
+            state: "closed",
+            stateReason: "completed",
+            assignees: clear ? [] : ["fixture-user"],
+            milestoneNumber: clear ? null : 2,
+            issueTypeId: clear ? null : 2,
+          },
+        },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        results: [
+          {
+            ...issue,
+            ok: true,
+            issue: {
+              title,
+              body: "",
+              state: "closed",
+              stateReason: "completed",
+              assignees: clear ? [] : ["fixture-user"],
+              issueType: clear ? null : { id: 2 },
+            },
+          },
+        ],
+      });
+      const catalog = await backend.operations.issueCatalog(issue);
+      expect(catalog).toMatchObject({
+        milestoneNumber: clear ? null : 2,
+        issueTypeId: clear ? null : 2,
+      });
+    }
+  });
+
+  it("keeps an omitted bulk patch distinct from an explicit empty no-op", async () => {
+    const issue = { repo: FIXTURE_REPO, number: 42 };
+    const original = await backend.service.get(issue);
+    const bulk = vi.spyOn(backend.operations, "bulkUpdate");
+    const omitted = await client.callTool({
+      name: "arco_bulk_update",
+      arguments: { issues: [issue], requestId: randomUUID() },
+    });
+    expect(omitted.isError).toBe(true);
+    expect(omitted.structuredContent).toMatchObject({
+      error: { kind: "invalid-input" },
+    });
+    expect(bulk).toHaveBeenCalledTimes(1);
+    expect(bulk.mock.calls[0][0]).not.toHaveProperty("patch");
+    const empty = await client.callTool({
+      name: "arco_bulk_update",
+      arguments: { issues: [issue], requestId: randomUUID(), patch: {} },
+    });
+    expect(empty.isError).not.toBe(true);
+    expect(empty.structuredContent).toMatchObject({
+      results: [{ ...issue, ok: true, issue: original }],
+    });
+    expect(await backend.service.get(issue)).toEqual(original);
+  });
+
   it("retains stripping and defaults declared by a non-strict GitHub operation", async () => {
     const projects = vi.spyOn(backend.operations, "projects");
     const result = await client.callTool({
