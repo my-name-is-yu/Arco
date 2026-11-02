@@ -1,3 +1,4 @@
+import { registerSymphonyTools } from "./symphony-tools";
 import {
   registerAppResource,
   registerAppTool,
@@ -167,6 +168,7 @@ export function createArcoServer(backend: ArcoBackend) {
   const uri = "ui://arco/issues";
   const cardUri = "ui://arco/issue-card";
   registerStateTools(server, backend.stateStore);
+  registerSymphonyTools(server, backend.symphonyService);
   registerGitHubImageTool(server, backend.service, {
     fixture: backend.fixture,
   });
@@ -326,14 +328,24 @@ export function createArcoServer(backend: ArcoBackend) {
     },
   );
   const workspaceOpenInput = z
-    .object({ source: z.enum(["github", "linear"]).optional() })
+    .object({
+      source: z.enum(["github", "linear", "symphony"]).optional(),
+      symphony: z
+        .object({
+          connectionId: z.string().min(1).max(200),
+          issueIdentifier: z.string().min(1).max(200).optional(),
+        })
+        .strict()
+        .optional(),
+    })
     .strict();
   registerAppTool(
     server,
     "arco_open",
     {
       title: "Arco",
-      description: "Browse and manage your GitHub and Linear issues.",
+      description:
+        "Browse GitHub and Linear issues or inspect connected Symphony runs.",
       inputSchema: workspaceOpenInput,
       annotations: {
         readOnlyHint: true,
@@ -350,16 +362,28 @@ export function createArcoServer(backend: ArcoBackend) {
     },
     async (raw) => {
       try {
-        const { source } = workspaceOpenInput.parse(raw);
+        const { source, symphony } = workspaceOpenInput.parse(raw);
+        if (symphony && source !== "symphony")
+          throw new OperationError(
+            "Choose Symphony to open a run.",
+            "invalid-input",
+          );
+        const selected =
+          source ??
+          (await backend.stateStore.readSettings()).settings.activeSource;
         const connection =
-          source === "linear"
-            ? await backend.linearService.call("linear_connection", {})
-            : await backend.service.connection();
+          selected === "symphony"
+            ? {}
+            : selected === "linear"
+              ? await backend.linearService.call("linear_connection", {})
+              : await backend.service.connection();
         return dataResult({
           ...connection,
-          launch: source
-            ? { ...personalLaunchContext, source }
-            : personalLaunchContext,
+          launch: {
+            ...personalLaunchContext,
+            ...(source || selected === "symphony" ? { source: selected } : {}),
+            ...(symphony ? { symphony } : {}),
+          },
         });
       } catch (error) {
         return failureResult(error);

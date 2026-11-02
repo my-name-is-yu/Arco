@@ -5,7 +5,6 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
 import type {
   ArcoHost,
   AccountIssuePage,
@@ -29,6 +28,10 @@ import {
   mergeCommentPages,
 } from "./github-comments";
 import { githubIssueKey } from "./github-issue-key";
+import {
+  canAutoRefreshIssueList,
+  useIssueRefreshOnReturn,
+} from "./issue-refresh";
 
 export { githubIssueKey } from "./github-issue-key";
 type PageParam = { page: number; cursor?: string };
@@ -74,17 +77,10 @@ export function useGitHubIssueList(
       order,
       authScope,
     ],
-    // Bound automatic refresh to one page. Explicit refresh updates every page.
     refetchInterval: (query) =>
-      visible &&
-      query.state.data?.pages.length === 1 &&
-      query.state.status !== "error"
-        ? 30_000
-        : false,
+      visible && canAutoRefreshIssueList(query.state) ? 30_000 : false,
     refetchOnWindowFocus: (query) =>
-      visible &&
-      query.state.data?.pages.length === 1 &&
-      query.state.status !== "error",
+      visible && canAutoRefreshIssueList(query.state),
     queryFn: async ({ pageParam, signal }) => {
       const result = await (repo
         ? call<IssuePage>(
@@ -113,15 +109,11 @@ export function useGitHubIssueList(
       };
     },
   });
-  const wasVisible = useRef(visible);
-  const { isStale, isError, refetch } = result;
-  const pageCount = result.data?.pages.length;
-  useEffect(() => {
-    const returning = visible && !wasVisible.current;
-    wasVisible.current = visible;
-    if (returning && enabled && isStale && !isError && pageCount === 1)
-      void refetch({ cancelRefetch: false });
-  }, [visible, enabled, isStale, isError, pageCount, refetch]);
+  useIssueRefreshOnReturn(
+    visible,
+    enabled && canAutoRefreshIssueList(result),
+    result,
+  );
   return result;
 }
 
@@ -152,13 +144,7 @@ export function useGitHubIssue(
       ),
     enabled,
   });
-  const wasVisible = useRef(visible);
-  const { isStale, refetch } = result;
-  useEffect(() => {
-    const returning = visible && !wasVisible.current;
-    wasVisible.current = visible;
-    if (returning && enabled && isStale) void refetch({ cancelRefetch: false });
-  }, [visible, enabled, isStale, refetch]);
+  useIssueRefreshOnReturn(visible, enabled, result);
   return result;
 }
 

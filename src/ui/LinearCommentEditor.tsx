@@ -4,11 +4,7 @@ import type { ArcoHost } from "../shared/contracts";
 import type { LinearComment, LinearIssue } from "../shared/linear";
 import type { Draft, DraftKey } from "../shared/state";
 import { IssueMarkdown } from "./MarkdownContent";
-import {
-  DraftStatus,
-  draftStorageId,
-  useDraftPersistence,
-} from "./useDraftPersistence";
+import { DraftStatus, useDraftPersistence } from "./useDraftPersistence";
 
 import type { LinearRun } from "./linear-run";
 export function LinearCommentEditor({
@@ -30,8 +26,6 @@ export function LinearCommentEditor({
   onClose: () => void;
   onError: (message: string) => void;
 }) {
-  const persistence = useDraftPersistence(host);
-  const { load } = persistence;
   const key = useMemo<DraftKey>(
     () => ({
       source: "linear",
@@ -42,6 +36,8 @@ export function LinearCommentEditor({
     }),
     [issue.workspaceId, issue.teamId, issue.issueId, comment.id, ownerId],
   );
+  const persistence = useDraftPersistence(host, key);
+  const { load } = persistence;
   // Older drafts can omit source baselines; freeze those fallbacks when editing starts.
   const [baseBody, setBaseBody] = useState(comment.body);
   const [revision, setRevision] = useState(comment.updatedAt);
@@ -103,11 +99,9 @@ export function LinearCommentEditor({
       }}
     >
       <DraftStatus
-        status={persistence.statuses[draftStorageId(key)]}
+        status={persistence.status}
         onRetry={() => {
-          const useSaved =
-            persistence.statuses[draftStorageId(key)]?.retryChoice ===
-            "use-saved";
+          const useSaved = persistence.status?.retryChoice === "use-saved";
           void persistence.retry(key, diskDraft()).then((saved) => {
             if (saved === undefined || (touched.current && !useSaved)) return;
             setBaseBody(saved?.baseBody ?? comment.body);
@@ -129,10 +123,7 @@ export function LinearCommentEditor({
         <textarea
           aria-label="Edit Linear comment"
           rows={4}
-          disabled={
-            busy ||
-            persistence.statuses[draftStorageId(key)]?.state === "resolving"
-          }
+          disabled={busy || persistence.status?.state === "resolving"}
           value={current}
           onChange={(event) =>
             persist(

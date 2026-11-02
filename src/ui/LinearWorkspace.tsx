@@ -1,3 +1,4 @@
+import type { WorkspaceSource } from "../shared/state";
 import { AsyncState } from "./AsyncState";
 import {
   WorkspaceLayout,
@@ -89,7 +90,7 @@ export function LinearWorkspace({
 }: {
   host: ArcoHost;
   launch: LaunchContext;
-  onSourceChange: (source: "github" | "linear") => void;
+  onSourceChange: (source: WorkspaceSource) => void;
 }) {
   const cache = useQueryClient();
   const issueCache = useLinearIssueCache();
@@ -393,7 +394,7 @@ export function LinearWorkspace({
     };
     const controller = draftController(host);
     const draft = resolveContentDraft(retained, await controller.load(key));
-    const status = controller.get()[draftStorageId(key)];
+    const status = controller.get(draftStorageId(key));
     if (
       status?.state === "error" ||
       status?.state === "conflict" ||

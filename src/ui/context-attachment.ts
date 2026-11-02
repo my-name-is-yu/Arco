@@ -1,3 +1,7 @@
+import {
+  symphonyRuntimeContextSchema,
+  type SymphonyRuntimeContext,
+} from "../shared/symphony";
 import type { SelectionAnnotationContext } from "../shared/contracts";
 import { annotationSnapshotIdSchema } from "../shared/annotation-state";
 import { readSharedContext } from "./shared-context";
@@ -75,5 +79,36 @@ export function annotationAttachment(
       arcoAnnotationFormat: 2 as const,
       ...(snapshotId ? { arcoAnnotationSnapshotId: snapshotId } : {}),
     },
+  };
+}
+
+export function runtimeAttachment(context: SymphonyRuntimeContext) {
+  const runtime = symphonyRuntimeContextSchema.parse(context);
+  const title = `Symphony · ${runtime.issueIdentifier}`;
+  const text = [
+    `${runtime.issueIdentifier} · ${runtime.connectionName}`,
+    `Runtime: ${runtime.runtimeStatus}`,
+    `Observed at: ${runtime.observedAt}`,
+    runtime.issue ? `${runtime.issue.title}\n${runtime.issue.url}` : null,
+    runtime.error ? `Reason: ${runtime.error}` : null,
+    runtime.lastEvent ? `Latest event: ${runtime.lastEvent}` : null,
+    runtime.lastMessage,
+    runtime.turnCount === null ? null : `Turns: ${runtime.turnCount}`,
+    runtime.retryDueAt ? `Next retry: ${runtime.retryDueAt}` : null,
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text,
+        _meta: {
+          "openai/title": title,
+          "openai/group": { title: "Symphony run" },
+        },
+      },
+    ],
+    structuredContent: { source: "arco", arcoRuntimeContext: 1, runtime },
   };
 }

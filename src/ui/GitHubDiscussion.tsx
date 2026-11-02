@@ -6,11 +6,7 @@ import type {
   GitHubOperationResult,
   ReactionList,
 } from "../shared/github-operations";
-import {
-  DraftStatus,
-  draftStorageId,
-  useDraftPersistence,
-} from "./useDraftPersistence";
+import { DraftStatus, useDraftPersistence } from "./useDraftPersistence";
 import type { Draft, DraftKey } from "../shared/state";
 import { useGitHubOperation } from "./useGitHubOperation";
 import { useNearViewport } from "./useNearViewport";
@@ -151,8 +147,6 @@ export function CommentActions({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [body, setBody] = useState(comment.body);
   const [revision, setRevision] = useState(comment.updatedAt);
-  const persistence = useDraftPersistence(host);
-  const { load } = persistence;
   const key = useMemo<DraftKey>(
     () => ({
       source: "github",
@@ -162,8 +156,10 @@ export function CommentActions({
     }),
     [issue.repo, issue.number, comment.databaseId, comment.id, ownerId],
   );
+  const persistence = useDraftPersistence(host, key);
+  const { load } = persistence;
   const touched = useRef(false);
-  const status = persistence.statuses[draftStorageId(key)];
+  const status = persistence.status;
   const localDraft = (text = body, updatedAt = revision): Draft => ({
     title: "",
     body: "",

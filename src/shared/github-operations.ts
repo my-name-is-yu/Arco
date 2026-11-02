@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   issueRefSchema,
   repoSchema,
+  updateInputSchema,
   type IssueDetail,
   type Comment,
   type IssueRef,
@@ -41,6 +42,12 @@ const projectFieldChange = z.object({
   fieldId: id,
   value: fieldValueSchema,
 });
+const issueAttributesPatch = z
+  .object({
+    milestoneNumber: databaseId.nullable().optional(),
+    issueTypeId: databaseId.nullable().optional(),
+  })
+  .strict();
 
 /** Each tool is a bounded source operation; field definitions and Project administration are excluded. */
 export const githubOperationSchemas = {
@@ -84,12 +91,7 @@ export const githubOperationSchemas = {
   arco_issue_catalog: issueRefSchema,
   arco_issue_attributes: writeRef.extend({
     expectedUpdatedAt: z.string().optional(),
-    patch: z
-      .object({
-        milestoneNumber: databaseId.nullable().optional(),
-        issueTypeId: databaseId.nullable().optional(),
-      })
-      .strict(),
+    patch: issueAttributesPatch,
   }),
   arco_issue_fields: issueRefSchema,
   arco_set_issue_field: writeRef.extend(issueFieldChange.shape),
@@ -129,16 +131,14 @@ export const githubOperationSchemas = {
   arco_bulk_update: z.object({
     issues: z.array(issueRefSchema).min(1).max(100),
     requestId,
-    patch: z
-      .object({
-        state: z.enum(["open", "closed"]).optional(),
-        stateReason: z
-          .enum(["completed", "not_planned", "reopened"])
-          .optional(),
-        assignees: z.array(z.string().min(1).max(100)).max(100).optional(),
-        milestoneNumber: databaseId.nullable().optional(),
-        issueTypeId: databaseId.nullable().optional(),
-      })
+    patch: updateInputSchema.shape.patch
+      .pick({ state: true, stateReason: true, assignees: true })
+      .extend(
+        issueAttributesPatch.pick({
+          milestoneNumber: true,
+          issueTypeId: true,
+        }).shape,
+      )
       .strict()
       .optional(),
     labels: z
