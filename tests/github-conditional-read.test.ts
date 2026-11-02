@@ -35,13 +35,7 @@ describe("conditional account issue reads", () => {
       )
       .mockResolvedValueOnce(unchanged);
     const reader = createConditionalReader({ run });
-    const first = (await reader.read(
-      endpoint,
-      projection,
-      "credential-one",
-    )) as {
-      title: string;
-    }[];
+    const first = await reader.read(endpoint, projection, "credential-one");
     expect(first).toEqual([
       issue(),
       { ...issue("Pull request"), pull_request: {} },

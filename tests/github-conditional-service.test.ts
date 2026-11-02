@@ -57,6 +57,42 @@ describe("conditional account reads through the GitHub service", () => {
     ).toBe(false);
   });
 
+  it("rejects malformed summaries without retaining their validator and caches the recovered native page", async () => {
+    const run = vi
+      .fn<GhRunner>()
+      .mockResolvedValueOnce(response([{ ...nativeIssue, labels: null }]))
+      .mockResolvedValueOnce(
+        response(
+          Array.from({ length: 100 }, (_, index) => ({
+            ...nativeIssue,
+            ...(index ? { pull_request: {} } : {}),
+          })),
+        ),
+      )
+      .mockResolvedValueOnce("HTTP/2.0 304 Not Modified\r\n\r\n");
+    const service = createGitHubService({
+      run,
+      credentialIdentity: async () => "same-credential",
+    });
+    await expect(service.accountIssues(input)).rejects.toMatchObject({
+      code: "invalid-response",
+    });
+    const recovered = await service.accountIssues(input);
+    expect(recovered.issues).toHaveLength(1);
+    expect(recovered.issues[0]).toMatchObject({
+      repo: "owner/repo",
+      number: 1,
+      title: "Account issue",
+    });
+    expect(recovered.hasMore).toBe(true);
+    expect(await service.accountIssues(input)).toEqual(recovered);
+    expect(
+      run.mock.calls.map(([args]) =>
+        args.some((arg) => arg.startsWith("If-None-Match:")),
+      ),
+    ).toEqual([false, false, true]);
+  });
+
   it("rejects a response when authentication changes during the request", async () => {
     let credential = "before";
     const run = vi.fn<GhRunner>(async () => {
