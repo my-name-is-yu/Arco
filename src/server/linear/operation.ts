@@ -468,7 +468,8 @@ export function createLinearOperation(options: {
         "The Linear workflow state could not be loaded.",
         "invalid-response",
       );
-    if (issue.labelIds.some((id) => !labels.some((value) => value.id === id)))
+    const labelIds = new Set(labels.map((value) => value.id));
+    if (issue.labelIds.some((id) => !labelIds.has(id)))
       throw new LinearServiceError(
         "The issue label definitions could not be loaded completely. Refresh and try again.",
         "invalid-response",

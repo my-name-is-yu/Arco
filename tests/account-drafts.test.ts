@@ -174,7 +174,7 @@ describe("stable account ownership of local drafts", () => {
     const markup = () =>
       renderToStaticMarkup(
         createElement(DraftStatus, {
-          status: controller.get()[draftStorageId(key)],
+          status: controller.get(draftStorageId(key)),
           onRetry() {},
           onResolve() {},
         }),
@@ -208,7 +208,7 @@ describe("stable account ownership of local drafts", () => {
       draft: { ...draft, body: "Other view's owned input" },
     });
     await controller.resolve(key, "import-legacy", draft);
-    expect(controller.get()[draftStorageId(key)].state).toBe("conflict");
+    expect(controller.get(draftStorageId(key))?.state).toBe("conflict");
     expect((await store.readDraft(key)).draft?.body).toBe(
       "Other view's owned input",
     );
@@ -225,7 +225,7 @@ describe("stable account ownership of local drafts", () => {
     controller.schedule(key, { ...draft, body: "New input" });
     await controller.resolve(key, "import-legacy", draft);
     expect(controller.value(key)?.body).toBe("New input");
-    expect(controller.get()[draftStorageId(key)].legacy?.error).toContain(
+    expect(controller.get(draftStorageId(key))?.legacy?.error).toContain(
       "already has input",
     );
     controller.flush();
@@ -268,9 +268,9 @@ describe("stable account ownership of local drafts", () => {
     const key = owned(github);
     const controller = draftController(host);
     await controller.load(key);
-    expect(controller.get()[draftStorageId(key)].legacy).toEqual({});
+    expect(controller.get(draftStorageId(key))?.legacy).toEqual({});
     await controller.resolve(key, "review-legacy", draft);
-    expect(controller.get()[draftStorageId(key)].legacy?.error).toContain(
+    expect(controller.get(draftStorageId(key))?.legacy?.error).toContain(
       "kept unchanged",
     );
     expect(controller.value(key)).toBeUndefined();
@@ -350,7 +350,7 @@ describe("stable account ownership of local drafts", () => {
       return result;
     });
     await expect(controller.remove(key)).resolves.toBeNull();
-    expect(controller.get()[draftStorageId(key)].state).toBe("idle");
+    expect(controller.get(draftStorageId(key))?.state).toBe("idle");
     expect(await store.readDraft(key)).toEqual({ revision: 2, draft: null });
     expect(call.mock.calls.map(([name]) => name)).toEqual([
       "arco_read_draft",
@@ -362,7 +362,7 @@ describe("stable account ownership of local drafts", () => {
     controller.schedule(key, next);
     controller.flush();
     await vi.waitFor(() =>
-      expect(controller.get()[draftStorageId(key)].state).toBe("saved"),
+      expect(controller.get(draftStorageId(key))?.state).toBe("saved"),
     );
     expect(await store.readDraft(key)).toEqual({ revision: 3, draft: next });
     expect(await readFile(legacy.path)).toEqual(legacy.bytes);

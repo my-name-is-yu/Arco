@@ -22,6 +22,105 @@ async function openAttributes(page: Page) {
   return ui;
 }
 
+test("Project choices retain page order and update membership exclusions after refresh", async ({
+  page,
+}) => {
+  const project = (id: string, title: string, closed = false) => ({
+    id,
+    title,
+    closed,
+    number: 1,
+    url: "https://github.com/orgs/fictional/projects/1",
+  });
+  const pages = [
+    [
+      project("closed-first", "Closed first", true),
+      project("joined-first", "Joined first"),
+      project("available-z", "Available Z"),
+    ],
+    [
+      project("available-a", "Available A"),
+      project("joined-second", "Joined second"),
+      project("closed-second", "Closed second", true),
+      project("available-m", "Available M"),
+    ],
+  ];
+  let joined = [pages[0][1], pages[1][1]];
+  const cursors: (string | undefined)[] = [];
+  await page.route("**/tool", async (route) => {
+    const input = route.request().postDataJSON() as {
+      name: string;
+      arguments: { repo: string; number: number; cursor?: string };
+    };
+    if (input.name === "arco_issue_projects")
+      return route.fulfill({
+        json: {
+          structuredContent: {
+            repo: input.arguments.repo,
+            number: input.arguments.number,
+            memberships: joined.map((item) => ({
+              projectId: item.id,
+              itemId: `item-${item.id}`,
+              title: item.title,
+              url: item.url,
+            })),
+            errors: [],
+          },
+        },
+      });
+    if (input.name !== "arco_projects") return route.continue();
+    cursors.push(input.arguments.cursor);
+    const secondPage = input.arguments.cursor === "second-page";
+    return route.fulfill({
+      json: {
+        structuredContent: {
+          repo: input.arguments.repo,
+          owner: "fictional",
+          ownerType: "organization",
+          projects: pages[secondPage ? 1 : 0],
+          hasMore: !secondPage,
+          cursor: secondPage ? null : "second-page",
+        },
+      },
+    });
+  });
+  const ui = await openAttributes(page);
+  const choices = selectControl(ui, "Project to add").getByRole("button");
+  await choices.click();
+  await expect(ui.getByRole("option")).toHaveText([
+    "Choose a Project…",
+    "Available Z",
+  ]);
+  await page.keyboard.press("Escape");
+  await ui
+    .getByRole("button", { name: "Load more Projects", exact: true })
+    .click();
+  await expect.poll(() => cursors).toEqual([undefined, "second-page"]);
+  await choices.click();
+  await expect(ui.getByRole("option")).toHaveText([
+    "Choose a Project…",
+    "Available Z",
+    "Available A",
+    "Available M",
+  ]);
+  await page.keyboard.press("Escape");
+
+  joined = [pages[0][2]];
+  const refresh = ui.getByRole("button", { name: "Refresh", exact: true });
+  await refresh.click();
+  await expect(ui.locator(".project-membership")).toHaveCount(1);
+  await expect(ui.locator(".project-membership")).toContainText("Available Z");
+  await expect(refresh).toBeEnabled();
+  await choices.click();
+  await expect(ui.getByRole("option")).toHaveText([
+    "Choose a Project…",
+    "Joined first",
+    "Available A",
+    "Joined second",
+    "Available M",
+  ]);
+});
+
 async function projectFields(
   page: Page,
   values: Map<string, FieldValue>,

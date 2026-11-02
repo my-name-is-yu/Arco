@@ -394,7 +394,7 @@ export function LinearWorkspace({
     };
     const controller = draftController(host);
     const draft = resolveContentDraft(retained, await controller.load(key));
-    const status = controller.get()[draftStorageId(key)];
+    const status = controller.get(draftStorageId(key));
     if (
       status?.state === "error" ||
       status?.state === "conflict" ||
