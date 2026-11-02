@@ -1,6 +1,6 @@
 # Arco
 
-Arco is an MIT-licensed Codex plugin for browsing and editing GitHub and Linear issues alongside your chat. Select passages from issues to add them to your conversation context.
+Arco is an MIT-licensed Codex plugin for browsing and editing GitHub and Linear issues alongside your chat and inspecting Symphony runs. Select passages from issues or attach a displayed run snapshot to add context to your conversation.
 
 <a href="https://www.producthunt.com/products/arco-4?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-arco-4" target="_blank" rel="noopener noreferrer"><img alt="Arco - GitHub and Linear issues, right inside your Codex | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1296725&amp;theme=light&amp;t=1793511881859"></a>
 
@@ -58,9 +58,9 @@ Both installation methods install a cached copy of the plugin into Codex. Once i
 
 1. Restart the Codex desktop app and start a new conversation.
 2. Run Arco's setup skill.
-3. Connect GitHub, Linear, or both—each provider works independently.
+3. Connect GitHub, Linear, or both—each provider works independently. You can also connect an existing Symphony instance without signing in to either issue provider.
 
-## Connect your providers
+## Connect your services
 
 ### GitHub
 
@@ -90,11 +90,36 @@ Linear tokens are saved in your OS credential store.
 
 > **Note on upgrading older Linear sign-ins:** The first time an updated version of Arco writes to an older Linear credential, it adds a private grant ID to the stored record. Normal token refreshes keep this ID, while reconnecting replaces it. Older versions of Arco that enforce the previous credential format cannot read this updated record, so you may need to reconnect Linear if you downgrade.
 
+### Symphony
+
+Arco reads the HTTP API of the [official Symphony Elixir reference implementation v0.0.3](https://github.com/openai/symphony/releases/tag/v0.0.3). Set up Symphony separately using its [upstream instructions](https://github.com/openai/symphony/blob/v0.0.3/elixir/README.md), and enable its optional HTTP server with `--port` or `server.port`.
+
+1. Select **Symphony** from Arco's existing **GitHub / Linear / Symphony** menu.
+2. Add a connection name and base URL, then use **Test connection**. Local HTTP must use a loopback address, such as `http://127.0.0.1:4000`; remote URLs must use HTTPS. Do not include credentials, query parameters, or fragments in the URL.
+3. Leave **Issue context** set to **Runtime only**, or link a GitHub repository or a team and optional project in the connected Linear workspace. Select existing **Preparation labels** / **Review labels**, or **Preparation states** / **Review states**, to classify work. Saving these settings does not change source issues.
+4. Select **Save connection**. Use **Board view** / **Table view** to inspect the same work, open a run's details, or attach its displayed context with **Add run context to chat**.
+
+Symphony remains responsible for execution. Use Arco's existing issue state and label controls to meet your repository's `WORKFLOW.md` conditions; Arco does not start, stop, approve, or resume agents. Editing a running issue does not send a live instruction to its agent.
+
+Arco saves connection settings locally and uses its Node MCP server to read Symphony. It does not manage API tokens, browser sign-ins, VPNs, or SSH tunnels. Remote HTTPS must already be reachable through your existing network or proxy; browser login cookies are not automatically shared with Arco. A manually established SSH port forward can be used as a loopback URL. Symphony's SSH worker settings control remote execution and do not establish Arco's dashboard connection.
+
 ## Features
 
 Arco runs a local Node.js MCP server and an embedded React interface. The server connects directly to your issue trackers using your existing GitHub CLI session and Linear tokens from your OS credential store. You do not need an Arco account, and Arco has no hosted backend.
 
-GitHub and Linear remain the single sources of truth. Arco preserves each provider's native fields and does not sync data between the two services.
+GitHub and Linear remain the single sources of truth for issue data. Arco preserves each provider's native fields and does not sync data between the two services.
+
+### Follow Symphony work
+
+Switch between a board and a list while keeping the selected issue and filters. Run details separate Symphony's observed runtime state from the source issue's own state and description. An issue's expanded details also show a small **Symphony run** section below its properties, with **View run** returning to the matching connection and run.
+
+![Symphony board with separate runtime and native issue context](assets/readme/symphony-board.png)
+
+![Symphony list using the same selected work and detail panel](assets/readme/symphony-table.png)
+
+_These screenshots show the browser fixture with fictional issues and runtime observations, not a live provider or the Codex desktop host._
+
+Symphony reports current runtime snapshots, not a permanent history. Arco keeps stale data visible during connection failures, and a run disappearing is not treated as proof that its issue is complete.
 
 ### Bring the right context into chat
 
@@ -156,6 +181,7 @@ After updating either installation type, restart the Codex desktop app and open 
 
 - **Native keyring fails to load:** On a prebuilt install, verify you are on a supported OS and architecture (macOS on Apple Silicon). On a source install, reinstall dependencies (`npm ci`) and rebuild on that exact machine.
 - **Linear authorization fails:** Make sure the callback URL matches `http://127.0.0.1:53187/oauth/linear/callback` exactly, local port `53187` is free, and your OS credential store is unlocked.
+- **Symphony connection fails:** Confirm the optional HTTP server is enabled and reachable from the machine running Arco's MCP server. An HTTPS login page or authentication redirect is not the JSON API. Check your existing VPN, proxy, or SSH forward; Arco does not configure that route.
 
 ### Uninstalling
 
@@ -187,6 +213,16 @@ npm run dev
 The build writes the installable plugin to `dist/plugin/` and the fixture preview to `dist/dev/`. Rebuild after changing source files. To serve an existing build without hot reload, run `npm run dev:fixture`.
 
 The fixture host runs in a standard browser. Test actual Codex desktop behavior and live API writes separately; the preview does not verify them.
+
+### Symphony HTTP validation
+
+After building, run the independent read-only check against an already running Symphony HTTP server:
+
+```sh
+npm run test:symphony:live -- --url http://127.0.0.1:4000
+```
+
+This checks the real state API, an unknown issue response, dashboard HTML, and the production Arco MCP adapter using temporary local settings. It does not start or stop Symphony, launch Codex, or modify tracker issues. Use `--expect-empty` when the server is a dedicated official v0.0.3 instance with an empty `memory` tracker. That configuration validates real HTTP compatibility and empty-state behavior without tracker credentials or agent work; populated runtime and provider scenarios are covered separately by fixtures. The command is intentionally separate from the offline `npm run check` suite.
 
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for validation commands and contribution guidelines.
 - See [Publishing the plugin](CONTRIBUTING.md#publishing-the-plugin) for npm package validation and release setup.

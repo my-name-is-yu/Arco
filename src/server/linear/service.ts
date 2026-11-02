@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { LinearClient } from "@linear/sdk";
 import { z } from "zod";
 import {
@@ -33,6 +34,10 @@ export function createLinearService(
     options.client ??
     ((accessToken: string) => new LinearClient({ accessToken }));
   const request = options.fetch ?? fetch;
+  const identities = new Map<
+    string,
+    { fingerprint: string; generation: string }
+  >();
   const once = createWriteGuard<
     object,
     readonly [LinearToolName, { connectionId: string }]
@@ -49,9 +54,13 @@ export function createLinearService(
     name: N,
     input: Args<N>,
   ): Promise<object> {
+    let fingerprint: string | undefined;
     const operation = createLinearOperation({
       auth,
-      client: makeClient,
+      client: (token) => {
+        fingerprint = createHash("sha256").update(token).digest("hex");
+        return makeClient(token);
+      },
       fetch: request,
     });
     const issues = createIssuesHandlers(operation);
@@ -65,7 +74,21 @@ export function createLinearService(
       ...createBulkHandlers(operation, issues),
     };
     try {
-      return await handlers[name](input);
+      const result = await handlers[name](input);
+      if (
+        name === "linear_connection" &&
+        fingerprint &&
+        "connectionId" in input
+      ) {
+        const connectionId = input.connectionId;
+        let identity = identities.get(connectionId);
+        if (identity?.fingerprint !== fingerprint) {
+          identity = { fingerprint, generation: randomUUID() };
+          identities.set(connectionId, identity);
+        }
+        return { ...result, authGeneration: identity.generation };
+      }
+      return result;
     } catch (error) {
       const progress = getWriteProgress();
       const failure = linearFailure(error, {

@@ -11,11 +11,7 @@ import type {
   LinearTemplate,
   LinearSavedReceipt,
 } from "../shared/linear";
-import {
-  DraftStatus,
-  draftStorageId,
-  useDraftPersistence,
-} from "./useDraftPersistence";
+import { DraftStatus, useDraftPersistence } from "./useDraftPersistence";
 import { SingleSelect } from "./SingleSelect";
 import { linearPriorityLabels } from "./linear-priority";
 import { CreateDialog } from "./CreateDialog";
@@ -50,8 +46,6 @@ export function LinearCreateIssue({
   onCreated: (issue: LinearIssue | LinearSavedReceipt) => void;
   onOpenLink: (url: string) => void;
 }) {
-  const persistence = useDraftPersistence(host);
-  const { load } = persistence;
   type CreateDraft = {
     title: string;
     body: string;
@@ -68,6 +62,8 @@ export function LinearCreateIssue({
     }),
     [scope, ownerId],
   );
+  const persistence = useDraftPersistence(host, createKey);
+  const { load } = persistence;
   useEffect(() => {
     if (open) void load(createKey);
   }, [open, createKey, load]);
@@ -155,7 +151,7 @@ export function LinearCreateIssue({
         }}
       >
         <DraftStatus
-          status={persistence.statuses[draftStorageId(createKey)]}
+          status={persistence.status}
           onRetry={() =>
             persistence.retry(createKey, toSavedDraft(readCreateDraft()))
           }

@@ -1,6 +1,6 @@
 ---
 name: arco-issue-workflow
-description: "Read, show, create, or update GitHub and Linear issues through Arco, including shared issue context."
+description: "Read, show, create, or update GitHub and Linear issues through Arco, including shared issue context and Symphony runtime observations."
 ---
 
 # Arco issue workflow
@@ -32,12 +32,21 @@ Use inline cards by default when the user asks to see issues. Open a detail pane
 | Open issue details           | `arco_open_issue` (panel)                                   |
 | Open a service list          | `arco_open` with `source`                                   |
 | Open project GitHub issues   | `arco_open_project`                                         |
+| Inspect Symphony work        | `arco_open` with `source: "symphony"`                       |
 
 `arco_open` opens the personal issue workspace; pass `source: "github"` or `source: "linear"` for an explicitly requested provider list. `arco_open_project` uses client workspace roots to resolve a GitHub repository when available; otherwise the user chooses a repository for this chat. For a Linear list, use `arco_open` with `source: "linear"`.
 
 Single-issue presentation tools take `target: {source, ...nativeReference}`. `arco_show_issues` takes `targets: [...]` with 2–4 explicit native references, keeps their order, and removes duplicates. Small tabs switch between the inline issue cards; the app caches fetched bodies and properties. **Open details** opens the active issue's full workspace.
 
 Resolve ambiguous references first; do not widen a requested set to a repository or account feed. Showing or browsing does not edit source issues or workspace files, send messages, or attach chat context. The user shares context via **Add to chat**.
+
+## Symphony Observations
+
+Use `arco_symphony_state` for an explicitly saved connection and `arco_symphony_issue` for its selected runtime detail. Keep `connectionId` and runtime identity together. Symphony is not a native issue provider: preserve the configured GitHub/Linear scope and canonical issue URL, and never join short identifiers or assume its issue IDs share Arco's native ID format.
+
+Runtime snapshots do not include the full tracker backlog or permanent completion history. Preparation/review groupings come from configured tracker criteria. Keep runtime state distinct from native issue state; a missing runtime or runtime-detail 404 does not establish completion or source deletion. A failed refresh leaves prior observations stale, not empty.
+
+Open the native issue to edit its existing state, labels, or description. Those edits affect the tracker and do not send a live message to a running agent. Arco provides no start/stop/approve/resume/manual-retry operations. Share displayed runtime context only through the user's explicit **Add run context to chat** action; never attach or send it merely because the workspace was opened.
 
 ## Changes
 

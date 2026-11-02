@@ -67,7 +67,14 @@ export const launchContextSchema = z
       .min(2)
       .max(MAX_PRESENTED_ISSUES)
       .optional(),
-    source: z.enum(["github", "linear"]).optional(),
+    source: z.enum(["github", "linear", "symphony"]).optional(),
+    symphony: z
+      .object({
+        connectionId: z.string().min(1).max(200),
+        issueIdentifier: z.string().min(1).max(200).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((launch) => !launch.target || !launch.issues, {

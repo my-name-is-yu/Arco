@@ -7,11 +7,7 @@ import { useSessionState } from "./session-state";
 import type { LinearRun } from "./linear-run";
 import { useEffect, useMemo } from "react";
 import type { DraftKey } from "../shared/state";
-import {
-  DraftStatus,
-  draftStorageId,
-  useDraftPersistence,
-} from "./useDraftPersistence";
+import { DraftStatus, useDraftPersistence } from "./useDraftPersistence";
 const relationLabels: Record<string, string> = {
   blocks: "Blocks",
   "blocked-by": "Blocked by",
@@ -37,8 +33,6 @@ export function LinearRelations({
   run: LinearRun;
 }) {
   const identity = `${ownerId}:${issue.connectionId}:${issue.workspaceId}:${issue.teamId}:${issue.issueId}`;
-  const persistence = useDraftPersistence(host);
-  const { load } = persistence;
   const [relationTarget, setRelationTarget] = useSessionState(
     host,
     `linear:relation-target:${identity}`,
@@ -62,6 +56,8 @@ export function LinearRelations({
     }),
     [issue.workspaceId, issue.teamId, issue.issueId, ownerId],
   );
+  const persistence = useDraftPersistence(host, childKey);
+  const { load } = persistence;
   useEffect(() => {
     void load(childKey);
   }, [load, childKey]);
@@ -127,7 +123,7 @@ export function LinearRelations({
       <details>
         <DisclosureSummary>Create sub-issue</DisclosureSummary>
         <DraftStatus
-          status={persistence.statuses[draftStorageId(childKey)]}
+          status={persistence.status}
           onRetry={() => persistence.retry(childKey, { ...child, comment: "" })}
           onResolve={(choice) => {
             void persistence.resolve(childKey, choice, {

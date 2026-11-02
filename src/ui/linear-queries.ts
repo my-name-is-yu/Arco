@@ -4,7 +4,6 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
 import type { ArcoHost } from "../shared/contracts";
 import type {
   LinearIssue,
@@ -18,6 +17,10 @@ import {
   linearCommentChangesKey,
   type LinearCommentChanges,
 } from "./linear-comments";
+import {
+  canAutoRefreshIssueList,
+  useIssueRefreshOnReturn,
+} from "./issue-refresh";
 
 export const linearRef = (issue: LinearRef): LinearRef => ({
   connectionId: issue.connectionId,
@@ -51,15 +54,9 @@ export function useLinearIssueList(
   >({
     queryKey: ["linear-issues", JSON.stringify([scope, query, filters])],
     refetchInterval: (query) =>
-      autoRefresh &&
-      query.state.data?.pages.length === 1 &&
-      query.state.status !== "error"
-        ? 30_000
-        : false,
+      autoRefresh && canAutoRefreshIssueList(query.state) ? 30_000 : false,
     refetchOnWindowFocus: (query) =>
-      autoRefresh &&
-      query.state.data?.pages.length === 1 &&
-      query.state.status !== "error",
+      autoRefresh && canAutoRefreshIssueList(query.state),
     initialPageParam: undefined,
     queryFn: async ({ pageParam, signal }) => {
       const result = await host.call<LinearPage>(
@@ -86,15 +83,11 @@ export function useLinearIssueList(
     },
     enabled,
   });
-  const wasRefreshing = useRef(autoRefresh);
-  const { isStale, isError, refetch } = result;
-  const pageCount = result.data?.pages.length;
-  useEffect(() => {
-    const returning = autoRefresh && !wasRefreshing.current;
-    wasRefreshing.current = autoRefresh;
-    if (returning && enabled && isStale && !isError && pageCount === 1)
-      void refetch({ cancelRefetch: false });
-  }, [autoRefresh, enabled, isStale, isError, pageCount, refetch]);
+  useIssueRefreshOnReturn(
+    autoRefresh,
+    enabled && canAutoRefreshIssueList(result),
+    result,
+  );
   return result;
 }
 
@@ -121,13 +114,7 @@ export function useLinearIssue(
       ),
     enabled,
   });
-  const wasPolling = useRef(poll);
-  const { isStale, refetch } = result;
-  useEffect(() => {
-    const returning = poll && !wasPolling.current;
-    wasPolling.current = poll;
-    if (returning && enabled && isStale) void refetch({ cancelRefetch: false });
-  }, [poll, enabled, isStale, refetch]);
+  useIssueRefreshOnReturn(poll, enabled, result);
   return result;
 }
 
