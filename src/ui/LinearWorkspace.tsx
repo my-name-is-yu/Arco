@@ -1,3 +1,4 @@
+import type { WorkspaceSource } from "../shared/state";
 import { AsyncState } from "./AsyncState";
 import {
   WorkspaceLayout,
@@ -89,7 +90,7 @@ export function LinearWorkspace({
 }: {
   host: ArcoHost;
   launch: LaunchContext;
-  onSourceChange: (source: "github" | "linear") => void;
+  onSourceChange: (source: WorkspaceSource) => void;
 }) {
   const cache = useQueryClient();
   const issueCache = useLinearIssueCache();

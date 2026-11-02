@@ -1,3 +1,4 @@
+import type { WorkspaceSource } from "../shared/state";
 import {
   useGitHubAuthScope,
   useGitHubCall,
@@ -147,7 +148,7 @@ export function GitHubWorkspace({
 }: {
   host: ArcoHost;
   launch: LaunchContext;
-  onSourceChange: (source: "github" | "linear") => void;
+  onSourceChange: (source: WorkspaceSource) => void;
 }) {
   const authScope = useGitHubAuthScope();
   const call = useGitHubCall(host);
