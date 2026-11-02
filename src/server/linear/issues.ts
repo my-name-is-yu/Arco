@@ -1,6 +1,6 @@
 import { LinearServiceError } from "./errors";
 import { type Issue } from "@linear/sdk";
-import { type LinearRef } from "../../shared/linear";
+import { type LinearLabel, type LinearRef } from "../../shared/linear";
 import type { IssueUpdateInput } from "./operation";
 
 import {
@@ -10,6 +10,8 @@ import {
   type LinearOperation,
 } from "./operation";
 export function createIssuesHandlers(operation: LinearOperation) {
+  // Reuse only the metadata snapshots shared by this operation's bulk members.
+  const labelIndexes = new WeakMap<LinearLabel[], Map<string, LinearLabel>>();
   async function validatePatch(
     scope: LinearRef,
     current: Issue,
@@ -85,15 +87,17 @@ export function createIssuesHandlers(operation: LinearOperation) {
     const { client } = await operation.context(input);
     const current = await operation.checkedIssue(client, input);
     const meta = await operation.metadata(input, ["labels"]);
-    const additions = input.add.map((id) =>
-      meta.labels.find((value) => value.id === id),
-    );
+    let labelsById = labelIndexes.get(meta.labels);
+    if (!labelsById) {
+      labelsById = new Map(meta.labels.map((value) => [value.id, value]));
+      labelIndexes.set(meta.labels, labelsById);
+    }
+    const removals = new Set(input.remove);
+    const additions = input.add.map((id) => labelsById.get(id));
     if (
       additions.some((value) => !value || value.isGroup) ||
-      input.remove.some(
-        (id) => !meta.labels.some((value) => value.id === id),
-      ) ||
-      input.add.some((id) => input.remove.includes(id))
+      input.remove.some((id) => !labelsById.has(id)) ||
+      input.add.some((id) => removals.has(id))
     )
       throw new LinearServiceError(
         "Choose existing team or workspace labels without overlapping additions and removals. Label groups cannot be applied directly.",
@@ -103,17 +107,19 @@ export function createIssuesHandlers(operation: LinearOperation) {
         addition?.parentId ? [addition.parentId] : [],
       ),
     );
+    const selectedByGroup = new Map<string, number>();
+    if (groupIds.size) {
+      for (const id of new Set([...input.add, ...current.labelIds])) {
+        if (removals.has(id)) continue;
+        const groupId = labelsById.get(id)?.parentId;
+        if (groupId && groupIds.has(groupId))
+          selectedByGroup.set(groupId, (selectedByGroup.get(groupId) ?? 0) + 1);
+      }
+    }
     for (const groupId of groupIds) {
       const group = await client.issueLabel(groupId);
       if (group.groupType === "multiSelect") continue;
-      const selected = meta.labels.filter(
-        (value) =>
-          value.parentId === groupId &&
-          (input.add.includes(value.id) ||
-            (current.labelIds.includes(value.id) &&
-              !input.remove.includes(value.id))),
-      );
-      if (selected.length > 1)
+      if ((selectedByGroup.get(groupId) ?? 0) > 1)
         throw new LinearServiceError(
           "To replace a label in a single-select group, explicitly choose the label to remove.",
         );

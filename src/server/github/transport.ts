@@ -250,13 +250,12 @@ export function createGitHubTransport(options: {
 }) {
   const run = options.run ?? runGh;
   const extended = options.policy === "extended";
-  async function send(
+  async function request(
     access: Access,
     endpoint: string,
     method = "GET",
     body?: unknown,
     paginate = false,
-    projection?: string,
   ): Promise<unknown> {
     await options.beforeRequest?.();
     const args = [
@@ -272,7 +271,6 @@ export function createGitHubTransport(options: {
     const version = githubApiPolicies[options.policy].version;
     if (version) args.push("--header", `X-GitHub-Api-Version: ${version}`);
     if (paginate) args.push("--paginate", "--slurp");
-    if (projection !== undefined) args.push("--jq", projection);
     if (body !== undefined) args.push("--input", "-");
     const execute = async () => {
       const value = await run(
@@ -330,15 +328,6 @@ export function createGitHubTransport(options: {
           );
     }
   }
-  const request = (
-    access: Access,
-    endpoint: string,
-    method = "GET",
-    body?: unknown,
-    paginate = false,
-  ) => send(access, endpoint, method, body, paginate);
-  const read = (endpoint: string, projection: string) =>
-    send("read", endpoint, "GET", undefined, false, projection);
   async function query(query: string, variables: Record<string, unknown>) {
     try {
       return await request("read", "graphql", "POST", { query, variables });
@@ -357,7 +346,7 @@ export function createGitHubTransport(options: {
   }
   const mutate = (query: string, variables: Record<string, unknown>) =>
     request("write", "graphql", "POST", { query, variables });
-  return { request, read, query, mutate };
+  return { request, query, mutate };
 }
 
 export type GitHubTransport = ReturnType<typeof createGitHubTransport>;

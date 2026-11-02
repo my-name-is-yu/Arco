@@ -67,7 +67,7 @@ describe("host-lifetime draft controller", () => {
     source.controls.readFails = true;
     const controller = draftController(source.host);
     await controller.load(github);
-    expect(controller.get()[draftStorageId(github)]).toMatchObject({
+    expect(controller.get(draftStorageId(github))).toMatchObject({
       state: "error",
       operation: "load",
     });
@@ -108,7 +108,7 @@ describe("host-lifetime draft controller", () => {
       source.controls.readFails = false;
       controller.flush();
       await vi.waitFor(() =>
-        expect(controller.get()[draftStorageId(github)]).toMatchObject({
+        expect(controller.get(draftStorageId(github))).toMatchObject({
           state: matching ? "saved" : "conflict",
         }),
       );
@@ -120,7 +120,7 @@ describe("host-lifetime draft controller", () => {
           ),
         ).toHaveLength(1);
       } else {
-        expect(controller.get()[draftStorageId(github)]?.remote).toEqual({
+        expect(controller.get(draftStorageId(github))?.remote).toEqual({
           revision: 3,
           draft: draft("Saved text"),
         });
@@ -131,7 +131,7 @@ describe("host-lifetime draft controller", () => {
         await controller.resolve(github, "keep-local", input);
       }
       expect(source.record()).toEqual({ revision: 4, draft: input });
-      expect(controller.get()[draftStorageId(github)]?.state).toBe("saved");
+      expect(controller.get(draftStorageId(github))?.state).toBe("saved");
     },
   );
 
@@ -162,7 +162,7 @@ describe("host-lifetime draft controller", () => {
     ]);
     controller.flush();
     await vi.waitFor(() =>
-      expect(controller.get()[draftStorageId(github)]?.state).toBe("conflict"),
+      expect(controller.get(draftStorageId(github))?.state).toBe("conflict"),
     );
     expect(source.record().draft).toEqual(draft("Saved text"));
   });
@@ -187,7 +187,7 @@ describe("host-lifetime draft controller", () => {
     rejectRead(new Error("Draft loading is unavailable."));
     await loading;
     await vi.waitFor(() =>
-      expect(controller.get()[draftStorageId(github)]?.state).toBe("conflict"),
+      expect(controller.get(draftStorageId(github))?.state).toBe("conflict"),
     );
     expect(controller.value(github)).toEqual(draft("Typed before failure"));
     expect(source.record().draft).toEqual(draft("Saved text"));
@@ -204,7 +204,7 @@ describe("host-lifetime draft controller", () => {
     controller.schedule(github, draft("New input"));
     controller.flush();
     await vi.waitFor(() =>
-      expect(controller.get()[draftStorageId(github)]).toMatchObject({
+      expect(controller.get(draftStorageId(github))).toMatchObject({
         state: "error",
         operation: "save",
       }),
@@ -219,7 +219,7 @@ describe("host-lifetime draft controller", () => {
     expect(
       source.call.mock.calls.filter(([name]) => name === "arco_write_draft"),
     ).toHaveLength(2);
-    expect(controller.get()[draftStorageId(github)]?.state).toBe("saved");
+    expect(controller.get(draftStorageId(github))?.state).toBe("saved");
   });
 
   it("retries a failed removal without saving a replacement draft", async () => {
@@ -231,7 +231,7 @@ describe("host-lifetime draft controller", () => {
     await controller.load(github);
     source.controls.deleteFails = true;
     await controller.remove(github);
-    expect(controller.get()[draftStorageId(github)]).toMatchObject({
+    expect(controller.get(draftStorageId(github))).toMatchObject({
       state: "error",
       operation: "delete",
     });
@@ -241,7 +241,7 @@ describe("host-lifetime draft controller", () => {
     expect(
       source.call.mock.calls.some(([name]) => name === "arco_write_draft"),
     ).toBe(false);
-    expect(controller.get()[draftStorageId(github)]?.state).toBe("idle");
+    expect(controller.get(draftStorageId(github))?.state).toBe("idle");
   });
 
   it("retries a failed saved-draft comparison choice without replacing it with local input", async () => {
@@ -256,7 +256,7 @@ describe("host-lifetime draft controller", () => {
     source.controls.readFails = false;
     controller.flush();
     await vi.waitFor(() =>
-      expect(controller.get()[draftStorageId(github)]?.state).toBe("conflict"),
+      expect(controller.get(draftStorageId(github))?.state).toBe("conflict"),
     );
     source.controls.readFails = true;
     await controller.resolve(github, "use-saved", draft("New input"));
@@ -277,13 +277,13 @@ describe("host-lifetime draft controller", () => {
       legacyAvailable: true,
     }));
     await controller.load(github);
-    expect(controller.get()[id]?.legacy).toEqual({});
+    expect(controller.get(id)?.legacy).toEqual({});
     source.call.mockResolvedValueOnce({ revision: 1, draft: draft("Legacy") });
     await controller.resolve(github, "review-legacy", draft(""));
     source.record().revision = 1;
     source.record().draft = draft("Another view saved before import");
     await controller.resolve(github, "import-legacy", draft(""));
-    expect(controller.get()[id]?.state).toBe("conflict");
+    expect(controller.get(id)?.state).toBe("conflict");
 
     let release!: () => void;
     source.call.mockImplementationOnce(async () => {
@@ -300,14 +300,14 @@ describe("host-lifetime draft controller", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     release();
     await resolving;
-    await vi.waitFor(() => expect(controller.get()[id]?.state).toBe("saved"));
+    await vi.waitFor(() => expect(controller.get(id)?.state).toBe("saved"));
 
     controller.schedule(github, draft("Next input"));
     controller.flush();
     await vi.waitFor(() =>
-      expect(controller.get()[id]?.state).not.toBe("pending"),
+      expect(controller.get(id)?.state).not.toBe("pending"),
     );
-    expect(controller.get()[id]?.state).toBe("saved");
+    expect(controller.get(id)?.state).toBe("saved");
     expect(controller.value(github)).toEqual(draft("Next input"));
     expect(source.record()).toEqual({
       revision: 3,
@@ -360,7 +360,7 @@ describe("host-lifetime draft controller", () => {
       const controller = draftController(host);
       const original = await readFile(file);
       await expect(controller.load(github)).resolves.toBeUndefined();
-      expect(controller.get()[JSON.stringify(github)]).toMatchObject({
+      expect(controller.get(JSON.stringify(github))).toMatchObject({
         state: "error",
         error:
           "Your saved draft could not be opened. It has been kept unchanged.",
@@ -368,7 +368,7 @@ describe("host-lifetime draft controller", () => {
       controller.schedule(github, draft("New unsent input"));
       controller.flush();
       await vi.waitFor(() =>
-        expect(controller.get()[JSON.stringify(github)]?.state).toBe("error"),
+        expect(controller.get(JSON.stringify(github))?.state).toBe("error"),
       );
       expect(controller.value(github)).toEqual(draft("New unsent input"));
       expect(await readFile(file)).toEqual(original);
@@ -398,7 +398,7 @@ describe("host-lifetime draft controller", () => {
     expect(nextView.value(github)?.comment).toBe("");
     nextView.flush();
     await vi.waitFor(() =>
-      expect(nextView.get()[JSON.stringify(github)]?.state).toBe("saved"),
+      expect(nextView.get(JSON.stringify(github))?.state).toBe("saved"),
     );
     expect(
       call.mock.calls.filter(([name]) => name === "arco_write_draft"),

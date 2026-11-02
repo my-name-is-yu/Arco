@@ -633,6 +633,24 @@ async function source() {
 
 describe("Linear adapter through the official SDK HTTP transport", () => {
   describe("connection discovery", () => {
+    it("keeps a private generation stable until the credential changes", async () => {
+      const { service, store } = await source();
+      const read = () =>
+        service.call("linear_connection", {
+          connectionId: scope.connectionId,
+        }) as Promise<{ authGeneration: string }>;
+      const initial = await read();
+      expect((await read()).authGeneration).toBe(initial.authGeneration);
+      const credential = (await store.read(scope.connectionId))!;
+      await store.write(scope.connectionId, {
+        ...credential,
+        accessToken: "fake-sdk-token-rotated",
+      });
+      const rotated = await read();
+      expect(rotated.authGeneration).not.toBe(initial.authGeneration);
+      expect(JSON.stringify(rotated)).not.toContain("fake-sdk-token");
+    });
+
     it("reads all scope teams without fetching a viewer profile", async () => {
       const { service, calls, controls } = await source();
       controls.paginateTeams = true;
