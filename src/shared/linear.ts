@@ -254,6 +254,7 @@ export interface LinearBulkMemberResult {
   refreshError?: string;
 }
 export interface LinearConnection {
+  authGeneration?: string;
   connected: boolean;
   connectionId: string;
   mode: "linear" | "fixture";

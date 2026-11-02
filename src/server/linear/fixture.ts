@@ -303,6 +303,7 @@ export function createLinearFixtureService(): LinearService {
     if (name === "linear_connection")
       return {
         connected: true,
+        authGeneration: "fixture-linear-generation",
         connectionId: "default",
         mode: "fixture",
         account: "Fixture user",

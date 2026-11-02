@@ -16,6 +16,7 @@ Different user requests map to specific entry tools and surfaces:
 | View full issue details or click **Open details** | `arco_open_issue` — opens that issue in the **expanded panel**.                         |
 | Open the personal issue list                      | `arco_open` (accepts an optional provider) — opens the **expanded workspace**.          |
 | Open a GitHub repository's issue list             | `arco_open_project` — opens the **expanded workspace**.                                 |
+| Inspect Symphony work                             | `arco_open` with `source: "symphony"` — opens the dedicated **expanded workspace**.     |
 
 ### Context Separation and Persistence
 
@@ -63,7 +64,9 @@ All available options and save actions stay scoped to the card's own repository 
 
 ## Expanded Workspace
 
-The expanded workspace combines a filterable issue list with a full detail view for deeper work. On wide screens, properties sit alongside the main content; on narrow screens, properties stack into a single column and the workspace switches cleanly between the list and detail views while preserving active filters, selection state, and scroll position.
+The expanded issue workspace combines a filterable issue list with a full detail view for deeper work. On wide screens, properties sit alongside the main content; on narrow screens, properties stack into a single column and the workspace switches cleanly between the list and detail views while preserving active filters, selection state, and scroll position.
+
+The shared view selector contains **GitHub**, **Linear**, and **Symphony** as three flat options without group headings, separators, or an additional tab bar. Choosing Symphony opens its dedicated runtime workspace; returning to an issue view restores its own scope and session state.
 
 ### Issue List and Scopes
 
@@ -89,6 +92,16 @@ The detail view prioritizes reading and editing the issue content without stacki
 - **Sticky toolbar:** As the user scrolls, the toolbar keeps the native issue identifier visible alongside **Add to chat** and the issue-actions menu.
 - **Shared chat indicator:** Context status appears once in the toolbar: **In chat** when the currently viewed issue is attached, or **Chat: [native reference]** when a different issue is attached. GitHub references include the repository name; Linear comparisons preserve connection, workspace, team, and issue identity.
 - **Reading and editing:** The issue body and comments form a continuous reading column. Use the detail view for free-form title and body editing, comments and replies, project and relationship management, and custom fields. Bulk operations remain in the list's bulk-action panel. Unsupported operations link to the source service.
+- **Symphony run:** For a configured matching connection, a compact read-only section appears below **More properties**, outside that disclosure, separated from native fields by a divider and a **Symphony run** heading. Show state, a short provided reason, last activity, and **View run**. Do not add runtime information to the issue title, body, toolbar, inline card, or list rows. Hide the section when there is no matching configured connection; distinguish no observed run from failed or stale reads.
+
+### Symphony Workspace
+
+- **Header and setup:** Show the existing Arco wordmark and view selector, a connection picker, and refresh controls. Connection editing accepts a name and base URL, **Test connection**, and optional **Issue context** binding. Saving or removing a connection changes local settings only. Runtime information can load without signing in to GitHub or Linear.
+- **Board and list:** Default to **Board view** and place small **Board view** / **Table view** controls beside search. Both views render the same loaded data and filters. The board groups Preparation, Working, Needs attention, and Other using configured tracker criteria and observed runtime. The table shows Issue, Runtime, Issue state, and Last activity. Preserve selection and search when switching; retain the chosen display preference and session scroll positions.
+- **Shared details:** Both views open the same right-side detail panel. On narrow screens, show details as a single pane with a return action. Keep **Runtime** and **Issue context** in separately headed areas: runtime state, available reason/latest event/time belong to Runtime; provider state, description, and native attribution belong to Issue context. Never synthesize a cause or rewrite the source description as a diagnostic.
+- **Actions:** **Add run context to chat** explicitly attaches the displayed runtime snapshot and issue reference with the connection name and collection time. **Open issue** opens the existing native issue details for editing. **View run** from issue details selects the matching connection and runtime target without changing drafts or sharing context. No action starts, stops, approves, resumes, or manually retries an agent.
+- **Refresh and gaps:** Refresh visible runtime at five-second intervals and tracker lists at thirty-second intervals; pause polling when hidden and deduplicate requests for the same connection. Keep loaded rows and selection during refresh failures, show stale/offline status, and do not convert an error into an empty view. Missing or unresolved issue context does not hide a runtime row. A disappearing run remains an observation gap, not a completion claim.
+- **Counts and pagination:** Counts describe the loaded filtered set. **Load more issues** requests further tracker pages without widening the configured repository/team/project. Resolve full issue content only for the selected item.
 
 ---
 
