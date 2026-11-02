@@ -1,8 +1,8 @@
 # Arco
 
-Arco is an MIT-licensed Codex plugin that lets you browse and edit GitHub and Linear issues alongside your chat, inspect Symphony runs, and pull selected context directly into your conversation.
+Arco is an MIT-licensed Codex plugin for browsing and editing GitHub and Linear issues alongside your chat and inspecting Symphony runs. Select passages from issues or attach a displayed run snapshot to add context to your conversation.
 
-[Install](#install)
+<a href="https://www.producthunt.com/products/arco-4?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-arco-4" target="_blank" rel="noopener noreferrer"><img alt="Arco - GitHub and Linear issues, right inside your Codex | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1296725&amp;theme=light&amp;t=1793511881859"></a>
 
 ## Keep issues beside the conversation
 
@@ -33,11 +33,13 @@ codex plugin marketplace add my-name-is-yu/Arco
 codex plugin add arco@arco-marketplace
 ```
 
-The GitHub repository provides the marketplace catalog, while npm delivers the compiled plugin and its native credential-storage binding. Installing the prebuilt plugin does not compile code from source or run npm lifecycle scripts.
+Codex reads Arco's marketplace catalog from GitHub and downloads the compiled plugin and native credential-storage binding from npm. Installation does not compile source code or run npm lifecycle scripts.
 
 ### Option 2: Build from source
 
-If you are installing from source, you must build the plugin on the target OS and architecture. The build bundles a native keyring binding that cannot be copied across operating systems or architectures. (Note: Windows and Linux builds require native testing before support can be claimed, and Linux requires an unlocked Secret Service.)
+Build the plugin on the OS and architecture where you will run it. The build bundles a native keyring binding that cannot be copied across operating systems or architectures.
+
+Windows and Linux builds require native testing before support can be claimed. On Linux, the credential store also requires an unlocked Secret Service.
 
 ```sh
 git clone https://github.com/my-name-is-yu/Arco.git
@@ -48,7 +50,7 @@ codex plugin marketplace add ./dist
 codex plugin add arco@arco-local
 ```
 
-Running `npm run build` outputs the plugin to `dist/plugin/` and generates a local marketplace catalog at `dist/.agents/plugins/marketplace.json` pointing to `dist/plugin/`. Build before installing. Keep your local checkout so you can pull and rebuild when updating.
+`npm run build` writes the plugin to `dist/plugin/` and a local marketplace catalog to `dist/.agents/plugins/marketplace.json`. The catalog points to the built plugin, so build before installing. Keep your checkout so you can pull and rebuild when updating.
 
 ### Finish setup
 
@@ -79,7 +81,7 @@ In Arco, open **My issues** to see the initial **Assigned to me** list, or **Pro
 
 ### Linear
 
-1. Create or use a [Linear OAuth application](https://linear.app/developers/oauth-2-0-authentication) that your account and workspace are allowed to authorize. (Who can connect depends on your OAuth app's access settings; the maintainer's own development app is not shared publicly.)
+1. Create or use a [Linear OAuth application](https://linear.app/developers/oauth-2-0-authentication) whose access settings allow your account and workspace to authorize it. The maintainer's development app is not shared publicly.
 2. Register `http://127.0.0.1:53187/oauth/linear/callback` as an exact callback URL.
 3. Open Arco's Linear view, paste in the OAuth app's **Client ID**, and click **Authorize in Linear**. You do not need a client secret.
 4. Complete the authorization flow in your browser, confirm the connected account and workspace in Arco, and select a team.
@@ -103,7 +105,7 @@ Arco saves connection settings locally and uses its Node MCP server to read Symp
 
 ## Features
 
-Arco runs locally using a Node.js MCP server and an embedded React interface. There is no Arco account or hosted backend—it connects directly to your issue trackers, uses your existing GitHub CLI session, and stores Linear tokens in your operating system's credential store.
+Arco runs a local Node.js MCP server and an embedded React interface. The server connects directly to your issue trackers using your existing GitHub CLI session and Linear tokens from your OS credential store. You do not need an Arco account, and Arco has no hosted backend.
 
 GitHub and Linear remain the single sources of truth for issue data. Arco preserves each provider's native fields and does not sync data between the two services.
 
@@ -183,7 +185,7 @@ After updating either installation type, restart the Codex desktop app and open 
 
 ### Uninstalling
 
-If you want to remove your stored Linear token from the OS credential store, disconnect Linear inside Arco before uninstalling. Uninstalling leaves local settings and drafts separate from provider grants; revoke Linear authorization through Linear when needed. Your GitHub CLI login remains managed by `gh`.
+To remove your stored Linear token from the OS credential store, disconnect Linear inside Arco before uninstalling. Local settings and drafts are separate from provider grants. Revoke Linear authorization through Linear when needed. Your GitHub CLI login remains managed by `gh`.
 
 **Prebuilt installation:**
 
@@ -208,7 +210,9 @@ npm ci
 npm run dev
 ```
 
-The build outputs the installable plugin to `dist/plugin/` and the fixture preview to `dist/dev/`. Re-run the build after changing source files; you can also run `npm run dev:fixture` to serve an existing build without hot reload. Because the fixture host runs in a standard browser, always test actual Codex desktop behavior and live API writes separately.
+The build writes the installable plugin to `dist/plugin/` and the fixture preview to `dist/dev/`. Rebuild after changing source files. To serve an existing build without hot reload, run `npm run dev:fixture`.
+
+The fixture host runs in a standard browser. Test actual Codex desktop behavior and live API writes separately; the preview does not verify them.
 
 ### Symphony HTTP validation
 

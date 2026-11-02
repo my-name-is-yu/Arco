@@ -43,7 +43,7 @@ Maintainers can grant standing submission permissions by replying to an issue wi
 
 _(To approve someone other than the issue author, the maintainer must mention their username in the comment.)_
 
-These records are stored on the `arco-contributor-approvals` branch. Note that this is only permission to submit—it does not grant repository write access, nor does it approve every proposed change.
+These records are stored on the `arco-contributor-approvals` branch. Approval allows future submissions. It does not grant repository write access or approve the scope of each proposed change.
 
 Before opening a PR, reach an agreement with a maintainer on the issue's problem and scope. Even then, issue approval is not a promise to merge the resulting code. Duplicate, out-of-scope, low-effort, or unapproved submissions may be closed without discussion, and repeated disregard for this guide or automated spam may result in your account being blocked.
 
@@ -63,13 +63,15 @@ Keep the main description short enough to fit on a single screen, and place any 
 
 ### Local development
 
-Use the Node.js version specified in `.node-version`. For routine development, run `npm run dev` to build and start the fictional fixture host. (`npm run dev:fixture` starts an existing build without rebuilding, so remember to rebuild after making source changes.)
+Use the Node.js version specified in `.node-version`. For routine development, run `npm run dev` to build and start the fictional fixture host. `npm run dev:fixture` starts an existing build without rebuilding; rebuild after source changes before using it.
 
 Keep in mind that fixture tests do not prove native credential storage, real provider writes, or Codex desktop rendering. Because live validation scripts can create or modify real provider records, only run them against dedicated test resources with explicit authorization.
 
 ### Pre-PR verification
 
-Before opening a pull request, install locked dependencies and the Playwright Chromium browser, then run the verification suites:
+For documentation-only changes, run `npm run check:docs` locally and test any commands you modified. CI still runs the full Quality workflow described below.
+
+For code changes, install locked dependencies and the Playwright Chromium browser, then run both verification suites:
 
 ```sh
 npm ci
@@ -78,15 +80,14 @@ npm run check
 npm run test:browser:smoke
 ```
 
-Both commands must pass:
+Both verification suites must pass:
 
 - `npm run check` runs static analysis, documentation checks, unit and service tests, builds, MCP smoke checks, and production artifact/npm tarball validation.
 - `npm run test:browser:smoke` covers critical browser interactions.
 
-Depending on your changes, run these local checks:
+Run these additional local checks when applicable:
 
 - **Behavior changes:** Run the affected browser specs locally. Run the full suite (`npm run test:browser`) if your change needs a complete regression check.
-- **Documentation-only changes:** Run `npm run check:docs` locally and test any commands you modified.
 - **macOS Apple Silicon native credential check:** On supported macOS Apple Silicon machines with an unlocked credential store, run `npx --no-install vitest run tests/linear-native-rotation.test.ts`. The native rotation case must pass (store failures will fail the check). Other OS and architecture combinations automatically skip this case before accessing credential storage; if yours skips it, note that in your PR rather than claiming native verification.
 
 In your PR description, state exactly what you tested and disclose anything you were unable to verify.
@@ -96,7 +97,7 @@ In your PR description, state exactly what you tested and disclose anything you 
 Pull requests targeting `main` require a passing **Quality** check against the latest `main` branch.
 
 - **Triggers:** The Quality workflow runs `check` and `test:browser:smoke` on all pull requests (including documentation-only PRs), manual workflow dispatches, and pushes to `main` (excluding documentation-only pushes). Newer runs automatically cancel older runs of the same event type and branch/PR.
-- **Browser setup in CI:** CI installs only Chromium's headless shell, runs browser tests with four parallel workers, and stops on the first failure. CI retains error context and failure screenshots; for detailed traces, run the tests locally.
+- **Browser setup in CI:** CI installs only Chromium's headless shell. It runs browser tests with four parallel workers and stops on the first failure. Failed runs retain error context and screenshots; run the tests locally to capture detailed traces.
 - **Timeouts:** The workflow operates on a strict five-minute budget. Checkout and Node setup each have a one-minute limit. Commands share a three-minute deadline (starting before checkout) with a five-second grace period before forced termination. The job itself has a four-minute fallback limit, and failure artifact uploads are capped at one minute to leave time for cleanup. (The Release workflow shares this same four-minute job limit.)
 
 ## Keeping PRs easy to review
@@ -122,7 +123,7 @@ npm ci
 npm run package:plugin
 ```
 
-This builds and validates the production artifact, packs it into `dist/npm/`, and starts the extracted production server outside the repository checkout. It verifies that bundled native modules load properly and that offline MCP tools and resources work without installing dependencies or calling live providers. However, it does not verify OS credential-store operations, live provider authorization, or Codex desktop rendering.
+`npm run package:plugin` builds and validates the production artifact, packs it into `dist/npm/`, and starts the extracted production server outside the repository checkout. It checks that bundled native modules load and that offline MCP tools and resources work without installing dependencies or calling live providers. It does not verify OS credential-store operations, live provider authorization, or Codex desktop rendering.
 
 ### Pre-release checklist
 

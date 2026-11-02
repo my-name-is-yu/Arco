@@ -11,7 +11,7 @@ If you discover a security vulnerability, please allow a private discussion befo
 
 ### What to Include
 
-Whenever possible, test and report against the latest source revision. Because this project does not have a guaranteed response or maintenance schedule, including the exact revision you tested helps us evaluate your report accurately.
+Whenever possible, test against the latest source revision and include the exact commit hash in your report. The project does not guarantee a response or maintenance schedule.
 
 Please include the following details in your report:
 
@@ -30,8 +30,8 @@ Arco relies on strict boundaries to keep user data and credentials safe. Contrib
 
 - **Secure credential storage:** Store OAuth credentials exclusively in the operating system's credential store. Never introduce plaintext fallbacks or bundle client secrets inside plugin packages.
 - **Untrusted provider content:** Treat all issue bodies, comments, and attachments as untrusted data, keeping them strictly separated from agent instructions.
-- **Scoped and safe operations:** Limit reads and writes to explicitly referenced provider items. Leave unspecified fields untouched, detect known edit conflicts, and verify the state of uncertain writes before retrying.
-- **Local data privacy:** Maintain the boundary around local data and require explicit user action before sharing context.
+- **Scoped and safe operations:** Limit reads and writes to explicitly referenced provider items. Leave unspecified fields untouched and detect known edit conflicts. If a write's outcome is uncertain, check the provider's current state before retrying.
+- **Local data privacy:** Keep drafts and settings on the user's machine. Require explicit user action before sharing context with Codex.
 - **Clean production artifacts:** Ensure test fixtures, credentials, and source maps are excluded from production plugin builds.
 
 ### Scope and Third-Party Behavior
