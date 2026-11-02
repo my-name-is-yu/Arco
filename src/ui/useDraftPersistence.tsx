@@ -33,8 +33,19 @@ export const draftStorageId = (key: DraftKey) =>
 export function draftController(host: ArcoHost) {
   return sessionValue(host, "draft-controller", () => {
     const store = createLocalDrafts(host);
-    let statuses: Record<string, Status> = {};
-    const listeners = new Set<() => void>();
+    const cells = new Map<
+      string,
+      { status: Status | undefined; listeners: Set<() => void> }
+    >();
+    const cellFor = (id: string) => {
+      let cell = cells.get(id);
+      if (!cell) {
+        cell = { status: undefined, listeners: new Set() };
+        cells.set(id, cell);
+      }
+      return cell;
+    };
+    const getStatus = (id: string) => cells.get(id)?.status;
     const pending = new Map<
       string,
       {
@@ -49,11 +60,10 @@ export function draftController(host: ArcoHost) {
     const loading = new Map<string, Promise<Draft | undefined>>();
     const failedLoads = new Set<string>();
     const setStatus = (id: string, status: Status) => {
-      statuses = {
-        ...statuses,
-        [id]: { legacy: statuses[id]?.legacy, ...status },
-      };
-      listeners.forEach((listener) => listener());
+      const cell = cellFor(id);
+      // A fresh snapshot also publishes value changes while status stays pending.
+      cell.status = { legacy: cell.status?.legacy, ...status };
+      cell.listeners.forEach((listener) => listener());
     };
     const report = (
       id: string,
@@ -143,11 +153,18 @@ export function draftController(host: ArcoHost) {
       }
     };
     const controller = {
-      get: () => statuses,
-      subscribe(listener: () => void) {
-        listeners.add(listener);
+      get: getStatus,
+      subscribe(id: string, listener: () => void) {
+        const cell = cellFor(id);
+        cell.listeners.add(listener);
         return () => {
-          listeners.delete(listener);
+          cell.listeners.delete(listener);
+          if (
+            !cell.listeners.size &&
+            cell.status === undefined &&
+            cells.get(id) === cell
+          )
+            cells.delete(id);
         };
       },
       load,
@@ -171,7 +188,7 @@ export function draftController(host: ArcoHost) {
         snapshot?: SourceSnapshot,
       ): Promise<Draft | null | undefined> {
         const id = draftStorageId(key);
-        const status = statuses[id];
+        const status = getStatus(id);
         if (status?.retryChoice)
           return controller.resolve(key, status.retryChoice, draft, snapshot);
         if (status?.operation === "load" || status?.state === "loading")
@@ -191,21 +208,21 @@ export function draftController(host: ArcoHost) {
         const id = draftStorageId(key);
         if (choice === "review-legacy") {
           setStatus(id, {
-            ...statuses[id],
-            state: statuses[id]?.state ?? "idle",
-            legacy: { ...statuses[id]?.legacy, loading: true },
+            ...getStatus(id),
+            state: getStatus(id)?.state ?? "idle",
+            legacy: { ...getStatus(id)?.legacy, loading: true },
           });
           try {
             const record = await store.reviewLegacy(key);
             setStatus(id, {
-              ...statuses[id],
-              state: statuses[id]?.state ?? "idle",
+              ...getStatus(id),
+              state: getStatus(id)?.state ?? "idle",
               legacy: { record },
             });
           } catch (error) {
             setStatus(id, {
-              ...statuses[id],
-              state: statuses[id]?.state ?? "idle",
+              ...getStatus(id),
+              state: getStatus(id)?.state ?? "idle",
               legacy: {
                 error:
                   error instanceof Error
@@ -217,14 +234,14 @@ export function draftController(host: ArcoHost) {
           return undefined;
         }
         if (choice === "import-legacy") {
-          const older = statuses[id]?.legacy?.record?.draft;
+          const older = getStatus(id)?.legacy?.record?.draft;
           if (!older) return undefined;
           if (current.get(id) || pending.has(id)) {
             setStatus(id, {
-              ...statuses[id],
-              state: statuses[id]?.state ?? "idle",
+              ...getStatus(id),
+              state: getStatus(id)?.state ?? "idle",
               legacy: {
-                ...statuses[id]?.legacy,
+                ...getStatus(id)?.legacy,
                 error:
                   "This account already has input. Keep or remove its draft before importing the older draft.",
               },
@@ -290,12 +307,21 @@ export function draftController(host: ArcoHost) {
     return controller;
   });
 }
-export function useDraftPersistence(host: ArcoHost) {
+export function useDraftPersistence(host: ArcoHost, key: DraftKey | null) {
   const controller = useMemo(() => draftController(host), [host]);
-  const statuses = useSyncExternalStore(controller.subscribe, controller.get);
+  const id = key ? draftStorageId(key) : null;
+  const source = useMemo(
+    () => ({
+      get: () => (id === null ? undefined : controller.get(id)),
+      subscribe: (listener: () => void) =>
+        id === null ? () => {} : controller.subscribe(id, listener),
+    }),
+    [controller, id],
+  );
+  const status = useSyncExternalStore(source.subscribe, source.get);
   useEffect(() => () => controller.flush(), [controller]);
   return {
-    statuses,
+    status,
     value: controller.value,
     load: controller.load,
     schedule: controller.schedule,
