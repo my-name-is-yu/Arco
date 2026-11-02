@@ -39,7 +39,7 @@ vi.mock("../src/ui/useDraftPersistence", () => ({
   useDraftPersistence: () => ({
     load: async () => undefined,
     value: () => undefined,
-    statuses: {},
+    status: undefined,
   }),
   DraftStatus: () => null,
   draftStorageId: (key: unknown) => JSON.stringify(key),

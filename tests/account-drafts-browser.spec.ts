@@ -130,6 +130,22 @@ async function editBody(page: Page, source: Source) {
 }
 
 for (const source of ["github", "linear"] as const) {
+  test(`${source} renders consecutive edits while the draft remains pending`, async ({
+    page,
+  }) => {
+    const { state } = await accounts(page, source);
+    await page.goto(location(source));
+    const body = await editBody(page, source);
+    await body.fill("First edit");
+    await body.fill("Second edit");
+    await body.pressSequentially(" with consecutive keystrokes");
+    const expected = "Second edit with consecutive keystrokes";
+    await expect(body).toHaveValue(expected);
+    await expect
+      .poll(() => state.writes.some((write) => write.draft.body === expected))
+      .toBe(true);
+  });
+
   test(`${source} same-issue drafts stay with their account across rotation, switching, and a delayed flush`, async ({
     page,
   }) => {

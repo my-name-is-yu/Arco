@@ -2,11 +2,7 @@ import { useEffect, useMemo } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import type { ArcoHost, IssueDetail } from "../shared/contracts";
 import type { DraftKey, Draft } from "../shared/state";
-import {
-  DraftStatus,
-  draftStorageId,
-  useDraftPersistence,
-} from "./useDraftPersistence";
+import { DraftStatus, useDraftPersistence } from "./useDraftPersistence";
 import { CreateDialog } from "./CreateDialog";
 import { TemplatePicker, type TemplateDraft } from "./TemplatePicker";
 import { Notice, type NoticeValue } from "./Notice";
@@ -37,12 +33,12 @@ export function GitHubCreateIssue({
   onClose: () => void;
   onCreated: (issue: IssueDetail) => void;
 }) {
-  const persistence = useDraftPersistence(host);
-  const { load: loadDraft, schedule: scheduleDraft } = persistence;
   const createDraftKey = useMemo<DraftKey | null>(
     () => (repo ? { source: "github", repo, issue: "new", ownerId } : null),
     [repo, ownerId],
   );
+  const persistence = useDraftPersistence(host, createDraftKey);
+  const { load: loadDraft, schedule: scheduleDraft } = persistence;
   useEffect(() => {
     if (open && createDraftKey) void loadDraft(createDraftKey);
   }, [open, createDraftKey, loadDraft]);
@@ -120,7 +116,7 @@ export function GitHubCreateIssue({
       >
         {createDraftKey && (
           <DraftStatus
-            status={persistence.statuses[draftStorageId(createDraftKey)]}
+            status={persistence.status}
             onRetry={() =>
               persistence.retry(createDraftKey, toSavedDraft(readCreateDraft()))
             }

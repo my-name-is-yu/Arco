@@ -27,7 +27,6 @@ import {
   bulkIssueId,
   checkBulkChange,
   isRejectedBulkCall,
-  matchesBulkOperation,
   type BulkAttempt,
   type UnconfirmedBulkAttempt,
 } from "./github-bulk-recovery";
@@ -67,13 +66,11 @@ export function BulkActions({
     UnconfirmedBulkAttempt[]
   >(host, `github:bulk:unconfirmed:${identity}`, []);
   const sessionKey = `github:bulk:${JSON.stringify([identity, issues.map(id).sort()])}`;
-  const [storedAction, setAction] = useSessionState<
-    Action | "issue-field" | "project-field"
-  >(host, `${sessionKey}:action`, "close");
-  const action =
-    storedAction === "issue-field" || storedAction === "project-field"
-      ? ""
-      : storedAction;
+  const [action, setAction] = useSessionState<Action>(
+    host,
+    `${sessionKey}:action`,
+    "close",
+  );
   const [value, setValue] = useSessionState(host, `${sessionKey}:value`, "");
   const [results, setResults] = useSessionState<Result[]>(
     host,
@@ -134,8 +131,7 @@ export function BulkActions({
     enabled:
       Boolean(repo && first) && ["milestone", "issue-type"].includes(action),
   });
-  const requiresValue =
-    action !== "" && action !== "close" && action !== "reopen";
+  const requiresValue = action !== "close" && action !== "reopen";
   const catalogAction = action === "milestone" || action === "issue-type";
   const compatible = (!requiresValue || Boolean(repo)) && issues.length <= 100;
   const labelsByName = new Map<string, RepoMetadata["labels"][number]>();
@@ -145,12 +141,11 @@ export function BulkActions({
     ? (metadata.data?.labels.map((label) => label.name) ?? [])
     : (metadata.data?.assignees ?? []);
   const ready =
-    action !== "" &&
     compatible &&
     (!requiresValue || (catalogAction ? value !== "" : values.includes(value)));
   const operation = JSON.stringify([sessionKey, action, value]);
   const matchesOperation = (attempt: BulkAttempt) =>
-    matchesBulkOperation(attempt.operation, sessionKey, action, value);
+    attempt.operation === operation;
   const changeDraft = () => {
     setResults([]);
     setError("");

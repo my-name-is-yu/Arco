@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   useInfiniteQuery,
   useQuery,
@@ -605,6 +605,11 @@ function Projects({
         number: issue.number,
       }),
   });
+  const membershipIds = useMemo(
+    () =>
+      new Set(memberships.data?.memberships.map((member) => member.projectId)),
+    [memberships.data],
+  );
   const query = useInfiniteQuery({
     queryKey: ["github", "projects", issue.repo, owner, ownerType, authScope],
     queryFn: async ({ pageParam }) => {
@@ -723,11 +728,7 @@ function Projects({
             ...(query.data?.pages
               .flatMap((page) => page.projects)
               .filter(
-                (project) =>
-                  !project.closed &&
-                  !memberships.data?.memberships.some(
-                    (member) => member.projectId === project.id,
-                  ),
+                (project) => !project.closed && !membershipIds.has(project.id),
               )
               .map((project) => ({
                 value: project.id,

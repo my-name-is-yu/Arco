@@ -154,15 +154,24 @@ function saveReadingPosition(
   positions: Map<string, number>,
   issueKey: string,
   element: HTMLElement | null,
+  aliasKey?: string,
 ) {
   if (!element?.getClientRects().length) return;
-  positions.delete(issueKey);
-  positions.set(issueKey, element.scrollTop);
-  if (positions.size > 100) positions.delete(positions.keys().next().value!);
+  const keys =
+    aliasKey && aliasKey !== issueKey ? [aliasKey, issueKey] : [issueKey];
+  for (const key of keys) {
+    positions.delete(key);
+    positions.set(key, element.scrollTop);
+  }
+  while (positions.size > 100) positions.delete(positions.keys().next().value!);
 }
 
-export function useDetailReadingPosition(host: ArcoHost, issueKey: string) {
-  const element = useRef<HTMLDivElement>(null);
+export function useDetailReadingPosition<
+  T extends HTMLElement = HTMLDivElement,
+>(host: ArcoHost, issueKey: string, ready = true, aliasKey?: string) {
+  const element = useRef<T>(null);
+  const contentReady = useRef(ready);
+  contentReady.current = ready;
   const positions = useSessionRef(
     host,
     "detail:reading-positions",
@@ -170,13 +179,23 @@ export function useDetailReadingPosition(host: ArcoHost, issueKey: string) {
   );
   useLayoutEffect(() => {
     const current = element.current;
-    if (!current) return;
+    // Wait for asynchronous detail content before restoring a saved offset.
+    if (!current || !ready) return;
     const readingPositions = positions.current;
-    current.scrollTop = readingPositions.get(issueKey) ?? 0;
+    // Identity enrichment keeps the mounted panel's offset before its native key.
+    current.scrollTop =
+      (aliasKey ? readingPositions.get(aliasKey) : undefined) ??
+      readingPositions.get(issueKey) ??
+      0;
     // A fast issue switch can happen before the browser dispatches scroll.
-    return () => saveReadingPosition(readingPositions, issueKey, current);
-  }, [issueKey, positions]);
+    return () => {
+      // A loading placeholder may already have clamped the DOM's scrollTop.
+      if (contentReady.current)
+        saveReadingPosition(readingPositions, issueKey, current, aliasKey);
+    };
+  }, [issueKey, positions, ready, aliasKey]);
   const save = () =>
-    saveReadingPosition(positions.current, issueKey, element.current);
+    ready &&
+    saveReadingPosition(positions.current, issueKey, element.current, aliasKey);
   return { ref: element, onScroll: save, onKeyDownCapture: save };
 }

@@ -68,7 +68,7 @@ export function useSessionState<T>(
 export function useSessionRef<T>(host: ArcoHost, key: string, initial: T) {
   return sessionValue(host, `ref:${key}`, () => ({ current: initial }));
 }
-function setSessionState<T>(host: ArcoHost, key: string, value: T) {
+export function setSessionState<T>(host: ArcoHost, key: string, value: T) {
   stateCell(host, key, value).set(value);
 }
 export function selectPresentedIssue(
