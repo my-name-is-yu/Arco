@@ -21,7 +21,6 @@ import {
   accountIssueRepo,
   apiCommentSchema,
   apiIssueSchema,
-  apiIssueSummarySchema,
   apiLabelSchema,
   apiRepositorySchema,
   commentDto,
@@ -280,13 +279,10 @@ export function createGitHubService(
     async accountIssues(raw) {
       const input = accountIssuesInputSchema.parse(raw);
       const generation = await authSession.read();
-      const response = parse(
-        z.array(apiIssueSummarySchema),
-        await conditional.read(
-          `issues?filter=${input.filter}&state=${input.state}&sort=${input.sort}&direction=${input.order}&per_page=${issuePageSize}&page=${input.page}`,
-          `[.[] | ${issueSummaryProjection}]`,
-          generation,
-        ),
+      const response = await conditional.read(
+        `issues?filter=${input.filter}&state=${input.state}&sort=${input.sort}&direction=${input.order}&per_page=${issuePageSize}&page=${input.page}`,
+        `[.[] | ${issueSummaryProjection}]`,
+        generation,
       );
       if (generation !== (await authSession.read())) {
         conditional.clear();

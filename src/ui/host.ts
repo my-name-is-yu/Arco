@@ -21,7 +21,11 @@ import {
 } from "../shared/launch";
 import { readModelContext, readSharedContext } from "./shared-context";
 import { createToolQueue } from "./tool-queue";
-import { annotationAttachment, contextAttachment } from "./context-attachment";
+import {
+  annotationAttachment,
+  contextAttachment,
+  runtimeAttachment,
+} from "./context-attachment";
 import type {
   ArcoHost,
   ConversationIssue,
@@ -410,6 +414,9 @@ export async function connectHost(): Promise<ArcoHost> {
             : issue.identifier,
         ),
       );
+    },
+    async shareRuntime(context) {
+      await attach(runtimeAttachment(context));
     },
     async shareAnnotations(annotations, snapshotId) {
       if (snapshotId !== undefined)

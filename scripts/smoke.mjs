@@ -38,6 +38,9 @@ try {
   const tools = await client.listTools();
   [
     "arco_open",
+    "arco_symphony_state",
+    "arco_symphony_issue",
+    "arco_symphony_test_connection",
     "arco_open_project",
     "arco_show_issue",
     "arco_show_issues",
@@ -139,7 +142,7 @@ try {
   });
   assert.equal(personalLaunch.structuredContent.launch.view, "personal");
   assert.equal(personalLaunch.structuredContent.launch.repo, null);
-  for (const source of ["github", "linear"]) {
+  for (const source of ["github", "linear", "symphony"]) {
     const explicitList = await client.callTool({
       name: "arco_open",
       arguments: { source },

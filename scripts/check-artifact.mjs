@@ -16,6 +16,8 @@ assert.equal(
 [
   "fixture-issue-42",
   "fixture-linear-workspace",
+  "symphony-fixture.invalid",
+  "fixture-symphony-github",
   "arco-fixture/selection.png",
   "Preserve issue selection and scroll position",
 ].forEach((developmentLiteral) =>

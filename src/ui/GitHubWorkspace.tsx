@@ -1,3 +1,4 @@
+import type { WorkspaceSource } from "../shared/state";
 import {
   useGitHubAuthScope,
   useGitHubCall,
@@ -147,7 +148,7 @@ export function GitHubWorkspace({
 }: {
   host: ArcoHost;
   launch: LaunchContext;
-  onSourceChange: (source: "github" | "linear") => void;
+  onSourceChange: (source: WorkspaceSource) => void;
 }) {
   const authScope = useGitHubAuthScope();
   const call = useGitHubCall(host);
@@ -167,8 +168,6 @@ export function GitHubWorkspace({
       ? restoredGithub
       : null;
   const queryClient = useQueryClient();
-  const persistence = useDraftPersistence(host);
-  const loadDraft = persistence.load;
   const settings = useGitHubSettings(
     host,
     projectView ? { key: launch.projectKey } : undefined,
@@ -443,6 +442,8 @@ export function GitHubWorkspace({
         : null,
     [activeRepo, activeNumber, draftOwnerId],
   );
+  const persistence = useDraftPersistence(host, activeDraftKey);
+  const loadDraft = persistence.load;
   useEffect(() => {
     if (activeDraftKey) void loadDraft(activeDraftKey);
   }, [activeDraftKey, loadDraft]);
@@ -686,7 +687,7 @@ export function GitHubWorkspace({
       retainedIssue,
       await controller.load(key),
     );
-    const status = controller.get()[draftStorageId(key)];
+    const status = controller.get(draftStorageId(key));
     if (
       status?.state === "error" ||
       status?.state === "conflict" ||
@@ -765,7 +766,7 @@ export function GitHubWorkspace({
       )}
       {selectedDetail && activeDraftKey && (
         <DraftStatus
-          status={persistence.statuses[draftStorageId(activeDraftKey)]}
+          status={persistence.status}
           onRetry={() =>
             persistence.retry(
               activeDraftKey,

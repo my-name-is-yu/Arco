@@ -134,7 +134,11 @@ export function useSettings(
     () => settingsController(host, client),
     [host, client],
   );
-  const status = useSyncExternalStore(controller.subscribe, controller.get);
+  const status = useSyncExternalStore(
+    controller.subscribe,
+    controller.get,
+    controller.get,
+  );
   const query = useQuery({
     queryKey: ["settings"],
     enabled,
