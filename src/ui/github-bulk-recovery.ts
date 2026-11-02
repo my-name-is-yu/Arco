@@ -10,9 +10,6 @@ import { OperationError } from "../shared/errors";
 import type {
   githubOperationSchemas,
   IssueCatalog,
-  IssueFieldList,
-  IssueProjectMemberships,
-  ProjectFieldList,
 } from "../shared/github-operations";
 
 type BulkInput = z.infer<typeof githubOperationSchemas.arco_bulk_update>;
@@ -20,7 +17,15 @@ export type BulkAttempt = {
   operation: string;
   targets: IssueRef[];
 } & (
-  | { name: "arco_bulk_update"; args: BulkInput }
+  | {
+      name: "arco_bulk_update";
+      args: Pick<BulkInput, "issues" | "requestId"> & {
+        patch: Pick<
+          NonNullable<BulkInput["patch"]>,
+          "milestoneNumber" | "issueTypeId"
+        >;
+      };
+    }
   | { name: "arco_update_issue"; args: UpdateInput }
   | { name: "arco_change_labels"; args: LabelInput }
 );
@@ -34,27 +39,6 @@ export type UnconfirmedBulkAttempt = {
 
 export const bulkIssueId = (issue: IssueRef) =>
   `${issue.repo.toLowerCase()}#${issue.number}`;
-
-export function matchesBulkOperation(
-  identity: string,
-  sessionKey: string,
-  action: string,
-  value: string,
-) {
-  try {
-    const parts: unknown = JSON.parse(identity);
-    // The previous format also contained four custom-field draft values.
-    return (
-      Array.isArray(parts) &&
-      (parts.length === 3 || parts.length === 7) &&
-      parts[0] === sessionKey &&
-      parts[1] === action &&
-      parts[2] === value
-    );
-  } catch {
-    return false;
-  }
-}
 
 export function isRejectedBulkCall(error: unknown) {
   return (
@@ -101,49 +85,13 @@ export async function checkBulkChange(
       (assignees === undefined || sameValue(issue.assignees, assignees))
     );
   }
-  const { patch, issueField, projectField } = attempt.args;
+  const { patch } = attempt.args;
   const ref = { repo: issue.repo, number: issue.number };
-  if (patch) {
-    const catalog = await call<IssueCatalog>("arco_issue_catalog", ref);
-    return (
-      (patch.milestoneNumber === undefined ||
-        catalog.milestoneNumber === patch.milestoneNumber) &&
-      (patch.issueTypeId === undefined ||
-        catalog.issueTypeId === patch.issueTypeId)
-    );
-  }
-  if (issueField) {
-    const response = await call<IssueFieldList>("arco_issue_fields", ref);
-    if (response.error) throw new Error(response.error);
-    const field = response.fields.find(
-      (field) => field.id === issueField.fieldId,
-    );
-    return Boolean(field && sameValue(field.value, issueField.value));
-  }
-  if (projectField) {
-    const memberships = await call<IssueProjectMemberships>(
-      "arco_issue_projects",
-      ref,
-    );
-    const member = memberships.memberships.find(
-      (member) => member.projectId === projectField.projectId,
-    );
-    if (!member && memberships.errors.length)
-      throw new Error(memberships.errors.join(" "));
-    if (!member) return false;
-    const response = await call<ProjectFieldList>("arco_project_fields", {
-      ...ref,
-      projectId: projectField.projectId,
-      itemId: member.itemId,
-    });
-    const field = response.fields.find(
-      (field) => field.id === projectField.fieldId,
-    );
-    if (!field && response.hasMore)
-      throw new Error(
-        "The current Project field was not included in this page.",
-      );
-    return Boolean(field && sameValue(field.value, projectField.value));
-  }
-  return false;
+  const catalog = await call<IssueCatalog>("arco_issue_catalog", ref);
+  return (
+    (patch.milestoneNumber === undefined ||
+      catalog.milestoneNumber === patch.milestoneNumber) &&
+    (patch.issueTypeId === undefined ||
+      catalog.issueTypeId === patch.issueTypeId)
+  );
 }

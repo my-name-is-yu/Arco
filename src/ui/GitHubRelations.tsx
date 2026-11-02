@@ -9,11 +9,7 @@ import type {
 } from "../shared/github-operations";
 import { useGitHubOperation } from "./useGitHubOperation";
 import { SingleSelect } from "./SingleSelect";
-import {
-  DraftStatus,
-  draftStorageId,
-  useDraftPersistence,
-} from "./useDraftPersistence";
+import { DraftStatus, useDraftPersistence } from "./useDraftPersistence";
 import type { Draft, DraftKey } from "../shared/state";
 import { DisclosureSummary } from "./DisclosureSummary";
 import { useGitHubAuthScope, useGitHubCall } from "./github-auth";
@@ -37,8 +33,6 @@ export function GitHubRelations({
   const [repo, setRepo] = useState(issue.repo);
   const [number, setNumber] = useState("");
   const [replace, setReplace] = useState(false);
-  const childPersistence = useDraftPersistence(host);
-  const { load: loadChildDraft } = childPersistence;
   const childKey = useMemo<DraftKey>(
     () => ({
       source: "github",
@@ -48,6 +42,8 @@ export function GitHubRelations({
     }),
     [issue.repo, issue.number, ownerId],
   );
+  const childPersistence = useDraftPersistence(host, childKey);
+  const { load: loadChildDraft } = childPersistence;
   const readChild = () => {
     const saved = childPersistence.value(childKey);
     return {
@@ -295,7 +291,7 @@ export function GitHubRelations({
         Create a sub-issue
       </button>
       <DraftStatus
-        status={childPersistence.statuses[draftStorageId(childKey)]}
+        status={childPersistence.status}
         onRetry={() => void childPersistence.retry(childKey, childDraft())}
         onResolve={(choice) =>
           void childPersistence.resolve(childKey, choice, childDraft())

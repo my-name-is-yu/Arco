@@ -1,3 +1,4 @@
+import { SymphonyRunSection } from "./SymphonyRunSection";
 import { useState, type ReactNode } from "react";
 import { Button } from "@openai/apps-sdk-ui/components/Button";
 import {
@@ -584,6 +585,7 @@ export function GitHubDetail({
               />
               <LabelManager host={host} repo={issue.repo} />
             </details>
+            <SymphonyRunSection host={host} issue={issue} />
           </aside>
         </div>
       </div>

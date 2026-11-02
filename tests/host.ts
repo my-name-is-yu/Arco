@@ -75,7 +75,11 @@ const launchArguments = issuesEntry
         ),
       }
     : !projectEntry && parameters.has("source")
-      ? { source: z.enum(["github", "linear"]).parse(parameters.get("source")) }
+      ? {
+          source: z
+            .enum(["github", "linear", "symphony"])
+            .parse(parameters.get("source")),
+        }
       : {};
 const projectKey = "1".repeat(64);
 

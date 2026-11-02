@@ -1,3 +1,4 @@
+import type { SymphonyRuntimeContext } from "./symphony";
 import { z } from "zod";
 import type { LinearIssue, LinearRef } from "./linear";
 import type { ImageData } from "./images";
@@ -284,6 +285,7 @@ export interface ArcoHost {
     options?: { signal?: AbortSignal; priority?: "background" | "interactive" },
   ): Promise<ImageData>;
   share(issue: ConversationIssue): Promise<void>;
+  shareRuntime?(context: SymphonyRuntimeContext): Promise<void>;
   shareAnnotations(
     annotations: SelectionAnnotationContext[],
     snapshotId?: string,

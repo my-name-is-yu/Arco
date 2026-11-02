@@ -2,8 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFixtureService } from "../src/server/fixture";
-import type { ArcoHost, Connection } from "../src/shared/contracts";
-import type { IssueProjectMemberships } from "../src/shared/github-operations";
+import type {
+  ArcoHost,
+  Connection,
+  IssueDetail,
+} from "../src/shared/contracts";
 import { GitHubAuthScopeContext, useGitHubCall } from "../src/ui/github-auth";
 import {
   checkBulkChange,
@@ -122,10 +125,10 @@ describe("GitHub view authentication lifetime", () => {
     ]);
   });
 
-  it("blocks the next recovery read after an old membership response arrives across a generation change", async () => {
+  it("blocks the next recovery catalog read after an old issue response arrives across a generation change", async () => {
     const client = clientFor(scopeA);
-    let release!: (value: IssueProjectMemberships) => void;
-    const firstRead = new Promise<IssueProjectMemberships>((resolve) => {
+    let release!: (value: IssueDetail) => void;
+    const firstRead = new Promise<IssueDetail>((resolve) => {
       release = resolve;
     });
     const dispatch = vi.fn<ArcoHost["call"]>().mockReturnValue(firstRead);
@@ -142,36 +145,19 @@ describe("GitHub view authentication lifetime", () => {
       args: {
         issues: [ref],
         requestId: "fixture-request-id",
-        projectField: {
-          projectId: "fixture-project",
-          fieldId: "fixture-field",
-          value: "fixture-option",
-        },
+        patch: { milestoneNumber: 1 },
       },
     };
-    const result = checkBulkChange(call, attempt, issue);
-    expect(dispatch).toHaveBeenCalledWith(
-      "arco_issue_projects",
-      ref,
-      undefined,
+    const result = call<IssueDetail>("arco_get_issue", ref).then((current) =>
+      checkBulkChange(call, attempt, current),
     );
+    expect(dispatch).toHaveBeenCalledWith("arco_get_issue", ref, undefined);
     changeScope(client, scopeB);
-    release({
-      ...ref,
-      memberships: [
-        {
-          projectId: "fixture-project",
-          itemId: "fixture-item",
-          title: "Fixture project",
-          url: "https://github.com/users/fixture/projects/1",
-        },
-      ],
-      errors: [],
-    });
+    release(issue);
     await expect(result).rejects.toMatchObject({ code: "auth" });
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(
-      dispatch.mock.calls.some(([name]) => name === "arco_project_fields"),
+      dispatch.mock.calls.some(([name]) => name === "arco_issue_catalog"),
     ).toBe(false);
   });
 

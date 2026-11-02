@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { request } from "node:http";
 import { text } from "node:stream/consumers";
 import { setTimeout } from "node:timers/promises";
-import { expect, test } from "./browser-test";
+import { expect, test } from "@playwright/test";
 
 async function postSplitBody(url: URL, body: Buffer, split: number) {
   const outgoing = request(url, {
@@ -33,35 +33,41 @@ test("the real fixture host preserves a tool body split inside a UTF-8 character
   request,
   baseURL,
 }) => {
-  const session = await (await request.post("/session")).json();
-  const body = "日本語🧭 — fictional fixture edit";
-  const payload = Buffer.from(
-    JSON.stringify({
-      session: session.session,
-      name: "arco_update_issue",
-      arguments: {
-        repo: "yu/Arco",
-        number: 42,
-        requestId: randomUUID(),
-        patch: { body },
+  const created = await request.post("/session");
+  expect(created.ok()).toBe(true);
+  const { session } = (await created.json()) as { session: string };
+  try {
+    const body = "日本語🧭 — fictional fixture edit";
+    const payload = Buffer.from(
+      JSON.stringify({
+        session,
+        name: "arco_update_issue",
+        arguments: {
+          repo: "yu/Arco",
+          number: 42,
+          requestId: randomUUID(),
+          patch: { body },
+        },
+      }),
+    );
+    const result = await postSplitBody(
+      new URL("/tool", baseURL),
+      payload,
+      payload.indexOf(Buffer.from("🧭")) + 2,
+    );
+    expect(result.status).toBe(200);
+    expect(JSON.parse(result.body).structuredContent.body).toBe(body);
+    const refreshed = await request.post("/tool", {
+      data: {
+        session,
+        name: "arco_get_issue",
+        arguments: { repo: "yu/Arco", number: 42 },
       },
-    }),
-  );
-  const result = await postSplitBody(
-    new URL("/tool", baseURL),
-    payload,
-    payload.indexOf(Buffer.from("🧭")) + 2,
-  );
-  expect(result.status).toBe(200);
-  expect(JSON.parse(result.body).structuredContent.body).toBe(body);
-  const refreshed = await request.post("/tool", {
-    data: {
-      session: session.session,
-      name: "arco_get_issue",
-      arguments: { repo: "yu/Arco", number: 42 },
-    },
-  });
-  expect((await refreshed.json()).structuredContent.body).toBe(body);
+    });
+    expect((await refreshed.json()).structuredContent.body).toBe(body);
+  } finally {
+    expect((await request.delete(`/session/${session}`)).ok()).toBe(true);
+  }
 });
 
 test("the fixture host still rejects an oversized streamed request", async ({
@@ -82,13 +88,17 @@ test("closing a fixture session is idempotent and rejects further tool calls", a
   const created = await request.post("/session");
   expect(created.ok()).toBe(true);
   const { session } = (await created.json()) as { session: string };
-  const closed = await request.delete(`/session/${session}`);
-  expect(closed.ok()).toBe(true);
-  expect(await closed.json()).toEqual({ closed: true });
-  const tool = await request.post("/tool", {
-    data: { session, name: "arco_connection", arguments: {} },
-  });
-  expect(tool.status()).toBe(404);
-  expect((await request.delete(`/session/${session}`)).ok()).toBe(true);
-  expect((await request.delete("/session/not-a-session")).status()).toBe(400);
+  try {
+    const closed = await request.delete(`/session/${session}`);
+    expect(closed.ok()).toBe(true);
+    expect(await closed.json()).toEqual({ closed: true });
+    const tool = await request.post("/tool", {
+      data: { session, name: "arco_connection", arguments: {} },
+    });
+    expect(tool.status()).toBe(404);
+    expect((await request.delete(`/session/${session}`)).ok()).toBe(true);
+    expect((await request.delete("/session/not-a-session")).status()).toBe(400);
+  } finally {
+    expect((await request.delete(`/session/${session}`)).ok()).toBe(true);
+  }
 });

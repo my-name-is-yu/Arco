@@ -294,3 +294,39 @@ test("a mobile detail view pauses hidden pagination until returning to the list"
     release();
   }
 });
+
+test("multiple GitHub pages skip automatic replays while Refresh reloads each opened page", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const calls = await listFixture(page, ({ page: number }) => ({
+    issues: number === 1 ? [issue()] : [issue(43)],
+    hasMore: number === 1,
+  }));
+  await open(page);
+  await expect(app(page).locator(".issue-row")).toHaveCount(2);
+  expect(calls.map((call) => call.page)).toEqual([1, 2]);
+  await page.clock.fastForward(31_000);
+  await app(page)
+    .locator("html")
+    .evaluate(() => {
+      for (const value of ["hidden", "visible"]) {
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value,
+        });
+        window.dispatchEvent(new Event("visibilitychange"));
+      }
+    });
+  await page.getByRole("button", { name: "Mock inline", exact: true }).click();
+  await expect(app(page).locator(".inline-issue-card")).toBeVisible();
+  await page.clock.fastForward(16_000);
+  await page
+    .getByRole("button", { name: "Mock fullscreen", exact: true })
+    .click();
+  await expect(app(page).locator(".issue-row")).toHaveCount(2);
+  await page.waitForTimeout(200);
+  expect(calls.map((call) => call.page)).toEqual([1, 2]);
+  await app(page).getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect.poll(() => calls.map((call) => call.page)).toEqual([1, 2, 1, 2]);
+});

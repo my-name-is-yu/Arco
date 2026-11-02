@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { accountIssueFilterSchema, repoSchema } from "./contracts";
+import { symphonyConnectionSchema } from "./symphony";
 
 export const SETTINGS_HISTORY_LIMIT = 100;
 
@@ -25,7 +26,17 @@ export const settingsSchema = z
       .record(z.string().regex(/^[a-f0-9]{64}$/), repoSchema)
       .refine((value) => Object.keys(value).length <= SETTINGS_HISTORY_LIMIT),
     githubAccountFilter: githubAccountFilterSchema,
-    activeSource: z.enum(["github", "linear"]),
+    activeSource: z.enum(["github", "linear", "symphony"]),
+    symphonyConnections: z
+      .array(symphonyConnectionSchema)
+      .max(100)
+      .refine(
+        (connections) =>
+          new Set(connections.map((connection) => connection.id)).size ===
+          connections.length,
+      ),
+    activeSymphonyConnectionId: z.string().min(1).max(200).nullable(),
+    symphonyLayout: z.enum(["board", "table"]),
     characterShortcutsEnabled: z.boolean(),
     linearTeams: z
       .array(
@@ -73,6 +84,10 @@ export const settingsRecordSchema = z
     settings: settingsSchema.extend({
       characterShortcutsEnabled:
         settingsSchema.shape.characterShortcutsEnabled.default(true),
+      symphonyConnections: settingsSchema.shape.symphonyConnections.default([]),
+      activeSymphonyConnectionId:
+        settingsSchema.shape.activeSymphonyConnectionId.default(null),
+      symphonyLayout: settingsSchema.shape.symphonyLayout.default("board"),
     }),
   })
   .strict();
@@ -161,9 +176,14 @@ export const defaultSettings: Settings = {
   projectGithubRepos: {},
   githubAccountFilter: defaultGithubAccountFilter,
   activeSource: "github",
+  symphonyConnections: [],
+  activeSymphonyConnectionId: null,
+  symphonyLayout: "board",
   characterShortcutsEnabled: true,
   linearTeams: [],
   activeLinearTeam: null,
   githubFilters: {},
   linearFilters: {},
 };
+
+export type WorkspaceSource = Settings["activeSource"];
