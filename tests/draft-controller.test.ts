@@ -222,6 +222,75 @@ describe("host-lifetime draft controller", () => {
     expect(controller.get(draftStorageId(github))?.state).toBe("saved");
   });
 
+  it.each(["succeeds", "fails"] as const)(
+    "keeps newer input pending when an older save retry %s",
+    async (outcome) => {
+      vi.useFakeTimers();
+      let release!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      try {
+        const source = recoveringSource({ revision: 0, draft: null });
+        const controller = draftController(source.host);
+        const id = draftStorageId(github);
+        const older = draft("Input before retry");
+        const newer = draft("Typed while retrying");
+        await controller.load(github);
+        source.controls.writeFails = true;
+        controller.schedule(github, older);
+        await vi.advanceTimersByTimeAsync(250);
+        expect(controller.get(id)).toMatchObject({
+          state: "error",
+          operation: "save",
+        });
+
+        source.controls.writeFails = false;
+        const send = source.call.getMockImplementation()!;
+        let entered!: () => void;
+        const started = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        source.call.mockImplementationOnce(async (name, args) => {
+          expect(name).toBe("arco_write_draft");
+          entered();
+          await blocked;
+          if (outcome === "fails") throw new Error("Retry save failed.");
+          return send(name, args);
+        });
+        const retrying = controller.retry(github, older);
+        await started;
+        controller.schedule(github, newer);
+        expect(controller.get(id)?.state).toBe("pending");
+        release();
+        await expect(retrying).resolves.toBeUndefined();
+        expect(controller.value(github)).toEqual(newer);
+        expect(controller.get(id)).toMatchObject({ state: "pending" });
+        expect(source.record()).toEqual({
+          revision: outcome === "succeeds" ? 1 : 0,
+          draft: outcome === "succeeds" ? older : null,
+        });
+
+        await vi.advanceTimersByTimeAsync(250);
+        expect(controller.get(id)).toMatchObject({ state: "saved" });
+        expect(controller.value(github)).toEqual(newer);
+        expect(source.record()).toEqual({
+          revision: outcome === "succeeds" ? 2 : 1,
+          draft: newer,
+        });
+        expect(
+          source.call.mock.calls
+            .filter(([name]) => name === "arco_write_draft")
+            .map(([, args]) => args.draft),
+        ).toEqual([older, older, newer]);
+      } finally {
+        release();
+        vi.clearAllTimers();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("retries a failed removal without saving a replacement draft", async () => {
     const source = recoveringSource({
       revision: 3,

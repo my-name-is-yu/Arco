@@ -179,6 +179,16 @@ Arco displays notices when user action is required or when the interface cannot 
 - **Partial bulk failures:** List each issue that failed to update and offer a retry action only for failures known to be safe to retry, without resubmitting successful or unconfirmed changes.
 - **External authorization:** When waiting on an OAuth or external sign-in flow, explain how to complete the step in the source application and return. If authorization fails, replace the waiting prompt with the error details.
 
+### Draft Save Completion Order
+
+Only the current input version for a draft key may publish a save result. This also applies to explicit retries: typing while a retry is in flight makes that retry's input older than the current input.
+
+| Completion after newer input is scheduled | Required state                                                                                                                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| The older save succeeds                   | Keep the newer input pending; do not mark it saved or restore the older input. The accepted disk revision remains the basis for the next save. |
+| The older save fails                      | Keep the newer input pending; do not replace its status with the older error.                                                                  |
+| The newer save succeeds or fails          | Mark that version saved or show its error with an explicit retry, retaining the input.                                                         |
+
 ### Silent Successes and Loading States
 
 Routine operations—such as saving changes, navigating, sharing context, disconnecting an account, or auto-saving local drafts—do not trigger completion notices; the updated UI itself serves as confirmation.
