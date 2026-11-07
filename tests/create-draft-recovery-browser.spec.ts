@@ -3,6 +3,81 @@ import type { Draft, DraftKey } from "../src/shared/state";
 import { toolFailure } from "./tool-failure";
 
 for (const source of ["github", "linear"] as const) {
+  test(`${source} compares an unseen saved draft when typing precedes a successful initial load`, async ({
+    page,
+  }) => {
+    await page.clock.install();
+    const saved: Draft = {
+      title: "Unseen saved title",
+      body: "Previously saved unsent description",
+      comment: "",
+    };
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    const writes: Draft[] = [];
+    await page.route("**/tool", async (route) => {
+      const input = route.request().postDataJSON() as {
+        name: string;
+        arguments: { key?: DraftKey; draft?: Draft };
+      };
+      if (
+        input.arguments.key?.source !== source ||
+        input.arguments.key.issue !== "new"
+      )
+        return route.continue();
+      if (input.name === "arco_read_draft") {
+        reads++;
+        await blocked;
+        return route.fulfill({
+          json: { structuredContent: { revision: 3, draft: saved } },
+        });
+      }
+      if (input.name === "arco_write_draft") {
+        writes.push(input.arguments.draft!);
+        return route.fulfill({
+          json: {
+            structuredContent: { revision: 4, draft: input.arguments.draft },
+          },
+        });
+      }
+      return route.continue();
+    });
+    try {
+      await page.goto(
+        source === "github" ? "/?entry=project" : "/?source=linear",
+      );
+      const ui = page.frameLocator("#arco");
+      const name = source === "github" ? "Create issue" : "Create Linear Issue";
+      await ui.getByRole("button", { name, exact: true }).click();
+      const dialog = ui.getByRole("dialog", { name, exact: true });
+      await expect.poll(() => reads).toBe(1);
+      const title = dialog.getByRole("textbox", { name: "Title", exact: true });
+      await title.fill("New input before loading finishes");
+      await page.clock.fastForward(300);
+      release();
+      await expect(dialog.getByRole("alert")).toContainText(
+        "This draft conflicts with another Arco view",
+      );
+      expect(writes).toEqual([]);
+      await expect(title).toHaveValue("New input before loading finishes");
+      await dialog.getByText("Compare saved draft", { exact: true }).click();
+      await expect(
+        dialog.getByRole("textbox", { name: "Saved body", exact: true }),
+      ).toHaveValue(saved.body);
+      await dialog
+        .getByRole("button", { name: "Use saved draft", exact: true })
+        .click();
+      await expect(title).toHaveValue(saved.title);
+      await expect(dialog.getByRole("alert")).toHaveCount(0);
+      expect(writes).toEqual([]);
+    } finally {
+      release();
+    }
+  });
+
   test(`${source} creation draft attributes survive save retry and conflict resolution`, async ({
     page,
   }) => {

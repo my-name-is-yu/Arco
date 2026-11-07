@@ -33,6 +33,7 @@ import { createConditionalReader } from "./github/conditional-read";
 import { credentialIdentity } from "./github/credential-identity";
 import {
   createGitHubAuthSession,
+  scopedGitHubRead,
   type GitHubAuthSession,
 } from "./github/auth-session";
 import {
@@ -228,7 +229,7 @@ export function createGitHubService(
       }),
   });
 
-  return {
+  const service: GitHubService = {
     authGeneration: authSession.read,
     ...createIssueWrites({
       api,
@@ -365,5 +366,14 @@ export function createGitHubService(
       return comment.body;
     },
     metadata,
+  };
+  return {
+    ...service,
+    get: scopedGitHubRead(authSession, service.get),
+    list: scopedGitHubRead(authSession, service.list),
+    comments: scopedGitHubRead(authSession, service.comments),
+    readMarkdown: scopedGitHubRead(authSession, service.readMarkdown),
+    metadata: scopedGitHubRead(authSession, service.metadata),
+    repositories: scopedGitHubRead(authSession, service.repositories),
   };
 }

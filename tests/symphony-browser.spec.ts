@@ -633,3 +633,62 @@ test("an initial runtime failure shows the actual error in one place", async ({
     app(page).getByRole("button", { name: "Refresh Symphony", exact: true }),
   ).toBeEnabled();
 });
+
+for (const action of ["save", "remove"] as const) {
+  test(`a stale Symphony editor cannot ${action} a connection changed in another view`, async ({
+    page,
+  }) => {
+    const session = await sessionWithSettings(page);
+    await open(page, session);
+    const ui = app(page);
+    await ui
+      .getByRole("button", { name: "Edit Symphony connection", exact: true })
+      .click();
+    const editor = ui.getByRole("dialog", {
+      name: "Edit Symphony connection",
+      exact: true,
+    });
+    await editor
+      .getByRole("textbox", { name: "Connection name", exact: true })
+      .fill("Unsent local change");
+    const current = await tool<SettingsRecord>(
+      page,
+      session,
+      "arco_get_settings",
+    );
+    const changed = { ...githubConnection, name: "Saved in another view" };
+    await tool(page, session, "arco_update_settings", {
+      expectedRevision: current.revision,
+      patch: {
+        symphonyConnections: current.settings.symphonyConnections.map((item) =>
+          item.id === changed.id ? changed : item,
+        ),
+      },
+    });
+    if (action === "remove")
+      await editor
+        .getByRole("button", { name: "Remove connection", exact: true })
+        .click();
+    await editor
+      .getByRole("button", {
+        name: action === "save" ? "Save connection" : "Remove connection",
+        exact: true,
+      })
+      .last()
+      .click();
+    await expect(editor.getByRole("alert")).toContainText(
+      "This connection changed in another view",
+    );
+    await expect(
+      editor.getByRole("textbox", { name: "Connection name", exact: true }),
+    ).toHaveValue("Unsent local change");
+    const saved = await tool<SettingsRecord>(
+      page,
+      session,
+      "arco_get_settings",
+    );
+    expect(
+      saved.settings.symphonyConnections.find((item) => item.id === changed.id),
+    ).toEqual(changed);
+  });
+}

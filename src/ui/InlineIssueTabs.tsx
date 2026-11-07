@@ -13,7 +13,10 @@ import type {
 } from "../shared/launch";
 import { Notice } from "./Notice";
 import { isTextSelectionClick, selectionIssueData } from "./selection-context";
-import { seedPresentationCache } from "./presentation-cache";
+import {
+  canSeedLinearPresentation,
+  seedPresentationCache,
+} from "./presentation-cache";
 import { usePresentationImagePrefetch } from "./presentation-images";
 import { githubStatePresentation } from "./github-state";
 import { GitHubAuthScopeContext, isGitHubAuthScope } from "./github-auth";
@@ -85,32 +88,39 @@ export function InlineIssueTabs({
     )
       ? snapshot
       : undefined;
-  const initialIssues = !hasGitHub
-    ? issues
-    : matchingSnapshot?.issues.map((issue): IssuePresentationSummary =>
-        issue.source === "github"
-          ? {
-              source: issue.source,
-              repo: issue.repo,
-              number: issue.number,
-              id: issue.id,
-              title: issue.title,
-              url: issue.url,
-              state: issue.state,
-              stateReason: issue.stateReason,
-            }
-          : {
-              source: issue.source,
-              connectionId: issue.connectionId,
-              workspaceId: issue.workspaceId,
-              teamId: issue.teamId,
-              issueId: issue.issueId,
-              identifier: issue.identifier,
-              title: issue.title,
-              url: issue.url,
-              state: issue.state,
-            },
-      );
+  const canSeed = issues.every(
+    (issue) =>
+      issue.source !== "linear" ||
+      canSeedLinearPresentation(client, issue.connectionId, snapshot),
+  );
+  const initialIssues = !canSeed
+    ? undefined
+    : !hasGitHub
+      ? issues
+      : matchingSnapshot?.issues.map((issue): IssuePresentationSummary =>
+          issue.source === "github"
+            ? {
+                source: issue.source,
+                repo: issue.repo,
+                number: issue.number,
+                id: issue.id,
+                title: issue.title,
+                url: issue.url,
+                state: issue.state,
+                stateReason: issue.stateReason,
+              }
+            : {
+                source: issue.source,
+                connectionId: issue.connectionId,
+                workspaceId: issue.workspaceId,
+                teamId: issue.teamId,
+                issueId: issue.issueId,
+                identifier: issue.identifier,
+                title: issue.title,
+                url: issue.url,
+                state: issue.state,
+              },
+        );
   const query = useQuery({
     queryKey: ["issue-set", targets, ...(hasGitHub ? [authScope] : [])],
     initialData: initialIssues,
@@ -134,6 +144,23 @@ export function InlineIssueTabs({
         throw new ToolCallError(
           "auth",
           "GitHub authentication changed. Refresh these issues.",
+        );
+      }
+      if (
+        targets.some(
+          (target) =>
+            target.source === "linear" &&
+            !canSeedLinearPresentation(
+              client,
+              target.connectionId,
+              response.presentation,
+            ),
+        )
+      ) {
+        void client.invalidateQueries({ queryKey: ["linear-connection"] });
+        throw new ToolCallError(
+          "auth",
+          "Linear authentication changed. Refresh these issues.",
         );
       }
       seedPresentationCache(

@@ -35,6 +35,7 @@ const bundled = await build({
 const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Arco — Mock MCP Apps host</title><style>*{box-sizing:border-box}body{margin:0;background:#121212;color:#ddd;font:12px system-ui}header{display:flex;align-items:center;gap:10px;padding:10px;flex-wrap:wrap}header strong{margin-right:auto}button,input{font:inherit}iframe{display:block;width:100%;height:calc(100vh - 115px);border:0;background:#191919}details{padding:4px 10px}pre{white-space:pre-wrap;max-height:180px;overflow:auto}#harness-error{color:#ffacac}</style><header><strong>MOCK HOST · fixture only · Not the Codex app</strong><span id="bridge-status">connecting</span><button id="mode-inline">Mock inline</button><button id="mode-fullscreen">Mock fullscreen</button><button id="external-update">Mock external update #42</button><button id="linear-external-update">Mock Linear external update YU-42</button><form id="mention-form"><input id="mention-query" aria-label="Mock @Arco search" value="repo:yu/Arco"><button>Mock @Arco search</button></form></header><div id="harness-error" role="alert"></div><details><summary>Mock host events</summary><button id="host-context-burst">Mock presentation updates</button><pre id="events">[]</pre></details><iframe id="arco" title="Arco fixture application"></iframe><script type="module" src="/host.js"></script></html>`;
 const sessions = new Map();
 let shuttingDown = false;
+let startingSessions = 0;
 const toolInput = z.object({
   session: z.string().uuid(),
   name: z.string(),
@@ -65,22 +66,24 @@ const server = createServer(async (request, response) => {
     if (request.method === "POST" && path === "/session") {
       if (shuttingDown)
         return json(response, { error: "Mock host is shutting down" }, 503);
-      if (sessions.size >= 256)
+      if (sessions.size + startingSessions >= 256)
         return json(
           response,
           { error: "Restart mock host to reset fixture sessions" },
           429,
         );
-      const { Client } =
-        await import("@modelcontextprotocol/sdk/client/index.js");
-      const { StdioClientTransport } =
-        await import("@modelcontextprotocol/sdk/client/stdio.js");
-      const client = new Client({
-        name: "Arco browser fixture host",
-        version: "0.1.0",
-      });
+      startingSessions += 1;
+      let client;
       let retained = false;
       try {
+        const { Client } =
+          await import("@modelcontextprotocol/sdk/client/index.js");
+        const { StdioClientTransport } =
+          await import("@modelcontextprotocol/sdk/client/stdio.js");
+        client = new Client({
+          name: "Arco browser fixture host",
+          version: "0.1.0",
+        });
         await client.connect(
           new StdioClientTransport({
             command: process.execPath,
@@ -104,7 +107,11 @@ const server = createServer(async (request, response) => {
         retained = true;
         return json(response, { session });
       } finally {
-        if (!retained) await client.close();
+        try {
+          if (!retained) await client?.close();
+        } finally {
+          startingSessions -= 1;
+        }
       }
     }
     if (request.method === "DELETE" && path.startsWith("/session/")) {
@@ -166,13 +173,14 @@ const server = createServer(async (request, response) => {
       return response.end(bundled.outputFiles[0].contents);
     }
     if (request.method === "GET" && path === "/arco.html") {
+      const ui = await readFile("dist/plugin/arco.html");
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
         "Content-Security-Policy":
           "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src data:;",
       });
-      return response.end(await readFile("dist/plugin/arco.html"));
+      return response.end(ui);
     }
     if (path === "/favicon.ico") {
       response.writeHead(204);

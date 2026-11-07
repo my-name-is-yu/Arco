@@ -11,7 +11,11 @@ import type {
   PresentationIssues,
 } from "../src/shared/contracts";
 import type { LinearIssue } from "../src/shared/linear";
-import { seedPresentationCache } from "../src/ui/presentation-cache";
+import {
+  discardLinearPresentation,
+  observeLinearPresentationGeneration,
+  seedPresentationCache,
+} from "../src/ui/presentation-cache";
 
 const receivedAt = 1_000;
 const authScope = "fixture-github-session";
@@ -64,6 +68,61 @@ beforeEach(async () => {
 afterEach(() => client.clear());
 
 describe("presentation detail cache", () => {
+  it("checks the verified Linear generation even when an older-account response arrives later", () => {
+    const issue = issueFor("linear") as LinearIssue;
+    const host = hostWithSnapshot(() => null);
+    observeLinearPresentationGeneration(
+      client,
+      issue.connectionId,
+      "current-generation",
+    );
+    for (const linearAuthGenerations of [
+      undefined,
+      { [issue.connectionId]: "previous-generation" },
+    ]) {
+      seedPresentationCache(client, host, undefined, {
+        issues: [issue],
+        receivedAt: receivedAt + 100,
+        linearAuthGenerations,
+      });
+      expect(client.getQueryData(expectedKey(issue))).toBeUndefined();
+    }
+    const current = {
+      issues: [{ ...issue, title: "Verified account's issue" }],
+      receivedAt,
+      linearAuthGenerations: { [issue.connectionId]: "current-generation" },
+    };
+    seedPresentationCache(client, host, undefined, current);
+    expect(client.getQueryData(expectedKey(issue))).toEqual(current.issues[0]);
+  });
+
+  it("does not restore discarded Linear account snapshots and accepts a later source presentation", () => {
+    const old = { issues, receivedAt, githubAuthGeneration: authScope };
+    const host = hostWithSnapshot(() => old);
+    const issue = issueFor("linear") as LinearIssue;
+    discardLinearPresentation(client, issue.connectionId, old);
+    seedPresentationCache(client, host, authScope);
+    expect(client.getQueryData(expectedKey(issue))).toBeUndefined();
+    expect(client.getQueryData(expectedKey(issueFor("github")))).toEqual(
+      issueFor("github"),
+    );
+
+    const current = {
+      ...old,
+      receivedAt: receivedAt + 1,
+      issues: [{ ...issue, title: "Current account's source presentation" }],
+    };
+    seedPresentationCache(client, host, authScope, current);
+    expect(client.getQueryData(expectedKey(issue))).toEqual(current.issues[0]);
+    client.removeQueries({ queryKey: expectedKey(issue), exact: true });
+    discardLinearPresentation(client, issue.connectionId, {
+      ...old,
+      receivedAt: receivedAt - 1,
+    });
+    seedPresentationCache(client, host, authScope);
+    expect(client.getQueryData(expectedKey(issue))).toBeUndefined();
+  });
+
   it("seeds all four mixed-provider details under their normal query keys", () => {
     seedPresentationCache(
       client,

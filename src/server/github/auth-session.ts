@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { GitHubError } from "./transport";
 
 /** A public, memory-only scope unrelated to the private credential fingerprint. */
 export function createGitHubAuthSession(identity: () => Promise<string>) {
@@ -36,3 +37,20 @@ export function createGitHubAuthSession(identity: () => Promise<string>) {
 }
 
 export type GitHubAuthSession = ReturnType<typeof createGitHubAuthSession>;
+
+/** Reject a completed read if its observed credential generation changed. */
+export function scopedGitHubRead<Args extends unknown[], Result>(
+  authSession: GitHubAuthSession,
+  read: (...args: Args) => Promise<Result>,
+) {
+  return async (...args: Args): Promise<Result> => {
+    const generation = await authSession.read();
+    const result = await read(...args);
+    if (generation !== (await authSession.read()))
+      throw new GitHubError(
+        "GitHub authentication changed while loading data. Refresh to verify the current account.",
+        "auth",
+      );
+    return result;
+  };
+}

@@ -22,6 +22,16 @@ function readSettings(value: unknown): SettingsRecord {
     );
   return parsed.data;
 }
+export async function publishSettings(
+  client: QueryClient,
+  saved: SettingsRecord,
+) {
+  // A read started before this commit must not replace its newer revision.
+  await client.cancelQueries({ queryKey: ["settings"], exact: true });
+  client.setQueryData<SettingsRecord>(["settings"], (current) =>
+    current && current.revision > saved.revision ? current : saved,
+  );
+}
 export function settingsController(host: ArcoHost, client: QueryClient) {
   return sessionValue(host, "settings-controller", () => {
     let state: { error: string | null; pending: boolean } = {
@@ -76,7 +86,7 @@ export function settingsController(host: ArcoHost, client: QueryClient) {
                   patch,
                 }),
               );
-          client.setQueryData(["settings"], saved);
+          await publishSettings(client, saved);
         } catch (failure) {
           if (versions.get(key) === version)
             failed.set(key, {

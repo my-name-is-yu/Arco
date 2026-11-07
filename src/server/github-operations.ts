@@ -12,7 +12,10 @@ import { createProjectsOperations } from "./github/projects";
 import { createRelationsOperations } from "./github/relations";
 import { createTemplatesOperations } from "./github/templates";
 import type { GhRunner } from "./github/transport";
-import type { GitHubAuthSession } from "./github/auth-session";
+import {
+  scopedGitHubRead,
+  type GitHubAuthSession,
+} from "./github/auth-session";
 export { checkFieldValue } from "./github/field-values";
 export { classifyMarkdownTemplate } from "./github/templates";
 export const githubOperationReadOnly = new Set<GitHubOperationToolName>([
@@ -35,7 +38,7 @@ export function createGitHubOperations(options: {
   const context = createGitHubOperationContext(options);
   const fields = createFieldsOperations(context);
   const projects = createProjectsOperations(context);
-  return {
+  const operations = {
     ...createLabelsOperations(context),
     ...createCommentsOperations(context),
     ...createRelationsOperations(context),
@@ -43,6 +46,36 @@ export function createGitHubOperations(options: {
     ...fields,
     ...projects,
     ...createBulkOperations(context, fields, projects),
+  };
+  return {
+    ...operations,
+    labelDefinitions: scopedGitHubRead(
+      context.authSession,
+      operations.labelDefinitions,
+    ),
+    reactions: scopedGitHubRead(context.authSession, operations.reactions),
+    issueCatalog: scopedGitHubRead(
+      context.authSession,
+      operations.issueCatalog,
+    ),
+    issueFields: scopedGitHubRead(context.authSession, operations.issueFields),
+    projects: scopedGitHubRead(context.authSession, operations.projects),
+    issueProjects: scopedGitHubRead(
+      context.authSession,
+      operations.issueProjects,
+    ),
+    projectFields: scopedGitHubRead(
+      context.authSession,
+      operations.projectFields,
+    ),
+    issueRelations: scopedGitHubRead(
+      context.authSession,
+      operations.issueRelations,
+    ),
+    issueTemplates: scopedGitHubRead(
+      context.authSession,
+      operations.issueTemplates,
+    ),
   };
 }
 export async function callGitHubOperation(

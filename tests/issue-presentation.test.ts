@@ -533,6 +533,7 @@ describe("grouped inline issue presentation", () => {
     );
     expect(response._meta).toEqual({
       githubAuthGeneration: "fixture-github-session",
+      linearAuthGenerations: { default: "fixture-linear-generation" },
       issueDetails: [
         await linearRead.mock.results[0].value,
         await githubRead.mock.results[0].value,
@@ -586,6 +587,40 @@ describe("grouped inline issue presentation", () => {
       expect(issue).not.toHaveProperty("body");
       expect(issue).not.toHaveProperty("comments");
     }
+  });
+
+  it("rejects a Linear group when reconnecting between successful issue reads", async () => {
+    let generation = "original-linear-sign-in";
+    const generations = vi
+      .spyOn(backend.linearService, "authGeneration")
+      .mockImplementation(async () => generation);
+    const call = backend.linearService.call.bind(backend.linearService);
+    let issueReads = 0;
+    vi.spyOn(backend.linearService, "call").mockImplementation(
+      async (name, args) => {
+        const result = await call(name, args);
+        if (name === "linear_get_issue" && ++issueReads === 1)
+          generation = "reconnected-linear-sign-in";
+        return result;
+      },
+    );
+    const response = await client.callTool({
+      name: "arco_show_issues",
+      arguments: {
+        targets: [linear, { ...linear, issueId: "fixture-linear-43" }],
+      },
+    });
+    expect(issueReads).toBe(2);
+    expect(response.isError).toBe(true);
+    expect(toolFailureSchema.parse(response.structuredContent).error.kind).toBe(
+      "auth",
+    );
+    expect(response._meta).toBeUndefined();
+    expect(response.structuredContent).not.toHaveProperty("launch");
+    expect(generations.mock.calls).toEqual([
+      [linear.connectionId],
+      [linear.connectionId],
+    ]);
   });
 
   it("rejects a group if GitHub authentication changes while details are being fetched", async () => {

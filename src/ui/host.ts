@@ -79,12 +79,18 @@ function presentationIssues(
       "invalid-response",
       "The server returned different or invalid issue details. Refresh to try again.",
     );
+  const linearAuthGenerations = z
+    .record(z.string(), z.string().min(1))
+    .safeParse(metadata.linearAuthGenerations);
   return {
     issues: details as ConversationIssue[],
     receivedAt: Date.now(),
     ...(typeof metadata.githubAuthGeneration === "string" &&
     metadata.githubAuthGeneration.length > 0
       ? { githubAuthGeneration: metadata.githubAuthGeneration }
+      : {}),
+    ...(linearAuthGenerations.success
+      ? { linearAuthGenerations: linearAuthGenerations.data }
       : {}),
   };
 }
