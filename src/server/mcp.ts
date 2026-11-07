@@ -111,6 +111,17 @@ async function readPresentationSet(
   )
     ? await backend.service.authGeneration?.()
     : undefined;
+  const linearAuthGenerations = new Map<string, string>();
+  if (backend.linearService.authGeneration)
+    for (const target of unique.values())
+      if (
+        target.source === "linear" &&
+        !linearAuthGenerations.has(target.connectionId)
+      )
+        linearAuthGenerations.set(
+          target.connectionId,
+          await backend.linearService.authGeneration(target.connectionId),
+        );
   for (const target of unique.values()) {
     const { issue } = await readPresentationIssue(backend, target);
     // Model-facing fields stay compact; fetched details are app-only.
@@ -135,7 +146,21 @@ async function readPresentationSet(
       "GitHub authentication changed while loading these issues. Refresh to try again.",
       "auth",
     );
-  return { issues, issueDetails, githubAuthGeneration };
+  for (const [connectionId, generation] of linearAuthGenerations)
+    if (
+      generation !==
+      (await backend.linearService.authGeneration?.(connectionId))
+    )
+      throw new OperationError(
+        "Linear authentication changed while loading these issues. Refresh to try again.",
+        "auth",
+      );
+  return {
+    issues,
+    issueDetails,
+    githubAuthGeneration,
+    linearAuthGenerations: Object.fromEntries(linearAuthGenerations),
+  };
 }
 
 export function createArcoServer(backend: ArcoBackend) {
@@ -316,11 +341,15 @@ export function createArcoServer(backend: ArcoBackend) {
     async (raw) => {
       try {
         const { targets } = issuesPresentationInput.parse(raw);
-        const { issues, issueDetails, githubAuthGeneration } =
-          await readPresentationSet(backend, targets);
+        const {
+          issues,
+          issueDetails,
+          githubAuthGeneration,
+          linearAuthGenerations,
+        } = await readPresentationSet(backend, targets);
         return {
           ...dataResult({ launch: { ...personalLaunchContext, issues } }),
-          _meta: { issueDetails, githubAuthGeneration },
+          _meta: { issueDetails, githubAuthGeneration, linearAuthGenerations },
         };
       } catch (error) {
         return failureResult(error);

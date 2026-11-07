@@ -58,7 +58,7 @@ export function draftController(host: ArcoHost) {
     const versions = new Map<string, number>();
     const current = new Map<string, Draft | null>();
     const loading = new Map<string, Promise<Draft | undefined>>();
-    const failedLoads = new Set<string>();
+    const restored = new Set<string>();
     const setStatus = (id: string, status: Status) => {
       const cell = cellFor(id);
       // A fresh snapshot also publishes value changes while status stays pending.
@@ -100,14 +100,14 @@ export function draftController(host: ArcoHost) {
       const id = draftStorageId(key);
       try {
         await loading.get(id);
-        if (failedLoads.has(id)) {
+        if (!restored.has(id)) {
           const recovered = await store.load(key);
           if (recovered.draft && !sameDraft(recovered.draft, draft))
             throw new LocalDraftConflict(recovered);
         }
         if (versions.get(id) !== version) return;
         await store.save(key, draft);
-        failedLoads.delete(id);
+        restored.add(id);
         if (versions.get(id) === version) {
           setStatus(id, { state: "saved" });
           return draft;
@@ -128,7 +128,7 @@ export function draftController(host: ArcoHost) {
         .then((record) => {
           if ((versions.get(id) ?? 0) !== version)
             return current.get(id) ?? undefined;
-          failedLoads.delete(id);
+          restored.add(id);
           current.set(id, record.draft);
           setStatus(id, {
             state: record.draft ? "saved" : "idle",
@@ -137,7 +137,6 @@ export function draftController(host: ArcoHost) {
           return record.draft ?? undefined;
         })
         .catch((error) => {
-          failedLoads.add(id);
           if ((versions.get(id) ?? 0) === version) report(id, error, "load");
           return undefined;
         })
@@ -261,6 +260,7 @@ export function draftController(host: ArcoHost) {
                   }
                 : older;
             const result = await store.importLegacy(key, imported);
+            restored.add(id);
             if (versions.get(id) !== version) return undefined;
             current.set(id, result.draft);
             setStatus(id, { state: "saved", legacy: undefined });
@@ -275,7 +275,7 @@ export function draftController(host: ArcoHost) {
         setStatus(id, { state: "resolving" });
         try {
           const result = await store.resolve(key, choice, local);
-          failedLoads.delete(id);
+          restored.add(id);
           if (versions.get(id) !== version) return undefined;
           current.set(id, result.draft);
           setStatus(id, { state: result.draft ? "saved" : "idle" });
@@ -293,7 +293,7 @@ export function draftController(host: ArcoHost) {
         setStatus(id, { state: "pending" });
         try {
           await store.remove(key);
-          failedLoads.delete(id);
+          restored.add(id);
           if (versions.get(id) === version) {
             setStatus(id, { state: "idle" });
             return null;

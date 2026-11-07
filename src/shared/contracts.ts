@@ -255,6 +255,7 @@ export interface PresentationIssues {
   issues: ConversationIssue[];
   receivedAt: number;
   githubAuthGeneration?: string;
+  linearAuthGenerations?: Record<string, string>;
 }
 export type SharedIssueRef =
   ({ source: "github" } & IssueRef) | ({ source: "linear" } & LinearRef);

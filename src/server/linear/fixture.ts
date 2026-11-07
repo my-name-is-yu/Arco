@@ -720,6 +720,7 @@ export function createLinearFixtureService(): LinearService {
     throw new OperationError("Unsupported fixture operation.", "unsupported");
   }
   return {
+    authGeneration: async () => "fixture-linear-generation",
     async call(name, raw) {
       const parsed = linearSchemas[name].parse(raw);
       return "requestId" in parsed

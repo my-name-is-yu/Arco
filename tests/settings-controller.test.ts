@@ -44,6 +44,82 @@ const filter = {
 };
 
 describe("settings recovery", () => {
+  it("keeps committed settings when an older background read finishes late", async () => {
+    const before: SettingsRecord = {
+      revision: 0,
+      settings: structuredClone(defaultSettings),
+    };
+    const saved: SettingsRecord = {
+      revision: 1,
+      settings: { ...before.settings, characterShortcutsEnabled: false },
+    };
+    const client = new QueryClient();
+    client.setQueryData(["settings"], before);
+    let release!: (record: SettingsRecord) => void;
+    const read = client.fetchQuery({
+      queryKey: ["settings"],
+      queryFn: () =>
+        new Promise<SettingsRecord>((resolve) => {
+          release = resolve;
+        }),
+    });
+    // A background refetch can overlap a write while the old controls remain usable.
+    const finished = read.catch(() => undefined);
+    const call = vi.fn(async (name: string) =>
+      name === "arco_get_settings" ? before : saved,
+    );
+    const controller = settingsController(
+      { call } as unknown as ArcoHost,
+      client,
+    );
+    controller.update("keyboard-shortcuts", () => ({
+      characterShortcutsEnabled: false,
+    }));
+    await vi.waitFor(() => expect(controller.get().pending).toBe(false));
+    expect(client.getQueryData(["settings"])).toEqual(saved);
+    release(before);
+    await finished;
+    expect(client.getQueryData(["settings"])).toEqual(saved);
+  });
+
+  it("keeps a newer accepted revision when an earlier write response finishes late", async () => {
+    const client = new QueryClient();
+    const before: SettingsRecord = {
+      revision: 0,
+      settings: structuredClone(defaultSettings),
+    };
+    const earlier: SettingsRecord = {
+      revision: 1,
+      settings: { ...before.settings, characterShortcutsEnabled: false },
+    };
+    const latest: SettingsRecord = {
+      revision: 2,
+      settings: { ...earlier.settings, activeSource: "linear" },
+    };
+    client.setQueryData(["settings"], before);
+    let release!: (record: SettingsRecord) => void;
+    const call = vi.fn(async (name: string) =>
+      name === "arco_get_settings"
+        ? before
+        : new Promise<SettingsRecord>((resolve) => {
+            release = resolve;
+          }),
+    );
+    const controller = settingsController(
+      { call } as unknown as ArcoHost,
+      client,
+    );
+    controller.update("keyboard-shortcuts", () => ({
+      characterShortcutsEnabled: false,
+    }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    // Another settings writer has already committed and published revision 2.
+    client.setQueryData(["settings"], latest);
+    release(earlier);
+    await vi.waitFor(() => expect(controller.get().pending).toBe(false));
+    expect(client.getQueryData(["settings"])).toEqual(latest);
+  });
+
   it("persists disabled character shortcuts alongside queued source changes", async () => {
     const source = fixture();
     source.recover();

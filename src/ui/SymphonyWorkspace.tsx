@@ -27,7 +27,7 @@ import { SingleSelect } from "./SingleSelect";
 import { IssueStateVisual } from "./IssuePropertyVisual";
 import { IssueMarkdown } from "./MarkdownContent";
 import { SymphonyConnectionEditor } from "./SymphonyConnectionEditor";
-import { useSettings } from "./useSettings";
+import { publishSettings, useSettings } from "./useSettings";
 import { useDetailReadingPosition } from "./useListInteraction";
 import { selectPresentedIssue, useSessionState } from "./session-state";
 import {
@@ -553,6 +553,14 @@ export function SymphonyWorkspace({
   );
   const saveConnection = async (value: SymphonyConnection) => {
     const current = await host.call<SettingsRecord>("arco_get_settings", {});
+    const original = editor === "new" ? undefined : editor;
+    const latest = current.settings.symphonyConnections.find(
+      (entry) => entry.id === value.id,
+    );
+    if (JSON.stringify(latest) !== JSON.stringify(original))
+      throw new Error(
+        "This connection changed in another view. Reopen its settings before saving. Your input is preserved.",
+      );
     const saved = await host.call<SettingsRecord>("arco_update_settings", {
       expectedRevision: current.revision,
       patch: {
@@ -565,13 +573,20 @@ export function SymphonyWorkspace({
         activeSymphonyConnectionId: value.id,
       },
     });
-    client.setQueryData(["settings"], saved);
+    await publishSettings(client, saved);
     setConnectionOverride(value.id);
     setEditor(null);
   };
   const removeConnection = async () => {
     if (!editor || editor === "new") return;
     const current = await host.call<SettingsRecord>("arco_get_settings", {});
+    const latest = current.settings.symphonyConnections.find(
+      (entry) => entry.id === editor.id,
+    );
+    if (JSON.stringify(latest) !== JSON.stringify(editor))
+      throw new Error(
+        "This connection changed in another view. Reopen its settings before removing it. Your input is preserved.",
+      );
     const next = current.settings.symphonyConnections.filter(
       (entry) => entry.id !== editor.id,
     );
@@ -582,7 +597,7 @@ export function SymphonyWorkspace({
         activeSymphonyConnectionId: next[0]?.id ?? null,
       },
     });
-    client.setQueryData(["settings"], saved);
+    await publishSettings(client, saved);
     setConnectionOverride(next[0]?.id ?? null);
     setSelected(null);
     setEditor(null);

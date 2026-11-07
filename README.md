@@ -235,6 +235,7 @@ Repository docs, code comments, and authored examples are written in English, wh
 - [Issue operations](docs/issue-operations.md)
 - [Screen behavior](docs/screen-structure.md)
 - [Security and privacy](docs/security-and-privacy.md)
+- [State machines, invariants, and confirmed fixes](STATE_MACHINES.md)
 
 ## Contributing and support
 

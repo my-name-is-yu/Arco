@@ -64,6 +64,10 @@ import { useIssueListContinuation } from "./useIssueListContinuation";
 import { useDebouncedSearch } from "./useDebouncedSearch";
 import { useShortcuts } from "./keyboard-shortcuts";
 import {
+  discardLinearPresentation,
+  observeLinearPresentationGeneration,
+} from "./presentation-cache";
+import {
   linearRef,
   useLinearIssueList,
   useLinearIssue,
@@ -82,6 +86,15 @@ const linearDataKeys = new Set([
   "linear-comments",
   "linear-comment-changes",
 ]);
+const accountIdentity = (connection: LinearConnection | undefined) =>
+  JSON.stringify([
+    connection?.mode,
+    connection?.connected,
+    connection?.connectionId,
+    connection?.workspace?.id,
+    connection?.userId,
+    connection?.authGeneration,
+  ]);
 
 export function LinearWorkspace({
   host,
@@ -205,8 +218,61 @@ export function LinearWorkspace({
   const connectionInput = target ? { connectionId: target.connectionId } : {};
   const connection = useQuery({
     queryKey: connectionKey,
-    queryFn: () =>
-      host.call<LinearConnection>("linear_connection", connectionInput),
+    queryFn: async () => {
+      const result = await host.call<LinearConnection>(
+        "linear_connection",
+        connectionInput,
+      );
+      const previous = cache.getQueryData<LinearConnection>(connectionKey);
+      const snapshot = host.presentationIssues?.();
+      observeLinearPresentationGeneration(
+        cache,
+        result.connectionId,
+        result.connected ? (result.authGeneration ?? null) : null,
+      );
+      const mismatchedInitialSnapshot =
+        !previous &&
+        snapshot?.issues.some(
+          (issue) =>
+            issue.source === "linear" &&
+            issue.connectionId === result.connectionId,
+        ) &&
+        (!result.connected ||
+          !result.authGeneration ||
+          snapshot.linearAuthGenerations?.[result.connectionId] !==
+            result.authGeneration);
+      if (
+        (previous && accountIdentity(previous) !== accountIdentity(result)) ||
+        mismatchedInitialSnapshot
+      ) {
+        const connectionId = previous?.connectionId ?? result.connectionId;
+        discardLinearPresentation(cache, connectionId, snapshot);
+        const ownsIssueSet = (entry: { queryKey: readonly unknown[] }) =>
+          entry.queryKey[0] === "issue-set" &&
+          Array.isArray(entry.queryKey[1]) &&
+          entry.queryKey[1].some(
+            (target: { source?: string; connectionId?: string }) =>
+              target.source === "linear" &&
+              target.connectionId === connectionId,
+          );
+        const ownsData = (entry: { queryKey: readonly unknown[] }) =>
+          linearDataKeys.has(String(entry.queryKey[0])) ||
+          (entry.queryKey[0] === "source-image" &&
+            entry.queryKey[1] === "linear");
+        await cache.cancelQueries({
+          predicate: (entry) => ownsData(entry) || ownsIssueSet(entry),
+        });
+        cache.removeQueries({ predicate: ownsData });
+        for (const entry of cache
+          .getQueryCache()
+          .findAll({ predicate: ownsIssueSet }))
+          cache.setQueryData(entry.queryKey, []);
+        void cache.invalidateQueries({ predicate: ownsIssueSet });
+        setBulk([]);
+        setReceipt(null);
+      }
+      return result;
+    },
     enabled: !disconnecting,
   });
   const lastDraftOwner = useRef<string | null>(null);
@@ -491,6 +557,11 @@ export function LinearWorkspace({
         requestId,
       });
       commands.requests.delete(key);
+      if (
+        accountIdentity(cache.getQueryData<LinearConnection>(connectionKey)) !==
+        accountIdentity(connection.data)
+      )
+        return undefined;
       if (isSavedReceipt(result)) {
         setReceipt({ ...result, requestId });
         setSelected(linearRef(result));
@@ -512,6 +583,11 @@ export function LinearWorkspace({
       await issueCache.refresh(true);
       return result;
     } catch (error) {
+      if (
+        accountIdentity(cache.getQueryData<LinearConnection>(connectionKey)) !==
+        accountIdentity(connection.data)
+      )
+        return undefined;
       setNotice(message(error), "error");
       await issueCache.refresh();
       return undefined;

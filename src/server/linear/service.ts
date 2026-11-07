@@ -36,6 +36,14 @@ export function createLinearService(options: {
     string,
     { fingerprint: string; generation: string }
   >();
+  function generationFor(connectionId: string, fingerprint: string) {
+    let identity = identities.get(connectionId);
+    if (identity?.fingerprint !== fingerprint) {
+      identity = { fingerprint, generation: randomUUID() };
+      identities.set(connectionId, identity);
+    }
+    return identity.generation;
+  }
   const once = createWriteGuard<
     object,
     readonly [LinearToolName, { connectionId: string }]
@@ -53,10 +61,13 @@ export function createLinearService(options: {
     input: Args<N>,
   ): Promise<object> {
     let fingerprint: string | undefined;
+    let readGeneration: string | undefined;
     const operation = createLinearOperation({
       auth,
       client: (token) => {
         fingerprint = createHash("sha256").update(token).digest("hex");
+        if ("connectionId" in input && !("requestId" in input))
+          readGeneration ??= generationFor(input.connectionId, fingerprint);
         return makeClient(token);
       },
       fetch: request,
@@ -73,18 +84,28 @@ export function createLinearService(options: {
     };
     try {
       const result = await handlers[name](input);
+      if (fingerprint && "connectionId" in input && !("requestId" in input)) {
+        const current = createHash("sha256")
+          .update(await auth.accessToken(input.connectionId))
+          .digest("hex");
+        if (
+          fingerprint !== current ||
+          readGeneration !== generationFor(input.connectionId, current)
+        )
+          throw new LinearServiceError(
+            "Linear authentication changed while loading data. Refresh to verify the current account.",
+            "auth",
+          );
+      }
       if (
         name === "linear_connection" &&
         fingerprint &&
         "connectionId" in input
       ) {
-        const connectionId = input.connectionId;
-        let identity = identities.get(connectionId);
-        if (identity?.fingerprint !== fingerprint) {
-          identity = { fingerprint, generation: randomUUID() };
-          identities.set(connectionId, identity);
-        }
-        return { ...result, authGeneration: identity.generation };
+        return {
+          ...result,
+          authGeneration: readGeneration,
+        };
       }
       return result;
     } catch (error) {
@@ -101,6 +122,12 @@ export function createLinearService(options: {
     }
   }
   return {
+    async authGeneration(connectionId) {
+      const fingerprint = createHash("sha256")
+        .update(await auth.accessToken(connectionId))
+        .digest("hex");
+      return generationFor(connectionId, fingerprint);
+    },
     async call(name, args) {
       const parsed = linearSchemas[name].parse(args);
       if ("requestId" in parsed)

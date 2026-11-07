@@ -278,5 +278,6 @@ export interface LinearTemplate {
   };
 }
 export interface LinearService {
+  authGeneration?(connectionId: string): Promise<string>;
   call(name: LinearToolName, args: unknown): Promise<object>;
 }

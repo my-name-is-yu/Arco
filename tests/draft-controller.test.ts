@@ -59,6 +59,62 @@ function recoveringSource(initial: DraftRecord) {
   };
 }
 describe("host-lifetime draft controller", () => {
+  it.each([false, true])(
+    "compares an unseen saved draft before autosaving input typed during a successful initial load (matching content: %s)",
+    async (matching) => {
+      const saved = draft("Previously saved text");
+      const input = matching ? saved : draft("Typed during initial loading");
+      const source = recoveringSource({ revision: 3, draft: saved });
+      let release!: (record: DraftRecord) => void;
+      source.call.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const controller = draftController(source.host);
+      const loading = controller.load(github);
+      await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+      controller.schedule(github, input);
+      controller.flush();
+      release({ revision: 3, draft: saved });
+      await loading;
+      await vi.waitFor(() =>
+        expect(controller.get(draftStorageId(github))?.state).toBe(
+          matching ? "saved" : "conflict",
+        ),
+      );
+      expect(controller.value(github)).toEqual(input);
+      expect(source.record()).toEqual({
+        revision: matching ? 4 : 3,
+        draft: saved,
+      });
+      expect(
+        source.call.mock.calls.filter(([name]) => name === "arco_write_draft"),
+      ).toHaveLength(matching ? 1 : 0);
+      if (!matching) {
+        await controller.resolve(github, "keep-local", input);
+        expect(source.record()).toEqual({ revision: 4, draft: input });
+      }
+    },
+  );
+
+  it("compares saved content when local input precedes the first load", async () => {
+    const saved = draft("Previously saved text");
+    const source = recoveringSource({ revision: 3, draft: saved });
+    const controller = draftController(source.host);
+    controller.schedule(github, draft("New local text"));
+    await controller.load(github);
+    controller.flush();
+    await vi.waitFor(() =>
+      expect(controller.get(draftStorageId(github))?.state).toBe("conflict"),
+    );
+    expect(source.record()).toEqual({ revision: 3, draft: saved });
+    expect(source.call.mock.calls.map(([name]) => name)).toEqual([
+      "arco_read_draft",
+    ]);
+  });
+
   it("retries a failed load by restoring saved content without writing the supplied default draft", async () => {
     const source = recoveringSource({
       revision: 3,
