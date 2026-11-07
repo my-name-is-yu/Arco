@@ -728,6 +728,139 @@ describe("Linear adapter through the official SDK HTTP transport", () => {
     });
 
     it.each([
+      ["linear_connection", "viewer", "generation"],
+      ["linear_connection", "viewer", "connection"],
+      ["linear_get_issue", "issue", "generation"],
+      ["linear_get_issue", "issue", "connection"],
+    ] as const)(
+      "rejects a delayed %s after an observed A → B → A transition through %s (%s observer)",
+      async (name, operation, observer) => {
+        const { service, store, hooks } = await source();
+        const readGeneration = async () => {
+          if (observer === "generation")
+            return service.authGeneration!(scope.connectionId);
+          const connection = (await service.call("linear_connection", {
+            connectionId: scope.connectionId,
+          })) as { authGeneration: string };
+          return connection.authGeneration;
+        };
+        const original = (await store.read(scope.connectionId))!;
+        const initial = await readGeneration();
+        let release!: () => void;
+        let started!: () => void;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const reading = new Promise<void>((resolve) => {
+          started = resolve;
+        });
+        hooks.beforeOperation = async (current) => {
+          if (current !== operation) return;
+          started();
+          await held;
+        };
+        const input =
+          name === "linear_connection"
+            ? { connectionId: scope.connectionId }
+            : ref;
+        const oldRead = service.call(name, input);
+        const rejected = expect(oldRead).rejects.toMatchObject({
+          code: "auth",
+          message: expect.stringContaining("authentication changed"),
+        });
+        try {
+          await reading;
+          hooks.beforeOperation = undefined;
+          await store.write(scope.connectionId, {
+            ...original,
+            accessToken: "fake-new-account-token",
+            authorizationId: randomUUID(),
+          });
+          const other = await readGeneration();
+          await store.write(scope.connectionId, original);
+          const current = await readGeneration();
+          expect(new Set([initial, other, current]).size).toBe(3);
+          expect(await store.read(scope.connectionId)).toEqual(original);
+          release();
+          await rejected;
+          expect(await readGeneration()).toBe(current);
+          expect(
+            await service.call("linear_connection", {
+              connectionId: scope.connectionId,
+            }),
+          ).toMatchObject({ connected: true, authGeneration: current });
+          await expect(
+            service.call("linear_get_issue", ref),
+          ).resolves.toMatchObject({
+            source: "linear",
+            issueId: "issue",
+            title: "Source title",
+          });
+        } finally {
+          hooks.beforeOperation = undefined;
+          release();
+          await oldRead.catch(() => undefined);
+        }
+      },
+    );
+
+    it("captures the read generation after an expired credential refreshes", async () => {
+      const { service, store } = await source();
+      const original = (await store.read(scope.connectionId))!;
+      await store.write(scope.connectionId, { ...original, expiresAt: 0 });
+      const connection = (await service.call("linear_connection", {
+        connectionId: scope.connectionId,
+      })) as { authGeneration: string };
+      expect(connection).toMatchObject({ connected: true, userId: "user" });
+      expect((await store.read(scope.connectionId))?.accessToken).not.toBe(
+        original.accessToken,
+      );
+      expect(await service.authGeneration!(scope.connectionId)).toBe(
+        connection.authGeneration,
+      );
+    });
+
+    it("rejects a read spanning routine token refresh and accepts a fresh retry", async () => {
+      const { service, auth, hooks } = await source();
+      const initial = await service.authGeneration!(scope.connectionId);
+      let release!: () => void;
+      let started!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reading = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      hooks.beforeOperation = async (operation) => {
+        if (operation !== "issue") return;
+        started();
+        await held;
+      };
+      const oldRead = service.call("linear_get_issue", ref);
+      const rejected = expect(oldRead).rejects.toMatchObject({ code: "auth" });
+      try {
+        await reading;
+        await auth.refresh(scope.connectionId);
+        const current = await service.authGeneration!(scope.connectionId);
+        expect(current).not.toBe(initial);
+        hooks.beforeOperation = undefined;
+        release();
+        await rejected;
+        await expect(
+          service.call("linear_get_issue", ref),
+        ).resolves.toMatchObject({
+          source: "linear",
+          issueId: "issue",
+        });
+        expect(await service.authGeneration!(scope.connectionId)).toBe(current);
+      } finally {
+        hooks.beforeOperation = undefined;
+        release();
+        await oldRead.catch(() => undefined);
+      }
+    });
+
+    it.each([
       ["linear_connection", "viewer"],
       ["linear_scopes", "teams"],
       ["linear_get_issue", "issue"],

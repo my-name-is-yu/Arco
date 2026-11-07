@@ -58,6 +58,19 @@ Previously the response succeeded; an old connection completion could also
 replace a newly observed generation. The GitHub counterpart holds A's issue
 response, observes account B through `connection()`, then releases A's body.
 
+Review of PR head `ab8dbfed854074af6886031a33da2b0a099de44b` found a remaining
+Linear round-trip race: hold an A connection or issue read, observe B, restore
+the exact A credential, observe A's new generation, then release the original
+read. The token fingerprint matches again, so the old check accepted the stale
+result and labeled a delayed connection with the new A generation. Four official
+SDK HTTP regressions reproduced this with generation observations through both
+`authGeneration()` and completed connection reads. A read now captures its first
+client's generation after token refresh and compares both that generation and
+the credential fingerprint at completion. A stale result cannot acquire the
+current generation; fresh retries succeed without changing it. Expired-token
+refresh before client creation remains valid, while refresh during a read still
+rejects the old response. Write evidence and private grant bindings are separate.
+
 The concrete UI schedule first caches account A's issue, observes account B in
 the same Linear workspace, then fails B's issue reads. Previously A's title,
 body, and comments remained displayed alongside B's actions. Held write
@@ -180,19 +193,21 @@ mapping; private authorization ID binds writes and survives token refresh.
 Invariants: serialize refresh/disconnect through the per-connection interprocess
 lock; persist the replacement token pair before exposing it; preserve the old
 pair on refresh failure; never expose private grant IDs. A read result must still
-match its starting credential before publication (#120).
+match its starting credential and observed generation before publication (#120).
+An observed A→B→A invalidates an old A read even when the token returns to its
+original value. Connection results publish their captured, verified generation.
 
-| From                     | Event/guard                                     | To and effect                                           |
-| ------------------------ | ----------------------------------------------- | ------------------------------------------------------- |
-| Missing                  | Access token/session scope request              | Auth failure.                                           |
-| Fresh (>60 seconds left) | Access token request                            | Fresh; return stored token.                             |
-| Expiring/forced          | Refresh under lock                              | Refreshing; reread current stored pair.                 |
-| Refreshing               | Valid response and store write                  | Fresh new pair; same private grant ID.                  |
-| Refreshing               | Failure                                         | Retain old pair; report error.                          |
-| Legacy grant             | First write-scope lookup                        | Add private grant ID once under lock.                   |
-| Saved grant              | Successful new OAuth consent                    | Replace pair and private grant ID.                      |
-| Saved grant              | Disconnect/revoke succeeds and removal succeeds | Missing. Revoke/removal failure retains saved record.   |
-| Read in flight           | Credential removed/replaced                     | Reject stale completion; do not publish old generation. |
+| From                     | Event/guard                                                | To and effect                                                      |
+| ------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------ |
+| Missing                  | Access token/session scope request                         | Auth failure.                                                      |
+| Fresh (>60 seconds left) | Access token request                                       | Fresh; return stored token.                                        |
+| Expiring/forced          | Refresh under lock                                         | Refreshing; reread current stored pair.                            |
+| Refreshing               | Valid response and store write                             | Fresh new pair; same private grant ID.                             |
+| Refreshing               | Failure                                                    | Retain old pair; report error.                                     |
+| Legacy grant             | First write-scope lookup                                   | Add private grant ID once under lock.                              |
+| Saved grant              | Successful new OAuth consent                               | Replace pair and private grant ID.                                 |
+| Saved grant              | Disconnect/revoke succeeds and removal succeeds            | Missing. Revoke/removal failure retains saved record.              |
+| Read in flight           | Credential removed/replaced or observed generation changes | Reject stale completion; never relabel it with a newer generation. |
 
 ### GitHub observed identity and UI boundary (implicit)
 
@@ -792,12 +807,17 @@ the repository.
 
 | Gate                                                                  | Final result                                                                                                                                  |
 | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run check`                                                       | Pass: typecheck, lint, formatting, docs, 78 test files / 1,043 tests passed, build, 77-tool MCP smoke, artifact and extracted-package checks. |
+| `npm run check`                                                       | Pass: typecheck, lint, formatting, docs, 78 test files / 1,049 tests passed, build, 77-tool MCP smoke, artifact and extracted-package checks. |
 | Browser smoke (`@smoke`)                                              | 25 passed.                                                                                                                                    |
 | Account drafts, inline issue tabs, Linear account isolation, sessions | 36 passed.                                                                                                                                    |
 | Symphony and creation-draft recovery                                  | 19 passed.                                                                                                                                    |
 | This document's Markdown formatting and local link targets            | Pass.                                                                                                                                         |
 | `git diff --check`                                                    | Pass.                                                                                                                                         |
+
+The Linear generation follow-up also passed 161 focused SDK, presentation, auth,
+authorization-scope, and write-guard tests. Before its fix, the four new SDK
+A→B→A cases failed against PR head `ab8dbfed854074af6886031a33da2b0a099de44b`;
+two token-refresh controls passed. All six pass with the generation check.
 
 The only skipped test is real macOS Apple Silicon credential-store rotation,
 which is gated off on Linux. Package native-module loading passed; this does not

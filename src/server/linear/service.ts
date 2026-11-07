@@ -61,10 +61,13 @@ export function createLinearService(options: {
     input: Args<N>,
   ): Promise<object> {
     let fingerprint: string | undefined;
+    let readGeneration: string | undefined;
     const operation = createLinearOperation({
       auth,
       client: (token) => {
         fingerprint = createHash("sha256").update(token).digest("hex");
+        if ("connectionId" in input && !("requestId" in input))
+          readGeneration ??= generationFor(input.connectionId, fingerprint);
         return makeClient(token);
       },
       fetch: request,
@@ -85,7 +88,10 @@ export function createLinearService(options: {
         const current = createHash("sha256")
           .update(await auth.accessToken(input.connectionId))
           .digest("hex");
-        if (fingerprint !== current)
+        if (
+          fingerprint !== current ||
+          readGeneration !== generationFor(input.connectionId, current)
+        )
           throw new LinearServiceError(
             "Linear authentication changed while loading data. Refresh to verify the current account.",
             "auth",
@@ -98,7 +104,7 @@ export function createLinearService(options: {
       ) {
         return {
           ...result,
-          authGeneration: generationFor(input.connectionId, fingerprint),
+          authGeneration: readGeneration,
         };
       }
       return result;
